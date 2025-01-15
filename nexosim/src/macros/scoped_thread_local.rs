@@ -64,7 +64,7 @@ impl<T> ScopedLocalKey<T> {
 
         let prev = self.inner.with(|c| {
             let prev = c.get();
-            c.set(t as *const _ as *const ());
+            c.set(ptr::from_ref(t) as *const ());
             prev
         });
 

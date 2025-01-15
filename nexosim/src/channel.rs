@@ -9,6 +9,7 @@ use std::error;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
+use std::ptr::from_ref;
 use std::sync::atomic::{self, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -172,7 +173,7 @@ impl<M: Model> Receiver<M> {
     /// time, but an identifier may be reused after all handles to a channel
     /// have been dropped.
     pub(crate) fn channel_id(&self) -> ChannelId {
-        ChannelId(&*self.inner as *const Inner<M> as usize)
+        ChannelId(from_ref::<Inner<M>>(&*self.inner) as usize)
     }
 }
 

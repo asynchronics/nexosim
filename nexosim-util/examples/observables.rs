@@ -48,16 +48,12 @@ pub enum ModeId {
 }
 
 /// Processor state.
+#[derive(Default)]
 pub enum State {
+    #[default]
     Off,
     Idle,
     Processing(AutoActionKey),
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Off
-    }
 }
 
 impl Observable<ModeId> for State {
@@ -89,6 +85,12 @@ pub struct Processor {
 
     /// Electrical data.
     elc: ObservableValue<Hk>,
+}
+
+impl Default for Processor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Processor {

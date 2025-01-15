@@ -47,6 +47,11 @@ pub struct Sensor {
     /// Illuminance [lx] -- internal state.
     illum: f64,
 }
+impl Default for Sensor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Sensor {
     /// Creates a sensor model.
@@ -114,6 +119,12 @@ pub struct Riu {
 
     /// Illuminance [lx] -- internal state.
     illum: TmField<f64>,
+}
+
+impl Default for Riu {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Riu {

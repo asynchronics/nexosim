@@ -649,14 +649,13 @@ mod tests {
         let delete_marked_fn =
             |queue: &mut IndexedPriorityQueue<u64, u64>,
              shadow_queue: &mut BTreeMap<(u64, usize), u64>| {
-                let success = match marked.take() {
-                    Some(delete_key) => Some(queue.extract(delete_key).is_some()),
-                    None => None,
-                };
-                let shadow_success = match shadow_marked.take() {
-                    Some(delete_key) => Some(shadow_queue.remove(&delete_key).is_some()),
-                    None => None,
-                };
+                let success = marked
+                    .take()
+                    .map(|delete_key| queue.extract(delete_key).is_some());
+
+                let shadow_success = shadow_marked
+                    .take()
+                    .map(|delete_key| shadow_queue.remove(&delete_key).is_some());
                 assert_eq!(success, shadow_success);
             };
 

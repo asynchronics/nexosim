@@ -83,6 +83,12 @@ pub struct Controller {
     stop_brew_key: Option<ActionKey>,
 }
 
+impl Default for Controller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Controller {
     /// Default brew time [s].
     const DEFAULT_BREW_TIME: Duration = Duration::new(25, 0);
