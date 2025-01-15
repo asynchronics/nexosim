@@ -14,6 +14,7 @@
 //!                     │           ├────► House Keeping
 //!                     └───────────┘
 //! ```
+#![allow(clippy::new_without_default)]
 
 use std::time::Duration;
 
@@ -85,12 +86,6 @@ pub struct Processor {
 
     /// Electrical data.
     elc: ObservableValue<Hk>,
-}
-
-impl Default for Processor {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Processor {

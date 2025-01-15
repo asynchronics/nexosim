@@ -30,6 +30,7 @@
 //!   Brew command ●───────────────┘
 //!                      (-)
 //! ```
+#![allow(clippy::new_without_default)]
 
 use std::time::Duration;
 
@@ -81,12 +82,6 @@ pub struct Controller {
     /// Event key, which if present indicates that the machine is currently
     /// brewing -- internal state.
     stop_brew_key: Option<ActionKey>,
-}
-
-impl Default for Controller {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl Controller {
