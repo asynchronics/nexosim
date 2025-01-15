@@ -146,6 +146,7 @@ impl Driver {
     ///
     /// Note: self-scheduling async methods must be for now defined with an
     /// explicit signature instead of `async fn` due to a rustc issue.
+    #[allow(clippy::manual_async_fn)]
     fn send_pulse<'a>(
         &'a mut self,
         _: (),

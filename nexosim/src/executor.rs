@@ -173,7 +173,9 @@ mod tests {
     }
     impl<F: FnOnce()> Drop for RunOnDrop<F> {
         fn drop(&mut self) {
-            self.drop_fn.take().map(|f| f());
+            if let Some(f) = self.drop_fn.take() {
+                f()
+            }
         }
     }
 

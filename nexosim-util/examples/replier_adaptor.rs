@@ -12,6 +12,7 @@
 //! Set illuminance ●────►│        │   Sensor TM►   │         ├────────────►│     │
 //!                       └────────┘                └─────────┘             └─────┘
 //! ```
+#![allow(clippy::new_without_default)]
 
 use std::fmt::Debug;
 use std::time::Duration;

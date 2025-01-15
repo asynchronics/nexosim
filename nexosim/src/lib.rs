@@ -438,6 +438,8 @@
 #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(feature = "dev-hooks")))]
+#![cfg_attr(test, allow(clippy::redundant_pattern_matching))]
+#![cfg_attr(test, allow(clippy::bool_assert_comparison))]
 
 pub(crate) mod channel;
 pub(crate) mod executor;

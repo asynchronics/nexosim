@@ -30,6 +30,7 @@
 //!   Brew command ●───────────────┘
 //!                      (-)
 //! ```
+#![allow(clippy::new_without_default)]
 
 use std::time::Duration;
 
