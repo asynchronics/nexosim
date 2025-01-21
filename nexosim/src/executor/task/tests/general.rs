@@ -215,10 +215,8 @@ fn task_wake() {
 
     let (sender, receiver) = oneshot::channel();
 
-    let (future, future_is_alive, output_is_alive) = MonitoredFuture::new(async move {
-        let result = receiver.await.unwrap();
-        result
-    });
+    let (future, future_is_alive, output_is_alive) =
+        MonitoredFuture::new(async move { receiver.await.unwrap() });
 
     let (promise, runnable, _cancel_token) = spawn(future, schedule_runnable, ());
     runnable.run();
@@ -244,10 +242,7 @@ fn task_wake_mt() {
     let (sender, receiver) = oneshot::channel();
 
     let (promise, runnable, _cancel_token) = spawn(
-        async move {
-            let result = receiver.await.unwrap();
-            result
-        },
+        async move { receiver.await.unwrap() },
         schedule_runnable,
         (),
     );

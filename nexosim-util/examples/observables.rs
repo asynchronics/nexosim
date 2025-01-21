@@ -14,6 +14,7 @@
 //!                     │           ├────► House Keeping
 //!                     └───────────┘
 //! ```
+#![allow(clippy::new_without_default)]
 
 use std::time::Duration;
 
@@ -48,16 +49,12 @@ pub enum ModeId {
 }
 
 /// Processor state.
+#[derive(Default)]
 pub enum State {
+    #[default]
     Off,
     Idle,
     Processing(AutoActionKey),
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Off
-    }
 }
 
 impl Observable<ModeId> for State {
