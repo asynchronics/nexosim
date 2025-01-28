@@ -33,6 +33,7 @@ use nexosim::ports::{BlockingEventQueue, Output};
 use nexosim::simulation::{ActionKey, ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 use nexosim_util::helper_models::Ticker;
+use nexosim_util::joiners::SimulationJoiner;
 use nexosim_util::observables::ObservableValue;
 
 const SWITCH_ON_DELAY: Duration = Duration::from_secs(1);
@@ -210,7 +211,7 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let (mut simu, mut scheduler) = SimInit::new()
+    let (mut simu, scheduler) = SimInit::new()
         .add_model(detector, detector_mbox, "detector")
         .add_model(counter, counter_mbox, "counter")
         .add_model(ticker, ticker_mbox, "ticker")
@@ -218,11 +219,14 @@ fn main() -> Result<(), SimulationError> {
         .init(t0)?;
 
     // Simulation thread.
-    let simulation_handle = thread::spawn(move || {
-        // ---------- Simulation.  ----------
-        // Infinitely kept alive by the ticker model until halted.
-        simu.step_unbounded()
-    });
+    let simulation_handle = SimulationJoiner::new(
+        scheduler.clone(),
+        thread::spawn(move || {
+            // ---------- Simulation.  ----------
+            // Infinitely kept alive by the ticker model until halted.
+            simu.step_unbounded()
+        }),
+    );
 
     // Switch the counter on.
     scheduler.schedule_event(
@@ -265,8 +269,7 @@ fn main() -> Result<(), SimulationError> {
     }
 
     // Stop the simulation.
-    scheduler.halt();
-    match simulation_handle.join().unwrap() {
+    match simulation_handle.halt().unwrap() {
         Err(ExecutionError::Halted) => Ok(()),
         Err(e) => Err(e.into()),
         _ => Ok(()),

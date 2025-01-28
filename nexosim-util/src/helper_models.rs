@@ -3,6 +3,7 @@
 //! This module contains helper models useful for simulation bench assembly.
 //!
 
+use std::fmt;
 use std::time::Duration;
 
 use nexosim::model::{Context, InitializedModel, Model};
@@ -31,5 +32,11 @@ impl Model for Ticker {
         cx.schedule_periodic_event(self.tick, self.tick, Self::tick, ())
             .unwrap();
         self.into()
+    }
+}
+
+impl fmt::Debug for Ticker {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Ticker").finish_non_exhaustive()
     }
 }
