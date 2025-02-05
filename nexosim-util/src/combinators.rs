@@ -3,6 +3,8 @@
 //! This module contains combinator types useful for simulation bench assembly.
 //!
 
+use std::fmt;
+
 use nexosim::model::Model;
 use nexosim::ports::{Output, Requestor};
 
@@ -43,5 +45,11 @@ impl<T: Clone + Send + 'static, R: Clone + Send + 'static> Default for ReplierAd
             requestor: Requestor::new(),
             output: Output::new(),
         }
+    }
+}
+
+impl<T: Clone + Send + 'static, R: Clone + Send + 'static> fmt::Debug for ReplierAdaptor<T, R> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("ReplierAdaptor").finish_non_exhaustive()
     }
 }
