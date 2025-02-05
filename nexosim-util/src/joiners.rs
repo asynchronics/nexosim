@@ -4,7 +4,6 @@
 //!
 
 use std::fmt;
-use std::marker::PhantomData;
 use std::thread::{JoinHandle, Result as ThreadResult};
 
 use nexosim::simulation::Scheduler;
@@ -19,9 +18,6 @@ type DropAction<T> = Box<dyn FnOnce(ThreadResult<T>) + Send + 'static>;
 /// destruction. The thread can also be explicitly joined using the `join`
 /// method.
 pub struct ThreadJoiner<T> {
-    /// A phantom data marker.
-    _data: PhantomData<T>,
-
     /// The thread handle.
     handle: Option<JoinHandle<T>>,
 
@@ -33,7 +29,6 @@ impl<T> ThreadJoiner<T> {
     /// Creates a new `ThreadJoiner`.
     pub fn new(handle: JoinHandle<T>) -> Self {
         Self {
-            _data: PhantomData,
             handle: Some(handle),
             drop_action: None,
         }
@@ -42,10 +37,9 @@ impl<T> ThreadJoiner<T> {
     /// Creates a new `ThreadJoiner` with the specified drop action.
     pub fn new_with_drop_action<F>(handle: JoinHandle<T>, drop_action: F) -> Self
     where
-        F: FnOnce(ThreadResult<T>) + Send + 'static,
+        for<'a> F: FnOnce(ThreadResult<T>) + Send + 'a,
     {
         Self {
-            _data: PhantomData,
             handle: Some(handle),
             drop_action: Some(Box::new(drop_action)),
         }
@@ -106,7 +100,7 @@ impl<T> SimulationJoiner<T> {
         drop_action: F,
     ) -> Self
     where
-        F: FnOnce(ThreadResult<T>) + Send + 'static,
+        for<'a> F: FnOnce(ThreadResult<T>) + Send + 'a,
     {
         Self {
             scheduler,

@@ -219,13 +219,16 @@ fn main() -> Result<(), SimulationError> {
         .init(t0)?;
 
     // Simulation thread.
-    let simulation_handle = SimulationJoiner::new(
+    let simulation_handle = SimulationJoiner::new_with_drop_action(
         scheduler.clone(),
         thread::spawn(move || {
             // ---------- Simulation.  ----------
             // Infinitely kept alive by the ticker model until halted.
             simu.step_unbounded()
         }),
+        |res| {
+            println!("Simulation thread result: {:?}.", res);
+        },
     );
 
     // Switch the counter on.
