@@ -1,8 +1,8 @@
 use std::fmt;
-use std::iter::FusedIterator;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::{EventSink, EventSinkStream, EventSinkWriter};
 
@@ -32,9 +32,15 @@ impl<T> BlockingEventQueue<T> {
 
     /// Returns a consumer handle.
     pub fn into_reader(self) -> BlockingEventQueueReader<T> {
+        self.into_reader_with_timeout(Duration::ZERO)
+    }
+
+    /// Returns a consumer handle with a timeout set.
+    pub fn into_reader_with_timeout(self, timeout: Duration) -> BlockingEventQueueReader<T> {
         BlockingEventQueueReader {
             is_open: self.is_open,
             receiver: self.receiver,
+            timeout,
         }
     }
 
@@ -75,24 +81,35 @@ impl<T> fmt::Debug for BlockingEventQueue<T> {
 /// A consumer handle of a `BlockingEventQueue`.
 ///
 /// Implements [`EventSinkStream`]. Calls to the iterator's `next` method are
-/// blocking. `None` is returned when all writer handles have been dropped.
+/// blocking. `None` is returned when all writer handles have been dropped
+/// (i.e. the simulation has been canceled) or on timeout if one has been set.
+/// Note that even if the iterator returns `None`, it may still produce more
+/// items in the future if `None` was returned due to timeout (in other words,
+/// it is not a [`FusedIterator`](std::iter::FusedIterator)).
 pub struct BlockingEventQueueReader<T> {
     is_open: Arc<AtomicBool>,
     receiver: Receiver<T>,
+    timeout: Duration,
+}
+
+impl<T> BlockingEventQueueReader<T> {
+    /// Sets timeout. Zero means no timeout.
+    pub fn set_timeout(&mut self, timeout: Duration) {
+        self.timeout = timeout;
+    }
 }
 
 impl<T> Iterator for BlockingEventQueueReader<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.receiver.recv() {
-            Ok(event) => Some(event),
-            Err(_) => None,
+        if self.timeout.is_zero() {
+            self.receiver.recv().ok()
+        } else {
+            self.receiver.recv_timeout(self.timeout).ok()
         }
     }
 }
-
-impl<T> FusedIterator for BlockingEventQueueReader<T> {}
 
 impl<T: Send + 'static> EventSinkStream for BlockingEventQueueReader<T> {
     fn open(&mut self) {
