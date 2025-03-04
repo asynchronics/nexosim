@@ -82,10 +82,10 @@ impl<T> fmt::Debug for BlockingEventQueue<T> {
 ///
 /// Implements [`EventSinkStream`]. Calls to the iterator's `next` method are
 /// blocking. `None` is returned when all writer handles have been dropped
-/// (i.e. the simulation has been canceled) or on timeout if one has been set.
-/// Note that even if the iterator returns `None`, it may still produce more
-/// items in the future if `None` was returned due to timeout (in other words,
-/// it is not a [`FusedIterator`](std::iter::FusedIterator)).
+/// (i.e. the `Simulation` object has been dropped) or on timeout if one has
+/// been set.  Note that even if the iterator returns `None`, it may still
+/// produce more items in the future if `None` was returned due to timeout (in
+/// other words, it is not a [`FusedIterator`](std::iter::FusedIterator)).
 pub struct BlockingEventQueueReader<T> {
     is_open: Arc<AtomicBool>,
     receiver: Receiver<T>,
@@ -93,7 +93,7 @@ pub struct BlockingEventQueueReader<T> {
 }
 
 impl<T> BlockingEventQueueReader<T> {
-    /// Sets timeout. Zero means no timeout.
+    /// Sets a timeout, or cancels it if the duration is zero.
     pub fn set_timeout(&mut self, timeout: Duration) {
         self.timeout = timeout;
     }
