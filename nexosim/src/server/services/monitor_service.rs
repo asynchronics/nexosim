@@ -1,9 +1,10 @@
 use std::fmt;
+use std::time::Duration;
 
 use crate::registry::EventSinkRegistry;
 
 use super::super::codegen::simulation::*;
-use super::{simulation_not_started_error, to_error};
+use super::{simulation_not_started_error, to_error, to_positive_duration};
 
 /// Protobuf-based simulation monitor.
 ///
@@ -18,14 +19,14 @@ pub(crate) enum MonitorService {
 
 impl MonitorService {
     /// Read all events from an event sink.
-    pub(crate) fn read_events(&mut self, request: ReadEventsRequest) -> ReadEventsReply {
+    pub(crate) fn read_events(&self, request: ReadEventsRequest) -> ReadEventsReply {
         let reply = match self {
             Self::Started {
                 event_sink_registry,
             } => move || -> Result<Vec<Vec<u8>>, Error> {
                 let sink_name = &request.sink_name;
 
-                let sink = event_sink_registry.get_mut(sink_name).ok_or(to_error(
+                let mut sink = event_sink_registry.get(sink_name).ok_or(to_error(
                     ErrorCode::SinkNotFound,
                     format!("no sink is registered with the name '{}'", sink_name),
                 ))?;
@@ -52,6 +53,51 @@ impl MonitorService {
             Err(error) => ReadEventsReply {
                 events: Vec::new(),
                 result: Some(read_events_reply::Result::Error(error)),
+            },
+        }
+    }
+
+    pub(crate) fn blocking_read_events(
+        &self,
+        request: BlockingReadEventRequest,
+    ) -> BlockingReadEventReply {
+        let reply = match self {
+            Self::Started {
+                event_sink_registry,
+            } => move || -> Result<Vec<u8>, Error> {
+                let sink_name = &request.sink_name;
+
+                let mut sink = event_sink_registry.get(sink_name).ok_or(to_error(
+                    ErrorCode::SinkNotFound,
+                    format!("no sink is registered with the name '{}'", sink_name),
+                ))?;
+
+                let timeout = request.timeout.map_or(Ok(Duration::ZERO), |timeout| {
+                    to_positive_duration(timeout).ok_or(to_error(
+                        ErrorCode::InvalidTimeout,
+                        "the specified timeout is negative",
+                    ))
+                })?;
+                sink.blocking_read(timeout).map_err(|e| {
+                    to_error(
+                        ErrorCode::InvalidMessage,
+                        format!(
+                            "the event could not be serialized from type '{}': {}",
+                            sink.event_type_name(),
+                            e
+                        ),
+                    )
+                })
+            }(),
+            Self::NotStarted => Err(simulation_not_started_error()),
+        };
+
+        match reply {
+            Ok(event) => BlockingReadEventReply {
+                result: Some(blocking_read_event_reply::Result::Event(event)),
+            },
+            Err(error) => BlockingReadEventReply {
+                result: Some(blocking_read_event_reply::Result::Error(error)),
             },
         }
     }

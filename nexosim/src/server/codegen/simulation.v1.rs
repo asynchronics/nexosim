@@ -271,6 +271,30 @@ pub mod read_events_reply {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BlockingReadEventRequest {
+    #[prost(string, tag = "1")]
+    pub sink_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "2")]
+    pub timeout: ::core::option::Option<::prost_types::Duration>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BlockingReadEventReply {
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "blocking_read_event_reply::Result", tags = "1, 100")]
+    pub result: ::core::option::Option<blocking_read_event_reply::Result>,
+}
+/// Nested message and enum types in `BlockingReadEventReply`.
+pub mod blocking_read_event_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(bytes, tag = "1")]
+        Event(::prost::alloc::vec::Vec<u8>),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OpenSinkRequest {
     #[prost(string, tag = "1")]
     pub sink_name: ::prost::alloc::string::String,
@@ -320,7 +344,7 @@ pub struct AnyRequest {
     /// Expects exactly 1 variant.
     #[prost(
         oneof = "any_request::Request",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 11, 12"
     )]
     pub request: ::core::option::Option<any_request::Request>,
 }
@@ -349,6 +373,8 @@ pub mod any_request {
         ProcessQueryRequest(super::ProcessQueryRequest),
         #[prost(message, tag = "10")]
         ReadEventsRequest(super::ReadEventsRequest),
+        #[prost(message, tag = "13")]
+        BlockingReadEventRequest(super::BlockingReadEventRequest),
         #[prost(message, tag = "11")]
         OpenSinkRequest(super::OpenSinkRequest),
         #[prost(message, tag = "12")]
@@ -363,6 +389,7 @@ pub enum ErrorCode {
     InvalidTime = 2,
     InvalidPeriod = 3,
     InvalidDeadline = 4,
+    InvalidTimeout = 41,
     InvalidMessage = 5,
     InvalidKey = 6,
     InitializerPanic = 10,
@@ -392,6 +419,7 @@ impl ErrorCode {
             Self::InvalidTime => "INVALID_TIME",
             Self::InvalidPeriod => "INVALID_PERIOD",
             Self::InvalidDeadline => "INVALID_DEADLINE",
+            Self::InvalidTimeout => "INVALID_TIMEOUT",
             Self::InvalidMessage => "INVALID_MESSAGE",
             Self::InvalidKey => "INVALID_KEY",
             Self::InitializerPanic => "INITIALIZER_PANIC",
@@ -418,6 +446,7 @@ impl ErrorCode {
             "INVALID_TIME" => Some(Self::InvalidTime),
             "INVALID_PERIOD" => Some(Self::InvalidPeriod),
             "INVALID_DEADLINE" => Some(Self::InvalidDeadline),
+            "INVALID_TIMEOUT" => Some(Self::InvalidTimeout),
             "INVALID_MESSAGE" => Some(Self::InvalidMessage),
             "INVALID_KEY" => Some(Self::InvalidKey),
             "INITIALIZER_PANIC" => Some(Self::InitializerPanic),
@@ -503,6 +532,13 @@ pub mod simulation_server {
             &self,
             request: tonic::Request<super::ReadEventsRequest>,
         ) -> std::result::Result<tonic::Response<super::ReadEventsReply>, tonic::Status>;
+        async fn blocking_read_event(
+            &self,
+            request: tonic::Request<super::BlockingReadEventRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::BlockingReadEventReply>,
+            tonic::Status,
+        >;
         async fn open_sink(
             &self,
             request: tonic::Request<super::OpenSinkRequest>,
@@ -1015,6 +1051,52 @@ pub mod simulation_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = ReadEventsSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/BlockingReadEvent" => {
+                    #[allow(non_camel_case_types)]
+                    struct BlockingReadEventSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::BlockingReadEventRequest>
+                    for BlockingReadEventSvc<T> {
+                        type Response = super::BlockingReadEventReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::BlockingReadEventRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::blocking_read_event(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = BlockingReadEventSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
