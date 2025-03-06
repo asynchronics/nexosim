@@ -5,7 +5,7 @@
 //! * non-trivial state machines,
 //! * cancellation of events,
 //! * model initialization,
-//! * simulation monitoring with event slots.
+//! * simulation monitoring with event queue.
 //!
 //! ```text
 //!                                                   flow rate
@@ -34,7 +34,7 @@
 use std::time::Duration;
 
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventSlot, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ActionKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -357,8 +357,9 @@ fn main() -> Result<(), SimulationError> {
     pump.flow_rate.connect(Tank::set_flow_rate, &tank_mbox);
 
     // Model handles for simulation.
-    let mut flow_rate = EventSlot::new();
+    let flow_rate = EventQueue::new();
     pump.flow_rate.connect_sink(&flow_rate);
+    let mut flow_rate = flow_rate.into_reader();
     let controller_addr = controller_mbox.address();
     let tank_addr = tank_mbox.address();
 

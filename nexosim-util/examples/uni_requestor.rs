@@ -21,7 +21,7 @@ use std::time::Duration;
 use nexosim_util::observables::ObservableValue;
 
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventBuffer, Output, UniRequestor};
+use nexosim::ports::{EventQueue, Output, UniRequestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -133,8 +133,9 @@ fn main() -> Result<(), SimulationError> {
     // Model handles for simulation.
     let env_addr = env_mbox.address();
 
-    let mut overheat = EventBuffer::new();
+    let overheat = EventQueue::new();
     sensor.overheat.connect_sink(&overheat);
+    let mut overheat = overheat.into_reader();
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;

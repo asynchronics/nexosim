@@ -21,7 +21,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -197,8 +197,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     driver.current_out.connect(Motor::current_in, &motor_mbox);
 
     // Model handles for simulation.
-    let mut position = EventBuffer::new();
+    let position = EventQueue::new();
     motor.position.connect_sink(&position);
+    let mut position = position.into_reader();
     let motor_addr = motor_mbox.address();
     let driver_addr = driver_mbox.address();
 

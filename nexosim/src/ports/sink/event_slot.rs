@@ -16,6 +16,7 @@ struct Inner<T> {
 /// Once the value is read, the iterator will return `None` until a new value is
 /// received. If the slot contains a value when a new value is received, the
 /// previous value is overwritten.
+#[deprecated = "use `EventQueue` instead"]
 pub struct EventSlot<T> {
     inner: Arc<Inner<T>>,
 }
@@ -87,6 +88,7 @@ impl<T> fmt::Debug for EventSlot<T> {
 }
 
 /// A writer handle of an `EventSlot`.
+#[deprecated = "use `EventQueueWrite` instead"]
 pub struct EventSlotWriter<T> {
     inner: Arc<Inner<T>>,
 }

@@ -29,7 +29,7 @@ use std::time::Duration;
 use rand::Rng;
 
 use nexosim::model::{Context, Model};
-use nexosim::ports::{BlockingEventQueue, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ActionKey, ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 use nexosim_util::helper_models::Ticker;
@@ -198,14 +198,14 @@ fn main() -> Result<(), SimulationError> {
     // Model handles for simulation.
     let detector_addr = detector_mbox.address();
     let counter_addr = counter_mbox.address();
-    let observer = BlockingEventQueue::new();
+    let observer = EventQueue::new();
     counter
         .mode
         .map_connect_sink(|m| Event::Mode(*m), &observer);
     counter
         .count
         .map_connect_sink(|c| Event::Count(*c), &observer);
-    let mut observer = observer.into_reader();
+    let mut observer = observer.into_reader_blocking();
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;

@@ -10,7 +10,7 @@ mod query_source_registry;
 
 use serde::{de::DeserializeOwned, ser::Serialize};
 
-use crate::ports::{EventSinkStream, EventSource, QuerySource};
+use crate::ports::{EventSinkReader, EventSource, QuerySource};
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -67,7 +67,7 @@ impl EndpointRegistry {
     /// event sink provided as argument is returned in the error.
     pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
-        S: EventSinkStream + Send + 'static,
+        S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,
     {
         self.event_sink_registry.add(sink, name)

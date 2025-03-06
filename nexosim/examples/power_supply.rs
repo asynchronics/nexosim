@@ -3,7 +3,7 @@
 //! This example demonstrates in particular:
 //!
 //! * the use of requestor and replier ports,
-//! * simulation monitoring with event slots.
+//! * simulation monitoring with event queues.
 //!
 //! ```text
 //!                                                     ┌────────┐
@@ -27,7 +27,7 @@
 //!                       └──────────┘
 //! ```
 use nexosim::model::Model;
-use nexosim::ports::{EventSlot, Output, Requestor};
+use nexosim::ports::{EventQueue, Output, Requestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -125,14 +125,18 @@ fn main() -> Result<(), SimulationError> {
     psu.pwr_out.connect(Load::pwr_in, &load3_mbox);
 
     // Model handles for simulation.
-    let mut psu_power = EventSlot::new();
-    let mut load1_power = EventSlot::new();
-    let mut load2_power = EventSlot::new();
-    let mut load3_power = EventSlot::new();
+    let psu_power = EventQueue::new();
+    let load1_power = EventQueue::new();
+    let load2_power = EventQueue::new();
+    let load3_power = EventQueue::new();
     psu.power.connect_sink(&psu_power);
     load1.power.connect_sink(&load1_power);
     load2.power.connect_sink(&load2_power);
     load3.power.connect_sink(&load3_power);
+    let mut psu_power = psu_power.into_reader();
+    let mut load1_power = load1_power.into_reader();
+    let mut load2_power = load2_power.into_reader();
+    let mut load3_power = load3_power.into_reader();
     let psu_addr = psu_mbox.address();
 
     // Start time (arbitrary since models do not depend on absolute time).

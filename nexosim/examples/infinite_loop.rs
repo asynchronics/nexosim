@@ -25,7 +25,7 @@ use std::thread::{self, sleep};
 use std::time::Duration;
 
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
@@ -87,8 +87,9 @@ fn main() -> Result<(), SimulationError> {
     let listener_mbox = Mailbox::new();
 
     // Model handles for simulation.
-    let mut message = EventBuffer::with_capacity(N + 1);
+    let message = EventQueue::new();
     listener.message.connect_sink(&message);
+    let mut message = message.into_reader();
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;

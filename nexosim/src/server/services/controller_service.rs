@@ -80,12 +80,7 @@ impl ControllerService {
                             "out-of-range nanosecond field",
                         ))?;
 
-                        simulation.step_until(time).map_err(|_| {
-                            to_error(
-                                ErrorCode::InvalidDeadline,
-                                "the specified deadline lies in the past",
-                            )
-                        })?;
+                        simulation.step_until(time).map_err(map_execution_error)?;
                     }
                     step_until_request::Deadline::Duration(duration) => {
                         let duration = to_positive_duration(duration).ok_or(to_error(
@@ -113,6 +108,34 @@ impl ControllerService {
             result: Some(match reply {
                 Ok(timestamp) => step_until_reply::Result::Time(timestamp),
                 Err(error) => step_until_reply::Result::Error(error),
+            }),
+        }
+    }
+
+    /// Iteratively advances the simulation time, as if by calling
+    /// [`Simulation::step`] repeatedly.
+    ///
+    /// This method blocks until the simulation is halted or all events
+    /// scheduled have completed (depending on the clock used).
+    pub(crate) fn step_unbounded(&mut self, _request: StepUnboundedRequest) -> StepUnboundedReply {
+        let reply = match self {
+            Self::Started { simulation, .. } => move || -> Result<Timestamp, Error> {
+                simulation.step_unbounded().map_err(map_execution_error)?;
+
+                let timestamp = monotonic_to_timestamp(simulation.time()).ok_or(to_error(
+                    ErrorCode::SimulationTimeOutOfRange,
+                    "the final simulation time is out of range",
+                ))?;
+
+                Ok(timestamp)
+            }(),
+            Self::NotStarted => Err(simulation_not_started_error()),
+        };
+
+        StepUnboundedReply {
+            result: Some(match reply {
+                Ok(timestamp) => step_unbounded_reply::Result::Time(timestamp),
+                Err(error) => step_unbounded_reply::Result::Error(error),
             }),
         }
     }

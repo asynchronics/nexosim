@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use nexosim::model::{Context, Model};
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ActionKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -28,8 +28,9 @@ fn model_schedule_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let mut output = EventBuffer::new();
+    let output = EventQueue::new();
     model.output.connect_sink(&output);
+    let mut output = output.into_reader();
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
@@ -75,8 +76,9 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let mut output = EventBuffer::new();
+    let output = EventQueue::new();
     model.output.connect_sink(&output);
+    let mut output = output.into_reader();
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
@@ -123,8 +125,9 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let mut output = EventBuffer::new();
+    let output = EventQueue::new();
     model.output.connect_sink(&output);
+    let mut output = output.into_reader();
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
@@ -167,8 +170,9 @@ fn model_schedule_periodic_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let mut output = EventBuffer::new();
+    let output = EventQueue::new();
     model.output.connect_sink(&output);
+    let mut output = output.into_reader();
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
@@ -220,8 +224,9 @@ fn model_cancel_periodic_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let mut output = EventBuffer::new();
+    let output = EventQueue::new();
     model.output.connect_sink(&output);
+    let mut output = output.into_reader();
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;

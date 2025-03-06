@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{AutoActionKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 use nexosim_util::observables::{Observable, ObservableState, ObservableValue};
@@ -166,13 +166,16 @@ fn main() -> Result<(), SimulationError> {
     let proc_mbox = Mailbox::new();
 
     // Model handles for simulation.
-    let mut mode = EventBuffer::new();
-    let mut value = EventBuffer::new();
-    let mut hk = EventBuffer::new();
+    let mode = EventQueue::new();
+    let value = EventQueue::new();
+    let hk = EventQueue::new();
 
     proc.mode.connect_sink(&mode);
     proc.value.connect_sink(&value);
     proc.hk.connect_sink(&hk);
+    let mut mode = mode.into_reader();
+    let mut value = value.into_reader();
+    let mut hk = hk.into_reader();
     let proc_addr = proc_mbox.address();
 
     // Start time (arbitrary since models do not depend on absolute time).
@@ -283,11 +286,11 @@ fn main() -> Result<(), SimulationError> {
 
 // Check observable state.
 fn expect(
-    mode: &mut EventBuffer<ModeId>,
+    mode: &mut EventQueueReader<ModeId>,
     mode_ex: Option<ModeId>,
-    value: &mut EventBuffer<u16>,
+    value: &mut EventQueueReader<u16>,
     value_ex: Option<u16>,
-    hk: &mut EventBuffer<Hk>,
+    hk: &mut EventQueueReader<Hk>,
     voltage_ex: f64,
     current_ex: f64,
 ) {
