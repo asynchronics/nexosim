@@ -5,7 +5,6 @@ pub(crate) mod blocking_event_queue;
 #[allow(deprecated)]
 pub(crate) mod event_buffer;
 pub(crate) mod event_queue;
-#[allow(deprecated)]
 pub(crate) mod event_slot;
 
 /// A simulation endpoint that can receive events sent by model outputs.

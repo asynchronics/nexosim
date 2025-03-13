@@ -276,11 +276,11 @@ pub use output::{Output, Requestor, UniRequestor};
 pub use sink::{
     blocking_event_queue::{BlockingEventQueue, BlockingEventQueueReader},
     event_buffer::EventBuffer,
-    event_slot::EventSlot,
     EventSinkStream,
 };
 pub use sink::{
     event_queue::{EventQueue, EventQueueReader},
+    event_slot::EventSlot,
     EventSink, EventSinkReader, EventSinkWriter,
 };
 pub use source::{EventSource, QuerySource, ReplyReceiver};
