@@ -7,19 +7,27 @@ use std::time::{Duration, Instant};
 use super::EventSinkStream;
 use super::{EventSink, EventSinkReader, EventSinkWriter};
 
-/// The shared data of an `EventBuffer`.
+/// The shared data of an `EventSlot`.
 struct Inner<T> {
     is_open: AtomicBool,
     slot: Mutex<Option<T>>,
     waker: Condvar,
 }
 
-/// An iterator implementing [`EventSink`] and [`EventSinkStream`] that only
+/// An iterator implementing [`EventSink`] and [`EventSinkReader`] that only
 /// keeps the last event.
 ///
 /// Once the value is read, the iterator will return `None` until a new value is
 /// received. If the slot contains a value when a new value is received, the
 /// previous value is overwritten.
+///
+/// The read operation can be blocking or non-blocking depending on mode.
+///
+/// `None` is returned when
+/// * all writer handles have been dropped (i.e. the `Simulation` object has
+///   been dropped);
+/// * on timeout if one has been set;
+/// * when there are no events at the moment (in the non-blocking mode).
 pub struct EventSlot<T> {
     inner: Arc<Inner<T>>,
     is_blocking: bool,
@@ -49,6 +57,19 @@ impl<T> EventSlot<T> {
                 waker: Condvar::new(),
             }),
             is_blocking: false,
+            timeout: Duration::ZERO,
+        }
+    }
+
+    /// Creates an open blocking `EventSlot`.
+    pub fn new_blocking() -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                is_open: AtomicBool::new(true),
+                slot: Mutex::new(None),
+                waker: Condvar::new(),
+            }),
+            is_blocking: true,
             timeout: Duration::ZERO,
         }
     }

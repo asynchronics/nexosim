@@ -64,7 +64,7 @@ pub trait EventSinkStream: Iterator {
 }
 
 /// An iterator over collected events with the ability to pause and resume event
-/// collection. Accessing next event can be blocking or non-blocking.
+/// collection. Accessing the next event can be blocking or non-blocking.
 pub trait EventSinkReader: Clone + Iterator {
     /// Starts or resumes the collection of new events.
     fn open(&mut self);

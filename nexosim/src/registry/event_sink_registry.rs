@@ -54,7 +54,7 @@ impl fmt::Debug for EventSinkRegistry {
     }
 }
 
-/// A type-erased `EventSinkStream`.
+/// A type-erased `EventSinkReader`.
 pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
@@ -69,7 +69,7 @@ pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
     /// Encodes and collects all events in a vector.
     fn collect(&mut self) -> Result<Vec<Vec<u8>>, SerializationError>;
 
-    /// Waits for an event and encode it in bytes.
+    /// Waits for an event and encodes it in bytes.
     fn await_event(&mut self, timeout: Duration) -> Result<Vec<u8>, SerializationError>;
 }
 
