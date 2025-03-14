@@ -271,7 +271,7 @@
 //! such as [`AutoSystemClock`](time::AutoSystemClock).
 //!
 //! Simulation outputs can be monitored using [`EventSlot`](ports::EventSlot)s,
-//! [`EventBuffer`](ports::EventBuffer)s, or any implementer of the
+//! [`EventQueue`](ports::EventQueue)s, or any implementer of the
 //! [`EventSink`](ports::EventSink) trait, connected to one or several model
 //! output ports.
 //!

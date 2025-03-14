@@ -233,8 +233,8 @@
 //! [`Action`](crate::simulation::Action)s.
 //!
 //! Objects implementing the [`EventSink`] trait, such as [`EventSlot`] and
-//! [`EventBuffer`], are in turn similar to input ports. They can be connected
-//! to model outputs and collect events sent by such models.
+//! [`EventQueue`], are in turn similar to input ports. They can be connected to
+//! model outputs and collect events sent by such models.
 //!
 //!
 //! # Connections
