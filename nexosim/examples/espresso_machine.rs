@@ -5,7 +5,7 @@
 //! * non-trivial state machines,
 //! * cancellation of events,
 //! * model initialization,
-//! * simulation monitoring with event slots.
+//! * simulation monitoring with event slot.
 //!
 //! ```text
 //!                                                   flow rate

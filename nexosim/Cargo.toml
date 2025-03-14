@@ -32,6 +32,7 @@ keywords = [
 server = [
     "dep:bytes",
     "dep:ciborium",
+    "dep:half",
     "dep:prost",
     "dep:prost-types",
     "dep:serde",
@@ -49,6 +50,7 @@ dev-hooks = []
 [dependencies]
 # Mandatory dependencies.
 async-event = "0.2.1"
+crossbeam-channel = "0.5"
 crossbeam-utils = "0.8"
 diatomic-waker = "0.2.3"
 dyn-clone = "1.0"
@@ -67,6 +69,8 @@ tai-time = "0.3.3"
 # Optional dependencies.
 bytes = { version = "1", default-features = false, optional = true }
 ciborium = { version = "0.2.2", optional = true }
+# half is fixed because of rust 1.77 support.
+half = { version = "=2.4.1", optional = true }
 prost = { version = "0.13", optional = true }
 prost-types = { version = "0.13", optional = true }
 serde = { version = "1", optional = true }

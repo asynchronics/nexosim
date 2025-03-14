@@ -26,7 +26,7 @@
 use std::time::Duration;
 
 use nexosim::model::{BuildContext, Model, ProtoModel};
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -126,8 +126,9 @@ fn main() -> Result<(), SimulationError> {
     let assembly_addr = assembly_mbox.address();
 
     // Model handles for simulation.
-    let mut position = EventBuffer::new();
+    let position = EventQueue::new();
     assembly.position.connect_sink(&position);
+    let mut position = position.into_reader();
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;

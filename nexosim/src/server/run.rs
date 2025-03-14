@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use serde::de::DeserializeOwned;
 use tonic::{transport::Server, Request, Response, Status};
@@ -128,7 +128,7 @@ fn run_local_service(
 struct GrpcSimulationService {
     init_service: Mutex<InitService>,
     controller_service: Arc<Mutex<ControllerService>>,
-    monitor_service: Arc<Mutex<MonitorService>>,
+    monitor_service: Arc<RwLock<MonitorService>>,
     scheduler_service: Mutex<SchedulerService>,
 }
 
@@ -147,7 +147,7 @@ impl GrpcSimulationService {
         Self {
             init_service: Mutex::new(InitService::new(sim_gen)),
             controller_service: Arc::new(Mutex::new(ControllerService::NotStarted)),
-            monitor_service: Arc::new(Mutex::new(MonitorService::NotStarted)),
+            monitor_service: Arc::new(RwLock::new(MonitorService::NotStarted)),
             scheduler_service: Mutex::new(SchedulerService::NotStarted),
         }
     }
@@ -168,8 +168,32 @@ impl GrpcSimulationService {
         Ok(Response::new(res))
     }
 
-    /// Executes a method of the monitor service.
-    async fn execute_monitor_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
+    /// Executes a read method of the monitor service.
+    async fn execute_monitor_read_fn<T, U, F>(
+        &self,
+        request: T,
+        f: F,
+    ) -> Result<Response<U>, Status>
+    where
+        T: Send + 'static,
+        U: Send + 'static,
+        F: Fn(&MonitorService, T) -> U + Send + 'static,
+    {
+        let monitor = self.monitor_service.clone();
+        // May block.
+        let res = tokio::task::spawn_blocking(move || f(&monitor.read().unwrap(), request))
+            .await
+            .unwrap();
+
+        Ok(Response::new(res))
+    }
+
+    /// Executes a write method of the monitor service.
+    async fn execute_monitor_write_fn<T, U, F>(
+        &self,
+        request: T,
+        f: F,
+    ) -> Result<Response<U>, Status>
     where
         T: Send + 'static,
         U: Send + 'static,
@@ -177,7 +201,7 @@ impl GrpcSimulationService {
     {
         let monitor = self.monitor_service.clone();
         // May block.
-        let res = tokio::task::spawn_blocking(move || f(&mut monitor.lock().unwrap(), request))
+        let res = tokio::task::spawn_blocking(move || f(&mut monitor.write().unwrap(), request))
             .await
             .unwrap();
 
@@ -213,7 +237,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 event_source_registry: event_source_registry.clone(),
                 query_source_registry,
             };
-            *self.monitor_service.lock().unwrap() = MonitorService::Started {
+            *self.monitor_service.write().unwrap() = MonitorService::Started {
                 event_sink_registry,
             };
             *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
@@ -248,6 +272,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
 
         self.execute_controller_fn(request, ControllerService::step_until)
+            .await
+    }
+    async fn step_unbounded(
+        &self,
+        request: Request<StepUnboundedRequest>,
+    ) -> Result<Response<StepUnboundedReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_controller_fn(request, ControllerService::step_unbounded)
             .await
     }
     async fn schedule_event(
@@ -290,7 +323,16 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<ReadEventsReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_monitor_fn(request, MonitorService::read_events)
+        self.execute_monitor_read_fn(request, MonitorService::read_events)
+            .await
+    }
+    async fn await_event(
+        &self,
+        request: Request<AwaitEventRequest>,
+    ) -> Result<Response<AwaitEventReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_monitor_read_fn(request, MonitorService::await_event)
             .await
     }
     async fn open_sink(
@@ -299,7 +341,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<OpenSinkReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_monitor_fn(request, MonitorService::open_sink)
+        self.execute_monitor_write_fn(request, MonitorService::open_sink)
             .await
     }
     async fn close_sink(
@@ -308,7 +350,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<CloseSinkReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_monitor_fn(request, MonitorService::close_sink)
+        self.execute_monitor_write_fn(request, MonitorService::close_sink)
             .await
     }
 }

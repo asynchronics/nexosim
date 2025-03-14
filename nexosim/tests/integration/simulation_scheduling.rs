@@ -5,7 +5,7 @@ use std::time::Duration;
 #[cfg(not(miri))]
 use nexosim::model::Context;
 use nexosim::model::Model;
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{Address, Mailbox, Scheduler, SimInit, Simulation};
 use nexosim::time::MonotonicTime;
 
@@ -36,13 +36,13 @@ fn passthrough_bench<T: Clone + Send + 'static>(
     Simulation,
     Scheduler,
     Address<PassThroughModel<T>>,
-    EventBuffer<T>,
+    EventQueueReader<T>,
 ) {
     // Bench assembly.
     let mut model = PassThroughModel::new();
     let mbox = Mailbox::new();
 
-    let out_stream = EventBuffer::new();
+    let out_stream = EventQueue::new();
     model.output.connect_sink(&out_stream);
     let addr = mbox.address();
 
@@ -51,7 +51,7 @@ fn passthrough_bench<T: Clone + Send + 'static>(
         .init(t0)
         .unwrap();
 
-    (simu, scheduler, addr, out_stream)
+    (simu, scheduler, addr, out_stream.into_reader())
 }
 
 fn schedule_events(num_threads: usize) {
@@ -291,13 +291,13 @@ fn timestamp_bench(
     Simulation,
     Scheduler,
     Address<TimestampModel>,
-    EventBuffer<(Instant, SystemTime)>,
+    EventQueueReader<(Instant, SystemTime)>,
 ) {
     // Bench assembly.
     let mut model = TimestampModel::default();
     let mbox = Mailbox::new();
 
-    let stamp_stream = EventBuffer::new();
+    let stamp_stream = EventQueue::new();
     model.stamp.connect_sink(&stamp_stream);
     let addr = mbox.address();
 
@@ -307,7 +307,7 @@ fn timestamp_bench(
         .init(t0)
         .unwrap();
 
-    (simu, scheduler, addr, stamp_stream)
+    (simu, scheduler, addr, stamp_stream.into_reader())
 }
 
 #[cfg(not(miri))]

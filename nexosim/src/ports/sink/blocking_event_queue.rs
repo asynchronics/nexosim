@@ -13,6 +13,7 @@ use super::{EventSink, EventSinkStream, EventSinkWriter};
 /// Note that [`EventSinkStream`] is implemented by
 /// [`BlockingEventQueueReader`], created with the
 /// [`BlockingEventQueue::into_reader`] method.
+#[deprecated = "use `EventQueue` instead"]
 pub struct BlockingEventQueue<T> {
     is_open: Arc<AtomicBool>,
     sender: Sender<T>,
@@ -86,6 +87,7 @@ impl<T> fmt::Debug for BlockingEventQueue<T> {
 /// been set.  Note that even if the iterator returns `None`, it may still
 /// produce more items in the future if `None` was returned due to timeout (in
 /// other words, it is not a [`FusedIterator`](std::iter::FusedIterator)).
+#[deprecated = "use `EventQueueReader` instead"]
 pub struct BlockingEventQueueReader<T> {
     is_open: Arc<AtomicBool>,
     receiver: Receiver<T>,
@@ -129,6 +131,7 @@ impl<T> fmt::Debug for BlockingEventQueueReader<T> {
 }
 
 /// A producer handle of a `BlockingEventQueue`.
+#[deprecated = "use `EventQueueWriter` instead"]
 pub struct BlockingEventQueueWriter<T> {
     is_open: Arc<AtomicBool>,
     sender: Sender<T>,

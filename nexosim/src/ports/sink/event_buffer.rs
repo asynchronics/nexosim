@@ -19,6 +19,7 @@ struct Inner<T> {
 /// are returned in first-in-first-out order. Note that even if the iterator
 /// returns `None`, it may still produce more items in the future (in other
 /// words, it is not a [`FusedIterator`](std::iter::FusedIterator)).
+#[deprecated = "use `EventQueue` instead"]
 pub struct EventBuffer<T> {
     inner: Arc<Inner<T>>,
 }
@@ -114,6 +115,7 @@ impl<T> fmt::Debug for EventBuffer<T> {
 }
 
 /// A producer handle of an `EventStream`.
+#[deprecated = "use `EventQueueWriter` instead"]
 pub struct EventBufferWriter<T> {
     inner: Arc<Inner<T>>,
 }

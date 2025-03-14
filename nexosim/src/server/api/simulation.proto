@@ -15,6 +15,7 @@ enum ErrorCode {
   INVALID_DEADLINE = 4;
   INVALID_MESSAGE = 5;
   INVALID_KEY = 6;
+  INVALID_TIMEOUT = 7;
   INITIALIZER_PANIC = 10;
   SIMULATION_NOT_STARTED = 11;
   SIMULATION_HALTED = 12;
@@ -86,6 +87,14 @@ message StepUntilReply {
   }
 }
 
+message StepUnboundedRequest {}
+message StepUnboundedReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Timestamp time = 1;
+    Error error = 100;
+  }
+}
+
 message ScheduleEventRequest {
   oneof deadline { // Expects exactly 1 variant.
     google.protobuf.Timestamp time = 1;
@@ -148,6 +157,17 @@ message ReadEventsReply {
   }
 }
 
+message AwaitEventRequest {
+  string sink_name = 1;
+  google.protobuf.Duration timeout = 2;
+}
+message AwaitEventReply {
+  oneof result { // Always returns exactly 1 variant.
+    bytes event = 1;
+    Error error = 100;
+  }
+}
+
 message OpenSinkRequest { string sink_name = 1; }
 message OpenSinkReply {
   oneof result { // Always returns exactly 1 variant.
@@ -179,6 +199,8 @@ message AnyRequest {
     ReadEventsRequest read_events_request = 10;
     OpenSinkRequest open_sink_request = 11;
     CloseSinkRequest close_sink_request = 12;
+    AwaitEventRequest await_event_request = 13;
+    StepUnboundedRequest step_unbounded_request = 14;
   }
 }
 
@@ -188,11 +210,13 @@ service Simulation {
   rpc Time(TimeRequest) returns (TimeReply);
   rpc Step(StepRequest) returns (StepReply);
   rpc StepUntil(StepUntilRequest) returns (StepUntilReply);
+  rpc StepUnbounded(StepUnboundedRequest) returns (StepUnboundedReply);
   rpc ScheduleEvent(ScheduleEventRequest) returns (ScheduleEventReply);
   rpc CancelEvent(CancelEventRequest) returns (CancelEventReply);
   rpc ProcessEvent(ProcessEventRequest) returns (ProcessEventReply);
   rpc ProcessQuery(ProcessQueryRequest) returns (ProcessQueryReply);
   rpc ReadEvents(ReadEventsRequest) returns (ReadEventsReply);
+  rpc AwaitEvent(AwaitEventRequest) returns (AwaitEventReply);
   rpc OpenSink(OpenSinkRequest) returns (OpenSinkReply);
   rpc CloseSink(CloseSinkRequest) returns (CloseSinkReply);
 }

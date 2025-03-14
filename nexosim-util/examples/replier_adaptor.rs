@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use std::time::Duration;
 
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventBuffer, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 use nexosim_util::combinators::ReplierAdaptor;
@@ -209,10 +209,11 @@ fn main() -> Result<(), SimulationError> {
         .connect(Sensor::process_tc, &sensor_mbox);
 
     // Model handles for simulation.
-    let mut tm = EventBuffer::new();
+    let tm = EventQueue::new();
     let sensor_addr = sensor_mbox.address();
 
     riu.tm.connect_sink(&tm);
+    let mut tm = tm.into_reader();
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;
