@@ -105,42 +105,46 @@ impl DelayedMultiplier {
 }
 impl Model for DelayedMultiplier {}
 
-// Instantiate models and their mailboxes.
-let mut multiplier1 = DelayedMultiplier::default();
-let mut multiplier2 = DelayedMultiplier::default();
-let multiplier1_mbox = Mailbox::new();
-let multiplier2_mbox = Mailbox::new();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Instantiate models and their mailboxes.
+    let mut multiplier1 = DelayedMultiplier::default();
+    let mut multiplier2 = DelayedMultiplier::default();
+    let multiplier1_mbox = Mailbox::new();
+    let multiplier2_mbox = Mailbox::new();
 
-// Connect the output of `multiplier1` to the input of `multiplier2`.
-multiplier1
-    .output
-    .connect(DelayedMultiplier::input, &multiplier2_mbox);
+    // Connect the output of `multiplier1` to the input of `multiplier2`.
+    multiplier1
+        .output
+        .connect(DelayedMultiplier::input, &multiplier2_mbox);
 
-// Keep handles to the main input and output.
-let mut output_slot = EventSlot::new();
-multiplier2.output.connect_sink(&output_slot);
-let input_address = multiplier1_mbox.address();
+    // Keep handles to the main input and output.
+    let mut output_slot = EventSlot::new();
+    multiplier2.output.connect_sink(&output_slot);
+    let input_address = multiplier1_mbox.address();
 
-// Instantiate the simulator
-let t0 = MonotonicTime::EPOCH; // arbitrary start time
-let mut simu = SimInit::new()
-    .add_model(multiplier1, multiplier1_mbox, "multiplier 1")
-    .add_model(multiplier2, multiplier2_mbox, "multiplier 2")
-    .init(t0)?
-    .0;
+    // Instantiate the simulator
+    let t0 = MonotonicTime::EPOCH; // arbitrary start time
+    let mut simu = SimInit::new()
+        .add_model(multiplier1, multiplier1_mbox, "multiplier 1")
+        .add_model(multiplier2, multiplier2_mbox, "multiplier 2")
+        .init(t0)?
+        .0;
 
-// Send a value to the first multiplier.
-simu.process_event(DelayedMultiplier::input, 3.5, &input_address)?;
+    // Send a value to the first multiplier.
+    simu.process_event(DelayedMultiplier::input, 3.5, &input_address)?;
 
-// Advance time to the next event.
-simu.step()?;
-assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-assert_eq!(output_slot.next(), None);
+    // Advance time to the next event.
+    simu.step()?;
+    assert_eq!(simu.time(), t0 + Duration::from_secs(1));
+    assert_eq!(output_slot.next(), None);
 
-// Advance time to the next event.
-simu.step()?;
-assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-assert_eq!(output_slot.next(), Some(14.0));
+    // Advance time to the next event.
+    simu.step()?;
+    assert_eq!(simu.time(), t0 + Duration::from_secs(2));
+    assert_eq!(output_slot.next(), Some(14.0));
+
+    Ok(())
+}
 ```
 
 # Implementation notes
