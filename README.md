@@ -86,7 +86,7 @@ use std::time::Duration;
 
 use nexosim::model::{Context, Model};
 use nexosim::ports::{EventSlot, Output};
-use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 // A model that doubles its input and forwards it with a 1s delay.
@@ -105,7 +105,7 @@ impl DelayedMultiplier {
 }
 impl Model for DelayedMultiplier {}
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), SimulationError> {
     // Instantiate models and their mailboxes.
     let mut multiplier1 = DelayedMultiplier::default();
     let mut multiplier2 = DelayedMultiplier::default();
