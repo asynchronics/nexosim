@@ -14,17 +14,24 @@ use crate::time::MonotonicTime;
 pub trait Clock: Send {
     /// Blocks until the deadline.
     fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus;
+    fn reset(&mut self, now: MonotonicTime);
 }
 
 impl<C: Clock + ?Sized> Clock for &mut C {
     fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus {
         (**self).synchronize(deadline)
     }
+    fn reset(&mut self, now: MonotonicTime) {
+        (**self).reset(now);
+    }
 }
 
 impl<C: Clock + ?Sized> Clock for Box<C> {
     fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus {
         (**self).synchronize(deadline)
+    }
+    fn reset(&mut self, now: MonotonicTime) {
+        (**self).reset(now);
     }
 }
 
@@ -58,6 +65,7 @@ impl Clock for NoClock {
     fn synchronize(&mut self, _: MonotonicTime) -> SyncStatus {
         SyncStatus::Synchronized
     }
+    fn reset(&mut self, _: MonotonicTime) {}
 }
 
 /// A real-time [`Clock`] based on the system's monotonic clock.
@@ -158,6 +166,9 @@ impl Clock for SystemClock {
 
         SyncStatus::OutOfSync(now.duration_since(deadline))
     }
+    fn reset(&mut self, now: MonotonicTime) {
+        self.0 = MonotonicClock::init_at(now);
+    }
 }
 
 /// An automatically initialized real-time [`Clock`] based on the system's
@@ -192,6 +203,11 @@ impl Clock for AutoSystemClock {
                 SyncStatus::Synchronized
             }
             Some(clock) => clock.synchronize(deadline),
+        }
+    }
+    fn reset(&mut self, now: MonotonicTime) {
+        if let Some(clock) = &mut self.inner {
+            clock.reset(now);
         }
     }
 }

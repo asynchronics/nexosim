@@ -94,9 +94,9 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::Poll;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use std::{panic, task};
 
 use pin_project::pin_project;
@@ -161,6 +161,7 @@ pub struct Simulation {
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     model_names: Vec<String>,
     is_halted: Arc<AtomicBool>,
+    is_paused: Arc<(Mutex<bool>, Condvar)>,
     is_terminated: bool,
 }
 
@@ -177,6 +178,7 @@ impl Simulation {
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
         model_names: Vec<String>,
         is_halted: Arc<AtomicBool>,
+        is_paused: Arc<(Mutex<bool>, Condvar)>,
     ) -> Self {
         Self {
             executor,
@@ -188,6 +190,7 @@ impl Simulation {
             observers,
             model_names,
             is_halted,
+            is_paused,
             is_terminated: false,
         }
     }
@@ -341,13 +344,16 @@ impl Simulation {
 
     /// Runs the executor.
     fn run(&mut self) -> Result<(), ExecutionError> {
-        if self.is_terminated {
-            return Err(ExecutionError::Terminated);
-        }
-
-        if self.is_halted.load(Ordering::Relaxed) {
-            self.is_terminated = true;
-            return Err(ExecutionError::Halted);
+        match self.ensure_running() {
+            Err(ExecutionError::Paused) => {
+                if let Ok(mut _paused) = self.is_paused.0.lock() {
+                    _paused = self.is_paused.1.wait(_paused).unwrap();
+                    self.clock.reset(self.time());
+                }
+                // TODO would spin if mutex guard can't be aqcuired
+            }
+            Err(e) => return Err(e),
+            _ => (),
         }
 
         self.executor.run(self.timeout).map_err(|e| {
@@ -404,14 +410,7 @@ impl Simulation {
         &mut self,
         upper_time_bound: Option<MonotonicTime>,
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
-        if self.is_terminated {
-            return Err(ExecutionError::Terminated);
-        }
-
-        if self.is_halted.load(Ordering::Relaxed) {
-            self.is_terminated = true;
-            return Err(ExecutionError::Halted);
-        }
+        self.ensure_running()?;
 
         // Function pulling the next action. If the action is periodic, it is
         // immediately re-scheduled.
@@ -545,6 +544,24 @@ impl Simulation {
         }
     }
 
+    fn ensure_running(&mut self) -> Result<(), ExecutionError> {
+        if let Ok(paused) = self.is_paused.0.lock() {
+            if *paused {
+                return Err(ExecutionError::Paused);
+            }
+        }
+        // TODO handle when mutex guard can't be obtained
+        if self.is_terminated {
+            return Err(ExecutionError::Terminated);
+        }
+
+        if self.is_halted.load(Ordering::Relaxed) {
+            self.is_terminated = true;
+            return Err(ExecutionError::Halted);
+        }
+        Ok(())
+    }
+
     /// Returns a scheduler handle.
     #[cfg(feature = "server")]
     pub(crate) fn scheduler(&self) -> Scheduler {
@@ -552,6 +569,7 @@ impl Simulation {
             self.scheduler_queue.clone(),
             self.time.reader(),
             self.is_halted.clone(),
+            self.is_paused.clone(),
         )
     }
 }
@@ -580,6 +598,8 @@ pub struct DeadlockInfo {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ExecutionError {
+    /// The simulation has been paused and can be resumed.
+    Paused,
     /// The simulation has been intentionally stopped.
     Halted,
     /// The simulation has been terminated due to an earlier deadlock, message
@@ -662,6 +682,7 @@ pub enum ExecutionError {
 impl fmt::Display for ExecutionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::Paused => f.write_str("the simulation has been paused and can be resumed"),
             Self::Halted => f.write_str("the simulation has been intentionally stopped"),
             Self::Terminated => f.write_str("the simulation has been terminated"),
             Self::Deadlock(list) => {
