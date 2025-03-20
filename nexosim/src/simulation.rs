@@ -346,11 +346,8 @@ impl Simulation {
     fn run(&mut self) -> Result<(), ExecutionError> {
         match self.ensure_running() {
             Err(ExecutionError::Paused) => {
-                if let Ok(mut _paused) = self.is_paused.0.lock() {
-                    _paused = self.is_paused.1.wait(_paused).unwrap();
-                    self.clock.reset(self.time());
-                }
-                // TODO would spin if mutex guard can't be aqcuired
+                // TODO map the error
+                self.wait_for_unpause();
             }
             Err(e) => return Err(e),
             _ => (),
@@ -537,6 +534,10 @@ impl Simulation {
                     }
                     return Ok(());
                 }
+                Err(ExecutionError::Paused) => {
+                    // TODO handle the poison error
+                    self.wait_for_unpause();
+                }
                 Err(e) => return Err(e),
                 // The target time was not reached yet.
                 _ => {}
@@ -559,6 +560,13 @@ impl Simulation {
             self.is_terminated = true;
             return Err(ExecutionError::Halted);
         }
+        Ok(())
+    }
+
+    fn wait_for_unpause(&mut self) -> Result<(), std::sync::PoisonError<MutexGuard<'_, bool>>> {
+        let mut _paused = self.is_paused.0.lock()?;
+        _paused = self.is_paused.1.wait(_paused).unwrap();
+        self.clock.reset(self.time());
         Ok(())
     }
 
