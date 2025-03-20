@@ -157,6 +157,7 @@ pub struct Simulation {
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
+    clock_reset: bool,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     model_names: Vec<String>,
@@ -192,6 +193,7 @@ impl Simulation {
             is_halted,
             is_paused,
             is_terminated: false,
+            clock_reset: false,
         }
     }
 
@@ -256,7 +258,7 @@ impl Simulation {
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
     pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
-        self.check_paused()?;
+        self.handle_pause()?;
         action.spawn_and_forget(&self.executor);
         self.run()
     }
@@ -275,7 +277,7 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
-        self.check_paused()?;
+        self.handle_pause()?;
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -314,7 +316,7 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
-        self.check_paused()?;
+        self.handle_pause()?;
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -418,7 +420,7 @@ impl Simulation {
             self.is_terminated = true;
             return Err(ExecutionError::Halted);
         }
-        self.check_paused()?;
+        self.handle_pause()?;
 
         // Function pulling the next action. If the action is periodic, it is
         // immediately re-scheduled.
@@ -552,9 +554,14 @@ impl Simulation {
         }
     }
 
-    fn check_paused(&mut self) -> Result<(), ExecutionError> {
+    fn handle_pause(&mut self) -> Result<(), ExecutionError> {
         if self.is_paused.load(Ordering::Relaxed) {
+            self.clock_reset = true;
             return Err(ExecutionError::Paused);
+        }
+        if self.clock_reset {
+            self.clock_reset = false;
+            self.clock.reset(self.time());
         }
         Ok(())
     }
