@@ -4,7 +4,7 @@ use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{fmt, ptr};
@@ -36,7 +36,7 @@ impl Scheduler {
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
-        is_paused: Arc<(Mutex<bool>, Condvar)>,
+        is_paused: Arc<AtomicBool>,
     ) -> Self {
         Self(GlobalScheduler::new(
             scheduler_queue,
@@ -196,6 +196,7 @@ impl Scheduler {
     pub fn pause(&mut self) {
         self.0.pause()
     }
+
     pub fn unpause(&mut self) {
         self.0.unpause()
     }
@@ -372,7 +373,7 @@ pub(crate) struct GlobalScheduler {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTimeReader,
     is_halted: Arc<AtomicBool>,
-    is_paused: Arc<(Mutex<bool>, Condvar)>,
+    is_paused: Arc<AtomicBool>,
 }
 
 impl GlobalScheduler {
@@ -380,7 +381,7 @@ impl GlobalScheduler {
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
-        is_paused: Arc<(Mutex<bool>, Condvar)>,
+        is_paused: Arc<AtomicBool>,
     ) -> Self {
         Self {
             scheduler_queue,
@@ -584,15 +585,10 @@ impl GlobalScheduler {
     }
 
     pub(crate) fn pause(&mut self) {
-        if let Ok(mut paused) = self.is_paused.0.lock() {
-            *paused = true;
-        }
+        self.is_paused.store(true, Ordering::Relaxed);
     }
     pub(crate) fn unpause(&mut self) {
-        if let Ok(mut paused) = self.is_paused.0.lock() {
-            *paused = false;
-            self.is_paused.1.notify_all();
-        }
+        self.is_paused.store(false, Ordering::Relaxed);
     }
 }
 
@@ -878,7 +874,7 @@ impl GlobalScheduler {
         let dummy_priority_queue = Arc::new(Mutex::new(PriorityQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
         let dummy_halter = Arc::new(AtomicBool::new(false));
-        let dummy_pause = Arc::new((Mutex::new(false), Condvar::new()));
+        let dummy_pause = Arc::new(AtomicBool::new(false));
         GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_halter, dummy_pause)
     }
 }

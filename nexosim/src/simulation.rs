@@ -94,9 +94,9 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::Poll;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use std::{panic, task};
 
 use pin_project::pin_project;
@@ -161,7 +161,7 @@ pub struct Simulation {
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     model_names: Vec<String>,
     is_halted: Arc<AtomicBool>,
-    is_paused: Arc<(Mutex<bool>, Condvar)>,
+    is_paused: Arc<AtomicBool>,
     is_terminated: bool,
 }
 
@@ -178,7 +178,7 @@ impl Simulation {
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
         model_names: Vec<String>,
         is_halted: Arc<AtomicBool>,
-        is_paused: Arc<(Mutex<bool>, Condvar)>,
+        is_paused: Arc<AtomicBool>,
     ) -> Self {
         Self {
             executor,
@@ -256,6 +256,7 @@ impl Simulation {
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
     pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
+        self.check_paused()?;
         action.spawn_and_forget(&self.executor);
         self.run()
     }
@@ -274,6 +275,7 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
+        self.check_paused()?;
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -312,6 +314,7 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
+        self.check_paused()?;
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -344,13 +347,13 @@ impl Simulation {
 
     /// Runs the executor.
     fn run(&mut self) -> Result<(), ExecutionError> {
-        match self.ensure_running() {
-            Err(ExecutionError::Paused) => {
-                // TODO map the error
-                self.wait_for_unpause();
-            }
-            Err(e) => return Err(e),
-            _ => (),
+        if self.is_terminated {
+            return Err(ExecutionError::Terminated);
+        }
+
+        if self.is_halted.load(Ordering::Relaxed) {
+            self.is_terminated = true;
+            return Err(ExecutionError::Halted);
         }
 
         self.executor.run(self.timeout).map_err(|e| {
@@ -407,7 +410,15 @@ impl Simulation {
         &mut self,
         upper_time_bound: Option<MonotonicTime>,
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
-        self.ensure_running()?;
+        if self.is_terminated {
+            return Err(ExecutionError::Terminated);
+        }
+
+        if self.is_halted.load(Ordering::Relaxed) {
+            self.is_terminated = true;
+            return Err(ExecutionError::Halted);
+        }
+        self.check_paused()?;
 
         // Function pulling the next action. If the action is periodic, it is
         // immediately re-scheduled.
@@ -534,10 +545,6 @@ impl Simulation {
                     }
                     return Ok(());
                 }
-                Err(ExecutionError::Paused) => {
-                    // TODO handle the poison error
-                    self.wait_for_unpause();
-                }
                 Err(e) => return Err(e),
                 // The target time was not reached yet.
                 _ => {}
@@ -545,28 +552,10 @@ impl Simulation {
         }
     }
 
-    fn ensure_running(&mut self) -> Result<(), ExecutionError> {
-        if let Ok(paused) = self.is_paused.0.lock() {
-            if *paused {
-                return Err(ExecutionError::Paused);
-            }
+    fn check_paused(&mut self) -> Result<(), ExecutionError> {
+        if self.is_paused.load(Ordering::Relaxed) {
+            return Err(ExecutionError::Paused);
         }
-        // TODO handle when mutex guard can't be obtained
-        if self.is_terminated {
-            return Err(ExecutionError::Terminated);
-        }
-
-        if self.is_halted.load(Ordering::Relaxed) {
-            self.is_terminated = true;
-            return Err(ExecutionError::Halted);
-        }
-        Ok(())
-    }
-
-    fn wait_for_unpause(&mut self) -> Result<(), std::sync::PoisonError<MutexGuard<'_, bool>>> {
-        let mut _paused = self.is_paused.0.lock()?;
-        _paused = self.is_paused.1.wait(_paused).unwrap();
-        self.clock.reset(self.time());
         Ok(())
     }
 

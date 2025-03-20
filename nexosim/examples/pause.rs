@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -41,35 +42,28 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
     let now = Instant::now();
 
-    let (mut simu, mut scheduler) = SimInit::new()
+    let (simu, mut scheduler) = SimInit::new()
         .add_model(model, mailbox, "timed_model")
         .set_clock(SystemClock::from_instant(t0, now))
         .init(t0)?;
 
-    let simulation_handle = thread::spawn(move || simu.step_unbounded());
+    let simulation = Arc::new(Mutex::new(simu));
+    let thread_simulation = simulation.clone();
+
+    let simulation_handle =
+        thread::spawn(move || thread_simulation.lock().unwrap().step_unbounded());
 
     thread::sleep(Duration::from_secs(1));
-    // pause at simulation time = ca. 1s
+
     scheduler.pause();
+    let res = simulation_handle.join().unwrap();
+    assert!(message.next().is_some());
+    assert!(simulation.lock().unwrap().step().is_err());
     thread::sleep(Duration::from_secs(3));
+    assert!(message.next().is_none());
     scheduler.unpause();
-    // the simulation time is still < 2s
-    assert!(message.next().is_none());
-
-    // now we wait for the simulation time of about 2s
-    thread::sleep(Duration::from_secs(1));
+    simulation.lock().unwrap().step()?;
     assert!(message.next().is_some());
 
-    // re-check another cycle if still in sync
-    thread::sleep(Duration::from_secs(1));
-    assert!(message.next().is_none());
-    thread::sleep(Duration::from_secs(1));
-    assert!(message.next().is_some());
-    scheduler.halt();
-
-    match simulation_handle.join().unwrap() {
-        Err(ExecutionError::Halted) => Ok(()),
-        Err(e) => Err(e.into()),
-        _ => Ok(()),
-    }
+    Ok(())
 }

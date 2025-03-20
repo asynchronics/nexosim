@@ -1,6 +1,6 @@
 use std::fmt;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::channel::ChannelObserver;
@@ -21,7 +21,7 @@ pub struct SimInit {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
-    is_paused: Arc<(Mutex<bool>, Condvar)>,
+    is_paused: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
@@ -67,7 +67,7 @@ impl SimInit {
             scheduler_queue: Arc::new(Mutex::new(PriorityQueue::new())),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
-            is_paused: Arc::new((Mutex::new(false), Condvar::new())),
+            is_paused: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,
