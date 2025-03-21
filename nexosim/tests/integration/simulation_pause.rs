@@ -1,3 +1,4 @@
+//! Simulation pause and resume
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -7,32 +8,32 @@ use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
 
-#[derive(Default)]
-struct DelayedModel {
+struct RecurringModel {
     pub message: Output<()>,
     delay: Duration,
 }
-impl DelayedModel {
+impl RecurringModel {
     fn new(delay: Duration) -> Self {
         Self {
             delay,
-            ..Default::default()
+            message: Output::new(),
         }
     }
     async fn process(&mut self) {
         self.message.send(()).await;
     }
 }
-impl Model for DelayedModel {
+impl Model for RecurringModel {
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        cx.schedule_periodic_event(self.delay, self.delay, DelayedModel::process, ())
+        cx.schedule_periodic_event(self.delay, self.delay, RecurringModel::process, ())
             .unwrap();
         self.into()
     }
 }
 
-fn main() -> Result<(), SimulationError> {
-    let mut model = DelayedModel::new(Duration::from_secs(2));
+#[test]
+fn pause_and_resume() -> Result<(), SimulationError> {
+    let mut model = RecurringModel::new(Duration::from_secs(2));
     let mailbox = Mailbox::new();
 
     let message = EventQueue::new();

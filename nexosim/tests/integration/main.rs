@@ -8,6 +8,7 @@ mod simulation_deadlock;
 mod simulation_message_loss;
 mod simulation_no_recipient;
 mod simulation_panic;
+mod simulation_pause;
 mod simulation_scheduling;
 #[cfg(not(miri))]
 mod simulation_timeout;
