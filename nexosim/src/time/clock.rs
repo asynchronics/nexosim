@@ -14,6 +14,7 @@ use crate::time::MonotonicTime;
 pub trait Clock: Send {
     /// Blocks until the deadline.
     fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus;
+    /// Sync the clock and simulation time immediately
     fn reset(&mut self, now: MonotonicTime);
 }
 

@@ -48,22 +48,40 @@ fn main() -> Result<(), SimulationError> {
         .init(t0)?;
 
     let simulation = Arc::new(Mutex::new(simu));
-    let thread_simulation = simulation.clone();
+    let spawned_simulation = simulation.clone();
 
-    let simulation_handle =
-        thread::spawn(move || thread_simulation.lock().unwrap().step_unbounded());
+    thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
 
     thread::sleep(Duration::from_secs(1));
 
     scheduler.pause();
-    let res = simulation_handle.join().unwrap();
-    assert!(message.next().is_some());
-    assert!(simulation.lock().unwrap().step().is_err());
-    thread::sleep(Duration::from_secs(3));
-    assert!(message.next().is_none());
-    scheduler.unpause();
-    simulation.lock().unwrap().step()?;
+    // assert that the step has completed, even though `pause` was called before it's scheduled time
     assert!(message.next().is_some());
 
-    Ok(())
+    // step can't be performed while paused
+    assert!(simulation.lock().unwrap().step().is_err());
+    thread::sleep(Duration::from_secs(3));
+
+    // paused - no new messages
+    assert!(message.next().is_none());
+    scheduler.unpause();
+
+    let spawned_simulation = simulation.clone();
+    let simulation_handle =
+        thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
+
+    thread::sleep(Duration::from_secs(1));
+    // now new messages yet, as the paused time should be invisible to the scheduler
+    assert!(message.next().is_none());
+
+    thread::sleep(Duration::from_secs(1));
+    assert!(message.next().is_some());
+
+    scheduler.pause();
+
+    match simulation_handle.join().unwrap() {
+        Err(ExecutionError::Paused) => Ok(()),
+        Err(e) => Err(e.into()),
+        _ => Ok(()),
+    }
 }

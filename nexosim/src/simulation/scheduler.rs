@@ -17,11 +17,14 @@ use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
 use crate::simulation::Address;
-use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
+use crate::time::{AtomicTimeReader, Clock, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
 #[cfg(all(test, not(nexosim_loom)))]
-use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
+use crate::{
+    time::{NoClock, TearableAtomicTime},
+    util::sync_cell::SyncCell,
+};
 
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = 0;
 
@@ -37,12 +40,14 @@ impl Scheduler {
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
         is_paused: Arc<AtomicBool>,
+        clock: Arc<Mutex<Box<dyn Clock>>>,
     ) -> Self {
         Self(GlobalScheduler::new(
             scheduler_queue,
             time,
             is_halted,
             is_paused,
+            clock,
         ))
     }
 
@@ -193,10 +198,12 @@ impl Scheduler {
         self.0.halt()
     }
 
+    /// Requests the simulation to pause, blocks until it has stopeed
     pub fn pause(&mut self) {
         self.0.pause()
     }
 
+    /// Resume the simulation after it has been paused
     pub fn unpause(&mut self) {
         self.0.unpause()
     }
@@ -374,6 +381,7 @@ pub(crate) struct GlobalScheduler {
     time: AtomicTimeReader,
     is_halted: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
+    clock: Arc<Mutex<Box<dyn Clock>>>,
 }
 
 impl GlobalScheduler {
@@ -382,12 +390,14 @@ impl GlobalScheduler {
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
         is_paused: Arc<AtomicBool>,
+        clock: Arc<Mutex<Box<dyn Clock>>>,
     ) -> Self {
         Self {
             scheduler_queue,
             time,
             is_halted,
             is_paused,
+            clock,
         }
     }
 
@@ -586,8 +596,10 @@ impl GlobalScheduler {
 
     pub(crate) fn pause(&mut self) {
         self.is_paused.store(true, Ordering::Relaxed);
+        drop(self.clock.lock().unwrap());
     }
     pub(crate) fn unpause(&mut self) {
+        self.clock.lock().unwrap().reset(self.time());
         self.is_paused.store(false, Ordering::Relaxed);
     }
 }
@@ -875,6 +887,13 @@ impl GlobalScheduler {
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
         let dummy_halter = Arc::new(AtomicBool::new(false));
         let dummy_pause = Arc::new(AtomicBool::new(false));
-        GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_halter, dummy_pause)
+        let dummy_clock = Arc::new(Mutex::new(Box::new(NoClock::new()) as Box<dyn Clock>));
+        GlobalScheduler::new(
+            dummy_priority_queue,
+            dummy_time,
+            dummy_halter,
+            dummy_pause,
+            dummy_clock,
+        )
     }
 }

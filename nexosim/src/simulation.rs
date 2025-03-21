@@ -155,9 +155,8 @@ pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
-    clock: Box<dyn Clock>,
+    clock: Arc<Mutex<Box<dyn Clock>>>,
     clock_tolerance: Option<Duration>,
-    clock_reset: bool,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     model_names: Vec<String>,
@@ -173,7 +172,7 @@ impl Simulation {
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTime,
-        clock: Box<dyn Clock + 'static>,
+        clock: Arc<Mutex<Box<dyn Clock>>>,
         clock_tolerance: Option<Duration>,
         timeout: Duration,
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
@@ -193,7 +192,6 @@ impl Simulation {
             is_halted,
             is_paused,
             is_terminated: false,
-            clock_reset: false,
         }
     }
 
@@ -258,9 +256,20 @@ impl Simulation {
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
     pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
-        self.handle_pause()?;
+        let clock = self.clock.lock().unwrap();
+        if self.is_paused.load(Ordering::Relaxed) {
+            return Err(ExecutionError::Paused);
+        };
         action.spawn_and_forget(&self.executor);
-        self.run()
+        Simulation::run(
+            &clock,
+            &mut self.executor,
+            &mut self.is_terminated,
+            &self.is_halted,
+            self.timeout,
+            &self.observers,
+            &self.model_names,
+        )
     }
 
     /// Processes an event immediately, blocking until completion.
@@ -277,7 +286,10 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
-        self.handle_pause()?;
+        let clock = self.clock.lock().unwrap();
+        if self.is_paused.load(Ordering::Relaxed) {
+            return Err(ExecutionError::Paused);
+        };
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -296,7 +308,15 @@ impl Simulation {
         };
 
         self.executor.spawn_and_forget(fut);
-        self.run()
+        Simulation::run(
+            &clock,
+            &mut self.executor,
+            &mut self.is_terminated,
+            &self.is_halted,
+            self.timeout,
+            &self.observers,
+            &self.model_names,
+        )
     }
 
     /// Processes a query immediately, blocking until completion.
@@ -316,7 +336,11 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
-        self.handle_pause()?;
+        let clock = self.clock.lock().unwrap();
+        if self.is_paused.load(Ordering::Relaxed) {
+            return Err(ExecutionError::Paused);
+        };
+
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -340,7 +364,15 @@ impl Simulation {
         };
 
         self.executor.spawn_and_forget(fut);
-        self.run()?;
+        Simulation::run(
+            &clock,
+            &mut self.executor,
+            &mut self.is_terminated,
+            &self.is_halted,
+            self.timeout,
+            &self.observers,
+            &self.model_names,
+        )?;
 
         reply_reader
             .try_read()
@@ -348,23 +380,32 @@ impl Simulation {
     }
 
     /// Runs the executor.
-    fn run(&mut self) -> Result<(), ExecutionError> {
-        if self.is_terminated {
+    fn run(
+        // assert that run can't be executed without a locked clock
+        _: &MutexGuard<'_, Box<dyn Clock>>,
+        executor: &mut Executor,
+        is_terminated: &mut bool,
+        is_halted: &AtomicBool,
+        timeout: Duration,
+        observers: &Vec<(String, Box<dyn ChannelObserver>)>,
+        model_names: &Vec<String>,
+    ) -> Result<(), ExecutionError> {
+        if *is_terminated {
             return Err(ExecutionError::Terminated);
         }
 
-        if self.is_halted.load(Ordering::Relaxed) {
-            self.is_terminated = true;
+        if is_halted.load(Ordering::Relaxed) {
+            *is_terminated = true;
             return Err(ExecutionError::Halted);
         }
 
-        self.executor.run(self.timeout).map_err(|e| {
-            self.is_terminated = true;
+        executor.run(timeout).map_err(|e| {
+            *is_terminated = true;
 
             match e {
                 ExecutorError::UnprocessedMessages(msg_count) => {
                     let mut deadlock_info = Vec::new();
-                    for (model, observer) in &self.observers {
+                    for (model, observer) in observers {
                         let mailbox_size = observer.len();
                         if mailbox_size != 0 {
                             deadlock_info.push(DeadlockInfo {
@@ -384,7 +425,7 @@ impl Simulation {
                 ExecutorError::Panic(model_id, payload) => {
                     let model = model_id
                         .get()
-                        .map(|id| self.model_names.get(id).unwrap().clone());
+                        .map(|id| model_names.get(id).unwrap().clone());
 
                     // Filter out panics originating from a `SendError`.
                     if (*payload).type_id() == TypeId::of::<SendError>() {
@@ -420,7 +461,10 @@ impl Simulation {
             self.is_terminated = true;
             return Err(ExecutionError::Halted);
         }
-        self.handle_pause()?;
+        let mut clock = self.clock.lock().unwrap();
+        if self.is_paused.load(Ordering::Relaxed) {
+            return Err(ExecutionError::Paused);
+        };
 
         // Function pulling the next action. If the action is periodic, it is
         // immediately re-scheduled.
@@ -458,6 +502,7 @@ impl Simulation {
             Some(key) => key,
             None => return Ok(None),
         };
+
         self.time.write(current_key.0);
 
         loop {
@@ -496,7 +541,7 @@ impl Simulation {
                     drop(scheduler_queue); // make sure the queue's mutex is released.
 
                     let current_time = current_key.0;
-                    if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(current_time) {
+                    if let SyncStatus::OutOfSync(lag) = clock.synchronize(current_time) {
                         if let Some(tolerance) = &self.clock_tolerance {
                             if &lag > tolerance {
                                 self.is_terminated = true;
@@ -505,7 +550,15 @@ impl Simulation {
                             }
                         }
                     }
-                    self.run()?;
+                    Simulation::run(
+                        &clock,
+                        &mut self.executor,
+                        &mut self.is_terminated,
+                        &self.is_halted,
+                        self.timeout,
+                        &self.observers,
+                        &self.model_names,
+                    )?;
 
                     return Ok(Some(current_time));
                 }
@@ -535,7 +588,9 @@ impl Simulation {
                     if let Some(target_time) = target_time {
                         // Update the simulation time.
                         self.time.write(target_time);
-                        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(target_time) {
+                        if let SyncStatus::OutOfSync(lag) =
+                            self.clock.lock().unwrap().synchronize(target_time)
+                        {
                             if let Some(tolerance) = &self.clock_tolerance {
                                 if &lag > tolerance {
                                     self.is_terminated = true;
@@ -552,18 +607,6 @@ impl Simulation {
                 _ => {}
             }
         }
-    }
-
-    fn handle_pause(&mut self) -> Result<(), ExecutionError> {
-        if self.is_paused.load(Ordering::Relaxed) {
-            self.clock_reset = true;
-            return Err(ExecutionError::Paused);
-        }
-        if self.clock_reset {
-            self.clock_reset = false;
-            self.clock.reset(self.time());
-        }
-        Ok(())
     }
 
     /// Returns a scheduler handle.

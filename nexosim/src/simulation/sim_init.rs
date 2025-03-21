@@ -22,7 +22,7 @@ pub struct SimInit {
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
     is_paused: Arc<AtomicBool>,
-    clock: Box<dyn Clock + 'static>,
+    clock: Arc<Mutex<Box<dyn Clock>>>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
@@ -68,7 +68,7 @@ impl SimInit {
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
             is_paused: Arc::new(AtomicBool::new(false)),
-            clock: Box::new(NoClock::new()),
+            clock: Arc::new(Mutex::new(Box::new(NoClock::new()))),
             clock_tolerance: None,
             timeout: Duration::ZERO,
             observers: Vec::new(),
@@ -100,6 +100,7 @@ impl SimInit {
             self.time.reader(),
             self.is_halted.clone(),
             self.is_paused.clone(),
+            self.clock.clone(),
         );
 
         add_model(
@@ -119,8 +120,8 @@ impl SimInit {
     ///
     /// If the clock isn't explicitly set then the default [`NoClock`] is used,
     /// resulting in the simulation running as fast as possible.
-    pub fn set_clock(mut self, clock: impl Clock + 'static) -> Self {
-        self.clock = Box::new(clock);
+    pub fn set_clock(self, clock: impl Clock + 'static) -> Self {
+        *self.clock.lock().unwrap() = Box::new(clock);
 
         self
     }
@@ -160,11 +161,11 @@ impl SimInit {
     /// The simulation object and its associated scheduler are returned upon
     /// success.
     pub fn init(
-        mut self,
+        self,
         start_time: MonotonicTime,
     ) -> Result<(Simulation, Scheduler), ExecutionError> {
         self.time.write(start_time);
-        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
+        if let SyncStatus::OutOfSync(lag) = self.clock.lock().unwrap().synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
                 if &lag > tolerance {
                     return Err(ExecutionError::OutOfSync(lag));
@@ -177,12 +178,13 @@ impl SimInit {
             self.time.reader(),
             self.is_halted.clone(),
             self.is_paused.clone(),
+            self.clock.clone(),
         );
         let mut simulation = Simulation::new(
             self.executor,
             self.scheduler_queue,
             self.time,
-            self.clock,
+            self.clock.clone(),
             self.clock_tolerance,
             self.timeout,
             self.observers,
@@ -190,7 +192,15 @@ impl SimInit {
             self.is_halted,
             self.is_paused,
         );
-        simulation.run()?;
+        Simulation::run(
+            &self.clock.lock().unwrap(),
+            &mut simulation.executor,
+            &mut simulation.is_terminated,
+            &simulation.is_halted,
+            simulation.timeout,
+            &simulation.observers,
+            &simulation.model_names,
+        )?;
 
         Ok((simulation, scheduler))
     }
