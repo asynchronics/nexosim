@@ -43,7 +43,7 @@ scoped_thread_local!(pub(crate) static SIMULATION_CONTEXT: SimulationContext);
 
 /// A single-threaded or multi-threaded `async` executor.
 #[derive(Debug)]
-pub(crate) enum Executor {
+pub enum Executor {
     StExecutor(st_executor::Executor),
     MtExecutor(mt_executor::Executor),
 }
@@ -97,7 +97,7 @@ impl Executor {
     ///
     /// Note that spawned tasks are not executed until [`run`](Executor::run) is
     /// called.
-    pub(crate) fn spawn_and_forget<T>(&self, future: T)
+    pub fn spawn_and_forget<T>(&self, future: T)
     where
         T: Future + Send + 'static,
         T::Output: Send + 'static,

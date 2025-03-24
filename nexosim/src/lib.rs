@@ -466,7 +466,7 @@
 #![cfg_attr(docsrs, doc(cfg_hide(feature = "dev-hooks")))]
 
 pub(crate) mod channel;
-pub(crate) mod executor;
+pub mod executor;
 mod loom_exports;
 pub(crate) mod macros;
 pub mod model;
