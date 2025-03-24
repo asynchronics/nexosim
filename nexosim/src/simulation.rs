@@ -240,10 +240,8 @@ impl Simulation {
     /// Iteratively advances the simulation time, as if by calling
     /// [`Simulation::step`] repeatedly.
     ///
-    /// This method blocks until
-    /// * the simulation is halted for real-time clock,
-    /// * the simulation is halted or all scheduled events have completed for
-    ///   non real-time clock.
+    /// This method blocks until the simulation is halted or all scheduled
+    /// events have completed.
     pub fn step_unbounded(&mut self) -> Result<(), ExecutionError> {
         self.step_until_unchecked(None)
     }

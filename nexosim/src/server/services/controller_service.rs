@@ -115,10 +115,8 @@ impl ControllerService {
     /// Iteratively advances the simulation time, as if by calling
     /// [`Simulation::step`] repeatedly.
     ///
-    /// This method blocks until
-    /// * the simulation is halted for real-time clock,
-    /// * the simulation is halted or all scheduled events have completed for
-    ///   non real-time clock.
+    /// This method blocks until the simulation is halted or all scheduled
+    /// events have completed.
     pub(crate) fn step_unbounded(&mut self, _request: StepUnboundedRequest) -> StepUnboundedReply {
         let reply = match self {
             Self::Started { simulation, .. } => move || -> Result<Timestamp, Error> {
