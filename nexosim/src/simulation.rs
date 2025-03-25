@@ -549,7 +549,7 @@ impl Simulation {
         Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_halted.clone(),
+            self.is_running.clone(),
         )
     }
 }

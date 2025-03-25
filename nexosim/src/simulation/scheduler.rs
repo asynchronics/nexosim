@@ -849,7 +849,7 @@ impl GlobalScheduler {
     pub(crate) fn new_dummy() -> Self {
         let dummy_priority_queue = Arc::new(Mutex::new(PriorityQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
-        let dummy_halter = Arc::new(AtomicBool::new(false));
-        GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_halter)
+        let dummy_running = Arc::new(AtomicBool::new(false));
+        GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_running)
     }
 }
