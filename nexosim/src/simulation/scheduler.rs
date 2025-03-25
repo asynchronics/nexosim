@@ -35,9 +35,9 @@ impl Scheduler {
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
-        is_halted: Arc<AtomicBool>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
-        Self(GlobalScheduler::new(scheduler_queue, time, is_halted))
+        Self(GlobalScheduler::new(scheduler_queue, time, is_running))
     }
 
     /// Returns the current simulation time.
@@ -358,19 +358,19 @@ pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), Action>;
 pub(crate) struct GlobalScheduler {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTimeReader,
-    is_halted: Arc<AtomicBool>,
+    is_running: Arc<AtomicBool>,
 }
 
 impl GlobalScheduler {
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
-        is_halted: Arc<AtomicBool>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
         Self {
             scheduler_queue,
             time,
-            is_halted,
+            is_running,
         }
     }
 
@@ -564,7 +564,7 @@ impl GlobalScheduler {
 
     /// Requests the simulation to stop when advancing to the next step.
     pub(crate) fn halt(&mut self) {
-        self.is_halted.store(true, Ordering::Relaxed);
+        self.is_running.store(false, Ordering::Relaxed);
     }
 }
 
