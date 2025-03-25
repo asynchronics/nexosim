@@ -28,7 +28,9 @@ impl HandlerRegistry {
 }
 
 #[typetag::serde(tag = "input_params")]
-trait InputParams {}
+trait InputParams {
+    fn as_any(&self) -> &dyn Any;
+}
 
 trait EventHandler: std::fmt::Debug {
     fn into_future(&self, arg: &dyn Any) -> Box<dyn Future<Output = ()>>;
@@ -42,14 +44,24 @@ impl EventHandler for ListenerHandler {
     fn into_future(&self, arg: &dyn Any) -> Box<dyn Future<Output = ()>> {
         Box::new(process_event(
             Listener::process,
-            arg.downcast_ref::<&String>().unwrap().to_string(),
+            *arg.downcast_ref().unwrap(),
             self.address.0.clone(),
         ))
     }
 }
 
 #[typetag::serde]
-impl InputParams for String {}
+impl InputParams for String {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+#[typetag::serde]
+impl InputParams for u32 {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 #[derive(Serialize)]
 struct ScheduledEvent {
@@ -59,7 +71,7 @@ struct ScheduledEvent {
 
 /// The `Listener` Model.
 pub struct Listener {
-    pub message: Output<String>,
+    pub message: Output<u32>,
 }
 
 impl Listener {
@@ -69,7 +81,7 @@ impl Listener {
             message: Output::default(),
         }
     }
-    pub async fn process(&mut self, msg: String) {
+    pub async fn process(&mut self, msg: u32) {
         self.message.send(msg).await;
     }
 }
@@ -109,7 +121,8 @@ fn main() -> Result<(), SimulationError> {
 
     let event = ScheduledEvent {
         tag: "listener_0".to_string(),
-        params: Box::new("My Message".to_string()),
+        // params: Box::new("My Message".to_string()),
+        params: Box::new(12u32),
     };
 
     println!("{:?}", serde_json::to_string(&event));
@@ -117,7 +130,8 @@ fn main() -> Result<(), SimulationError> {
     let handler = registry
         .get_handler(&event.tag)
         .unwrap()
-        .into_future(&event.params);
+        .into_future(event.params.as_any());
+
     // let queue: Vec<ScheduledEvent> = Vec::new();
     // registry["listener_0"].execute(params, executor);
 
