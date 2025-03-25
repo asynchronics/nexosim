@@ -8,60 +8,23 @@ use serde::{Deserialize, Serialize};
 
 use nexosim::executor::Executor;
 use nexosim::model::{Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{
     process_event, Address, ExecutionError, Mailbox, SimInit, SimulationError,
 };
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
-#[derive(Default)]
-struct HandlerRegistry {
-    inner: HashMap<String, Box<dyn Any>>,
-}
-impl HandlerRegistry {
-    pub fn get_handler<T: 'static>(&self, tag: &str) -> Option<&T> {
-        self.inner.get(tag)?.downcast_ref()
-    }
-    pub fn register(&mut self, tag: &str, handler: Box<dyn Any>) {
-        self.inner.insert(tag.to_string(), handler);
-    }
+trait RegisteredEventSource {
+    fn event(&self, arg: &dyn Any);
 }
 
-#[typetag::serde(tag = "input_params")]
-trait InputParams {
-    fn execute(&self, tag: &str, registry: &HandlerRegistry, executor: &Executor);
-}
-
-struct ListenerHandler {
-    address: Address<Listener>,
-}
-impl ListenerHandler {
-    fn execute(&self, params: &ListenerParams, executor: &Executor) {
-        let f = process_event(
-            Listener::process,
-            params.msg.clone(),
-            self.address.0.clone(),
-        );
-        executor.spawn_and_forget(f);
+impl<T> RegisteredEventSource for EventSource<T>
+where
+    T: Clone + Send,
+{
+    fn event(&self, arg: &dyn Any) {
+        EventSource::event(self, arg.downcast_ref::<T>().unwrap().clone());
     }
-}
-
-#[derive(Deserialize, Serialize)]
-struct ListenerParams {
-    pub msg: String,
-}
-#[typetag::serde]
-impl InputParams for ListenerParams {
-    fn execute(&self, tag: &str, registry: &HandlerRegistry, executor: &Executor) {
-        let handler = registry.get_handler::<ListenerHandler>(tag).unwrap();
-        handler.execute(self, executor);
-    }
-}
-
-#[derive(Serialize)]
-struct ScheduledEvent {
-    pub tag: String,
-    pub params: Box<dyn InputParams>,
 }
 
 /// The `Listener` Model.
@@ -93,36 +56,40 @@ impl Model for Listener {
 }
 
 fn main() -> Result<(), SimulationError> {
-    let mut registry = HandlerRegistry::default();
+    // let mut registry = HandlerRegistry::default();
 
     let mut listener_0 = Listener::new();
     let listener_0_mbox = Mailbox::new();
-    let mut listener_1 = Listener::new();
-    let listener_1_mbox = Mailbox::new();
+    // let mut listener_1 = Listener::new();
+    // let listener_1_mbox = Mailbox::new();
 
-    registry.register(
-        "listener_0",
-        Box::new(ListenerHandler {
-            address: listener_0_mbox.address(),
-        }),
-    );
-    registry.register(
-        "listener_1",
-        Box::new(ListenerHandler {
-            address: listener_1_mbox.address(),
-        }),
-    );
+    let mut input_0 = EventSource::new();
+    input_0.connect(Listener::process, listener_0_mbox.address());
+    // registry.add_event_source(input, "input").unwrap();
 
-    let event = ScheduledEvent {
-        tag: "listener_0".to_string(),
-        params: Box::new(ListenerParams {
-            msg: "My Message".to_string(),
-        }),
-    };
+    // registry.register(
+    //     "listener_0",
+    //     Box::new(ListenerHandler {
+    //         address: listener_0_mbox.address(),
+    //     }),
+    // );
+    // registry.register(
+    //     "listener_1",
+    //     Box::new(ListenerHandler {
+    //         address: listener_1_mbox.address(),
+    //     }),
+    // );
 
-    println!("{:?}", serde_json::to_string(&event));
+    // let event = ScheduledEvent {
+    //     tag: "listener_0".to_string(),
+    //     params: Box::new(ListenerParams {
+    //         msg: "My Message".to_string(),
+    //     }),
+    // };
 
-    let queue: Vec<ScheduledEvent> = Vec::new();
+    // println!("{:?}", serde_json::to_string(&event));
+
+    // let queue: Vec<ScheduledEvent> = Vec::new();
     // registry["listener_0"].execute(params, executor);
 
     // let message = EventQueue::new();
