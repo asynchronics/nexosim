@@ -50,6 +50,14 @@ message InitReply {
   }
 }
 
+message ShutdownRequest { }
+message ShutdownReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
 message HaltRequest {}
 message HaltReply {
   oneof result { // Always returns exactly 1 variant.
@@ -201,11 +209,13 @@ message AnyRequest {
     CloseSinkRequest close_sink_request = 12;
     AwaitEventRequest await_event_request = 13;
     StepUnboundedRequest step_unbounded_request = 14;
+    ShutdownRequest shutdown_request = 15;
   }
 }
 
 service Simulation {
   rpc Init(InitRequest) returns (InitReply);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownReply);
   rpc Halt(HaltRequest) returns (HaltReply);
   rpc Time(TimeRequest) returns (TimeReply);
   rpc Step(StepRequest) returns (StepReply);
