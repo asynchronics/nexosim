@@ -5,13 +5,13 @@ use std::collections::BinaryHeap;
 
 /// A key-value pair ordered by keys in inverse order, with epoch-based ordering
 /// for equal keys.
-struct Item<K, V>
+pub(crate) struct Item<K, V>
 where
     K: Ord,
 {
-    key: K,
-    value: V,
-    epoch: u64,
+    pub(crate) key: K,
+    pub(crate) value: V,
+    pub(crate) epoch: u64,
 }
 
 impl<K, V> Ord for Item<K, V>
@@ -106,6 +106,10 @@ impl<K: Copy + Ord, V> PriorityQueue<K, V> {
         } = self.heap.peek()?;
 
         Some((key, value))
+    }
+
+    pub(crate) fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Item<K, V>> {
+        self.heap.iter()
     }
 }
 

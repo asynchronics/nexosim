@@ -8,19 +8,6 @@ use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{Address, ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
-trait RegisteredEventSource {
-    fn event(&self, arg: &dyn Any);
-}
-
-impl<T> RegisteredEventSource for EventSource<T>
-where
-    T: Clone + Send,
-{
-    fn event(&self, arg: &dyn Any) {
-        EventSource::event(self, arg.downcast_ref::<T>().unwrap().clone());
-    }
-}
-
 /// The `Listener` Model.
 pub struct Listener {
     pub message: Output<u32>,
@@ -68,6 +55,11 @@ fn main() -> Result<(), SimulationError> {
         .add_model(listener, listener_mbox, "listener")
         .set_clock(AutoSystemClock::new())
         .init(t0)?;
+
+    println!(
+        "{}",
+        serde_json::to_string(&simu.serializable_queue()).unwrap()
+    );
 
     simu.step().unwrap();
 

@@ -89,6 +89,7 @@ pub use sim_init::SimInit;
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
@@ -101,8 +102,9 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::{Serialize, Serializer};
 
-use scheduler::{ScheduledEvent, SchedulerQueue};
+use scheduler::{ScheduledEvent, SchedulerQueue, SerializableEvent};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
@@ -561,6 +563,25 @@ impl Simulation {
                 _ => {}
             }
         }
+    }
+
+    pub fn serializable_queue(&self) -> impl Serialize {
+        let queue = self.scheduler_queue.lock().unwrap();
+
+        let mut v = Vec::new();
+        for a in queue.iter() {
+            let source = self.registry.get(&a.value.source).unwrap();
+            let arg = source.serialize_arg(&*a.value.arg);
+            v.push((
+                a.key,
+                a.epoch,
+                SerializableEvent {
+                    source: a.value.source.to_string(),
+                    arg,
+                },
+            ));
+        }
+        v
     }
 
     /// Returns a scheduler handle.

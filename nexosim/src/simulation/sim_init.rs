@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
@@ -81,7 +82,7 @@ impl SimInit {
         }
     }
 
-    pub fn register_source<T: Clone + Send + DeserializeOwned>(
+    pub fn register_source<T: Clone + Send + Serialize + DeserializeOwned>(
         mut self,
         source: EventSource<T>,
         name: &str,

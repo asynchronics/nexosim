@@ -12,6 +12,7 @@ use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::Serialize;
 
 use crate::channel::Sender;
 use crate::executor::Executor;
@@ -357,6 +358,12 @@ impl ScheduledEvent {
     pub(crate) fn next(&self) -> Option<(ScheduledEvent, Duration)> {
         None
     }
+}
+
+#[derive(Serialize)]
+pub(crate) struct SerializableEvent {
+    pub source: String,
+    pub arg: Vec<u8>,
 }
 
 /// Alias for the scheduler queue type.

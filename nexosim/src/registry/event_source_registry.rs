@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use ciborium;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::ports::EventSource;
 use crate::simulation::{Action, ActionKey};
@@ -31,7 +32,7 @@ impl EventSourceRegistry {
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -58,6 +59,7 @@ impl fmt::Debug for EventSourceRegistry {
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
 pub(crate) trait EventSourceAny: Send + Sync + 'static {
+    fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8>;
     fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>>;
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
@@ -100,10 +102,16 @@ pub(crate) trait EventSourceAny: Send + Sync + 'static {
     fn event_type_name(&self) -> &'static str;
 }
 
-impl<T> EventSourceAny for Arc<EventSource<T>>
+impl<T: Serialize> EventSourceAny for Arc<EventSource<T>>
 where
     T: DeserializeOwned + Clone + Send + 'static,
 {
+    fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8> {
+        let mut output = Vec::new();
+        let value = arg.downcast_ref::<T>().unwrap();
+        ciborium::into_writer(value, &mut output);
+        output
+    }
     fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(EventSource::into_future(
             self,
