@@ -12,7 +12,7 @@ use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::channel::Sender;
 use crate::executor::Executor;
@@ -360,8 +360,8 @@ impl ScheduledEvent {
     }
 }
 
-#[derive(Serialize)]
-pub(crate) struct SerializableEvent {
+#[derive(Deserialize, Serialize)]
+pub struct SerializableEvent {
     pub source: String,
     pub arg: Vec<u8>,
 }

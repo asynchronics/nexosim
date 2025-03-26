@@ -82,7 +82,7 @@ impl SimInit {
         }
     }
 
-    pub fn register_source<T: Clone + Send + Serialize + DeserializeOwned>(
+    pub fn register_source<T: std::fmt::Debug + Clone + Send + Serialize + DeserializeOwned>(
         mut self,
         source: EventSource<T>,
         name: &str,

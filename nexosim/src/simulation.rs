@@ -103,6 +103,7 @@ use std::{panic, task};
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 use serde::{Serialize, Serializer};
+use tai_time::TaiTime;
 
 use scheduler::{ScheduledEvent, SchedulerQueue, SerializableEvent};
 
@@ -582,6 +583,27 @@ impl Simulation {
             ));
         }
         v
+    }
+
+    pub fn restore_deserialized_queue(
+        &self,
+        v: Vec<((TaiTime<0>, usize), f64, SerializableEvent)>,
+    ) {
+        let mut queue = self.scheduler_queue.lock().unwrap();
+        // TODO add drain or clear
+        while let Some(_) = queue.pull() {}
+
+        for entry in v {
+            let source = self.registry.get(&entry.2.source).unwrap();
+            let arg = source.deserialize_arg(&entry.2.arg);
+            queue.insert(
+                entry.0,
+                ScheduledEvent {
+                    source: entry.2.source,
+                    arg,
+                },
+            );
+        }
     }
 
     /// Returns a scheduler handle.

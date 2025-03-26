@@ -32,7 +32,7 @@ impl EventSourceRegistry {
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + std::fmt::Debug + Clone + Send + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -60,6 +60,7 @@ impl fmt::Debug for EventSourceRegistry {
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
 pub(crate) trait EventSourceAny: Send + Sync + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8>;
+    fn deserialize_arg(&self, arg: &[u8]) -> Box<dyn Any + Send>;
     fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>>;
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
@@ -102,10 +103,14 @@ pub(crate) trait EventSourceAny: Send + Sync + 'static {
     fn event_type_name(&self) -> &'static str;
 }
 
-impl<T: Serialize> EventSourceAny for Arc<EventSource<T>>
+impl<T: Serialize + std::fmt::Debug> EventSourceAny for Arc<EventSource<T>>
 where
     T: DeserializeOwned + Clone + Send + 'static,
 {
+    fn deserialize_arg(&self, serialized_arg: &[u8]) -> Box<dyn Any + Send> {
+        let arg: T = ciborium::from_reader(serialized_arg).unwrap();
+        Box::new(arg)
+    }
     fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8> {
         let mut output = Vec::new();
         let value = arg.downcast_ref::<T>().unwrap();
