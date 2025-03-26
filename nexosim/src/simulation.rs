@@ -102,12 +102,13 @@ use std::{panic, task};
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 
-use scheduler::SchedulerQueue;
+use scheduler::{ScheduledEvent, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel};
 use crate::ports::{InputFn, ReplierFn};
+use crate::registry::EventSourceRegistry;
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::slot;
@@ -154,6 +155,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    registry: EventSourceRegistry,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -170,6 +172,7 @@ impl Simulation {
     pub(crate) fn new(
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+        registry: EventSourceRegistry,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
@@ -181,6 +184,7 @@ impl Simulation {
         Self {
             executor,
             scheduler_queue,
+            registry,
             time,
             clock,
             clock_tolerance,
@@ -415,13 +419,16 @@ impl Simulation {
 
         // Function pulling the next action. If the action is periodic, it is
         // immediately re-scheduled.
-        fn pull_next_action(scheduler_queue: &mut MutexGuard<SchedulerQueue>) -> Action {
-            let ((time, channel_id), action) = scheduler_queue.pull().unwrap();
-            if let Some((action_clone, period)) = action.next() {
-                scheduler_queue.insert((time + period, channel_id), action_clone);
-            }
+        fn pull_next_scheduled_event(
+            scheduler_queue: &mut MutexGuard<SchedulerQueue>,
+        ) -> ScheduledEvent {
+            let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
+            // TODO
+            // if let Some((action_clone, period)) = event.next() {
+            //     scheduler_queue.insert((time + period, channel_id), action_clone);
+            // }
 
-            action
+            event
         }
 
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
@@ -452,30 +459,41 @@ impl Simulation {
         self.time.write(current_key.0);
 
         loop {
-            let action = pull_next_action(&mut scheduler_queue);
+            let event = pull_next_scheduled_event(&mut scheduler_queue);
             let mut next_key = peek_next_key(&mut scheduler_queue);
             if next_key != Some(current_key) {
                 // Since there are no other actions with the same origin and the
                 // same time, the action is spawned immediately.
-                action.spawn_and_forget(&self.executor);
+
+                let source = self
+                    .registry
+                    .get(&event.source)
+                    .ok_or(ExecutionError::InvalidEvent(event.source.to_string()))?;
+                // action.spawn_and_forget(&self.executor);
+                let fut = source.into_future(&*event.arg);
+                let mut action_sequence = SeqFuture::new();
+                action_sequence.push(fut);
+                self.executor.spawn_and_forget(action_sequence);
+                // self.executor.spawn_and_forget(Box::pin(&*fut));
             } else {
                 // To ensure that their relative order of execution is
                 // preserved, all actions with the same origin are executed
                 // sequentially within a single compound future.
-                let mut action_sequence = SeqFuture::new();
-                action_sequence.push(action.into_future());
-                loop {
-                    let action = pull_next_action(&mut scheduler_queue);
-                    action_sequence.push(action.into_future());
-                    next_key = peek_next_key(&mut scheduler_queue);
-                    if next_key != Some(current_key) {
-                        break;
-                    }
-                }
+                // TODO
+                // let mut action_sequence = SeqFuture::new();
+                // action_sequence.push(action.into_future());
+                // loop {
+                //     let action = pull_next_action(&mut scheduler_queue);
+                //     action_sequence.push(action.into_future());
+                //     next_key = peek_next_key(&mut scheduler_queue);
+                //     if next_key != Some(current_key) {
+                //         break;
+                //     }
+                // }
 
                 // Spawn a compound future that sequentially polls all actions
                 // targeting the same mailbox.
-                self.executor.spawn_and_forget(action_sequence);
+                // self.executor.spawn_and_forget(action_sequence);
             }
 
             current_key = match next_key {
@@ -657,6 +675,8 @@ pub enum ExecutionError {
     ///
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
+    // TODO
+    InvalidEvent(String),
 }
 
 impl fmt::Display for ExecutionError {
@@ -724,6 +744,11 @@ impl fmt::Display for ExecutionError {
                     time
                 )
             }
+            Self::InvalidEvent(e) => write!(
+                f,
+                "Invalid event: {}",
+                e
+            )
         }
     }
 }

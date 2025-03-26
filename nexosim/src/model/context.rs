@@ -158,6 +158,17 @@ impl<M: Model> Context<M> {
             .schedule_event_from(deadline, func, arg, &self.address, self.origin_id)
     }
 
+    // TODO temp name -> ultimately replace schedule_event
+    pub fn schedule_event_from_source<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        source: &str,
+        arg: T,
+    ) -> Result<(), SchedulingError> {
+        self.scheduler
+            .schedule_event_from_source(deadline, source, arg, self.origin_id)
+    }
+
     /// Schedules a cancellable event at a future time on this model and returns
     /// an action key.
     ///

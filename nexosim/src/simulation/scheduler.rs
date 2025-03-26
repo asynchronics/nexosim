@@ -1,4 +1,5 @@
 //! Scheduling functions and types.
+use std::any::Any;
 use std::error::Error;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -16,6 +17,7 @@ use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
+use crate::registry::EventSourceRegistry;
 use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
@@ -343,6 +345,20 @@ impl fmt::Debug for Action {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct ScheduledEvent {
+    pub source: String,
+    pub arg: Box<dyn Any + Send>,
+}
+impl ScheduledEvent {
+    pub(crate) fn is_cancelled(&self) -> bool {
+        false
+    }
+    pub(crate) fn next(&self) -> Option<(ScheduledEvent, Duration)> {
+        None
+    }
+}
+
 /// Alias for the scheduler queue type.
 ///
 /// Why use both time and origin ID as the key? The short answer is that this
@@ -351,7 +367,7 @@ impl fmt::Debug for Action {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), Action>;
+pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), ScheduledEvent>;
 
 /// Internal implementation of the global scheduler.
 #[derive(Clone)]
@@ -406,7 +422,32 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        // TODO
+        // scheduler_queue.insert((time, origin_id), action);
+
+        Ok(())
+    }
+
+    // TODO temp impl.
+    pub(crate) fn schedule_event_from_source<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        source: &str,
+        arg: T,
+        origin_id: usize,
+    ) -> Result<(), SchedulingError> {
+        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+        let now = self.time();
+        let time = deadline.into_time(now);
+        if now >= time {
+            return Err(SchedulingError::InvalidScheduledTime);
+        }
+
+        let event = ScheduledEvent {
+            source: source.to_string(),
+            arg: Box::new(arg),
+        };
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
     }
@@ -438,7 +479,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        // TODO
+        // scheduler_queue.insert((time, origin_id), action);
 
         Ok(())
     }
@@ -475,7 +517,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        // TODO
+        // scheduler_queue.insert((time, origin_id), action);
 
         Ok(event_key)
     }
@@ -515,7 +558,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        // TODO
+        // scheduler_queue.insert((time, origin_id), action);
 
         Ok(())
     }
@@ -557,7 +601,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        // TODO
+        // scheduler_queue.insert((time, origin_id), action);
 
         Ok(event_key)
     }

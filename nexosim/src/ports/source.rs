@@ -2,6 +2,7 @@ mod broadcaster;
 mod sender;
 
 use std::fmt;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -97,6 +98,13 @@ impl<T: Clone + Send + 'static> EventSource<T> {
     {
         let sender = Box::new(FilterMapInputSender::new(map, input, address.into().0));
         self.broadcaster.add(sender);
+    }
+
+    pub fn into_future(&self, arg: T) -> impl Future<Output = ()> {
+        let fut = self.broadcaster.broadcast(arg);
+        async {
+            fut.await.unwrap_or_throw();
+        }
     }
 
     /// Returns an action which, when processed, broadcasts an event to all
