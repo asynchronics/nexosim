@@ -59,7 +59,7 @@ impl<M: Model> fmt::Debug for Mailbox<M> {
 /// typically also accept an `&Address` or an `&Mailbox` since these references
 /// implement the `Into<Address>` trait, automatically invoking
 /// `Address::clone` or `Mailbox::address` as appropriate.
-pub struct Address<M: Model>(pub Sender<M>);
+pub struct Address<M: Model>(pub(crate) Sender<M>);
 
 impl<M: Model> Clone for Address<M> {
     fn clone(&self) -> Self {

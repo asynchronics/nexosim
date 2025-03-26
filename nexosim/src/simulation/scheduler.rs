@@ -793,7 +793,7 @@ where
 }
 
 /// Asynchronously sends a non-cancellable event to a model input.
-pub async fn process_event<M, F, T, S>(func: F, arg: T, sender: Sender<M>)
+pub(crate) async fn process_event<M, F, T, S>(func: F, arg: T, sender: Sender<M>)
 where
     M: Model,
     F: for<'a> InputFn<'a, M, T, S>,

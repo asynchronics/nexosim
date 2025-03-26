@@ -102,7 +102,6 @@ use std::{panic, task};
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 
-pub use scheduler::process_event;
 use scheduler::SchedulerQueue;
 
 use crate::channel::{ChannelObserver, SendError};

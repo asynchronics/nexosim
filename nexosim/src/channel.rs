@@ -195,7 +195,7 @@ impl<M> fmt::Debug for Receiver<M> {
 ///
 /// Multiple [`Sender`] handles can be created using the [`Receiver::sender`]
 /// method or via cloning.
-pub struct Sender<M: 'static> {
+pub(crate) struct Sender<M: 'static> {
     /// Shared data.
     inner: Arc<Inner<M>>,
 }
@@ -203,7 +203,7 @@ pub struct Sender<M: 'static> {
 impl<M: Model> Sender<M> {
     /// Sends a message, if necessary waiting until enough capacity becomes
     /// available in the channel.
-    pub async fn send<F>(&self, msg_fn: F) -> Result<(), SendError>
+    pub(crate) async fn send<F>(&self, msg_fn: F) -> Result<(), SendError>
     where
         F: for<'a> FnOnce(
                 &'a mut M,
