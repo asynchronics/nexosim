@@ -10,21 +10,19 @@ use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
 use crate::model::ProtoModel;
 use crate::ports::EventSource;
-use crate::registry::EventSourceRegistry;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
 use crate::util::priority_queue::PriorityQueue;
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ExecutionError, GlobalScheduler, Mailbox, Scheduler, SchedulerQueue, Signal,
-    Simulation,
+    add_model, ExecutionError, GlobalScheduler, Mailbox, Scheduler, SchedulerQueue,
+    SchedulerSourceRegistry, Signal, Simulation,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-    registry: EventSourceRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
@@ -69,8 +67,7 @@ impl SimInit {
 
         Self {
             executor,
-            scheduler_queue: Arc::new(Mutex::new(PriorityQueue::new())),
-            registry: EventSourceRegistry::default(),
+            scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
@@ -80,15 +77,6 @@ impl SimInit {
             abort_signal,
             model_names: Vec::new(),
         }
-    }
-
-    pub fn register_source<T: std::fmt::Debug + Clone + Send + Serialize + DeserializeOwned>(
-        mut self,
-        source: EventSource<T>,
-        name: &str,
-    ) -> Self {
-        let _ = self.registry.add(source, name);
-        self
     }
 
     /// Adds a model and its mailbox to the simulation bench.
@@ -193,7 +181,6 @@ impl SimInit {
         let mut simulation = Simulation::new(
             self.executor,
             self.scheduler_queue,
-            self.registry,
             self.time,
             self.clock,
             self.clock_tolerance,

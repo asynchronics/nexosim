@@ -1,9 +1,14 @@
 use std::fmt;
 use std::time::Duration;
 
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+
 use crate::executor::{Executor, Signal};
-use crate::ports::InputFn;
-use crate::simulation::{self, ActionKey, Address, GlobalScheduler, Mailbox, SchedulingError};
+use crate::ports::{EventSource, InputFn};
+use crate::simulation::{
+    self, ActionKey, Address, GlobalScheduler, Mailbox, SchedulingError, SourceId,
+};
 use crate::time::{Deadline, MonotonicTime};
 
 use super::{Model, ProtoModel};
@@ -112,6 +117,25 @@ impl<M: Model> Context<M> {
         self.scheduler.time()
     }
 
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId
+    where
+        T: Serialize + DeserializeOwned + Clone + Send,
+    {
+        let mut queue = self.scheduler.scheduler_queue.lock().unwrap();
+        queue.registry.add(source)
+    }
+
+    pub fn register_input<F, T, S>(&self, func: F) -> SourceId
+    where
+        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        S: Send + Sync + 'static,
+    {
+        let mut source = EventSource::new();
+        source.connect(func, self.address.clone());
+        self.register_event_source(source)
+    }
+
     /// Schedules an event at a future time on this model.
     ///
     /// An error is returned if the specified deadline is not in the future of
@@ -162,11 +186,11 @@ impl<M: Model> Context<M> {
     pub fn schedule_event_from_source<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source: &str,
+        source_id: SourceId,
         arg: T,
     ) -> Result<(), SchedulingError> {
         self.scheduler
-            .schedule_event_from_source(deadline, source, arg, self.origin_id)
+            .schedule_event_from_source(deadline, source_id, arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns

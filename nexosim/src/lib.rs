@@ -475,7 +475,7 @@ pub mod simulation;
 pub mod time;
 pub(crate) mod util;
 
-// #[cfg(feature = "server")]
+#[cfg(feature = "server")]
 pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;

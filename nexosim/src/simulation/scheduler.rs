@@ -1,5 +1,4 @@
 //! Scheduling functions and types.
-use std::any::Any;
 use std::error::Error;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -12,13 +11,13 @@ use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{Deserialize, Serialize};
+use tai_time::TaiTime;
 
 use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::registry::EventSourceRegistry;
+use crate::simulation::scheduler_events::{ScheduledEvent, SchedulerSourceRegistry, SourceId};
 use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
@@ -346,26 +345,6 @@ impl fmt::Debug for Action {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct ScheduledEvent {
-    pub source: String,
-    pub arg: Box<dyn Any + Send>,
-}
-impl ScheduledEvent {
-    pub(crate) fn is_cancelled(&self) -> bool {
-        false
-    }
-    pub(crate) fn next(&self) -> Option<(ScheduledEvent, Duration)> {
-        None
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct SerializableEvent {
-    pub source: String,
-    pub arg: Vec<u8>,
-}
-
 /// Alias for the scheduler queue type.
 ///
 /// Why use both time and origin ID as the key? The short answer is that this
@@ -374,12 +353,35 @@ pub struct SerializableEvent {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), ScheduledEvent>;
+///
+// pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), ScheduledEvent>;
+// TODO docs
+pub(crate) struct SchedulerQueue {
+    inner: PriorityQueue<(MonotonicTime, usize), ScheduledEvent>,
+    pub(crate) registry: SchedulerSourceRegistry,
+}
+impl SchedulerQueue {
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: PriorityQueue::new(),
+            registry: SchedulerSourceRegistry::default(),
+        }
+    }
+    pub(crate) fn insert(&mut self, key: (TaiTime<0>, usize), value: ScheduledEvent) {
+        self.inner.insert(key, value);
+    }
+    pub(crate) fn peek(&self) -> Option<(&(tai_time::TaiTime<0>, usize), &ScheduledEvent)> {
+        self.inner.peek()
+    }
+    pub(crate) fn pull(&mut self) -> Option<((tai_time::TaiTime<0>, usize), ScheduledEvent)> {
+        self.inner.pull()
+    }
+}
 
 /// Internal implementation of the global scheduler.
 #[derive(Clone)]
 pub(crate) struct GlobalScheduler {
-    scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    pub(crate) scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTimeReader,
     is_halted: Arc<AtomicBool>,
 }
@@ -439,7 +441,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_event_from_source<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source: &str,
+        source_id: SourceId,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError> {
@@ -450,10 +452,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent {
-            source: source.to_string(),
-            arg: Box::new(arg),
-        };
+        let event = ScheduledEvent::new(source_id, Box::new(arg));
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
@@ -899,9 +898,9 @@ pub(crate) async fn send_keyed_event<M, F, T, S>(
 impl GlobalScheduler {
     /// Creates a dummy scheduler for testing purposes.
     pub(crate) fn new_dummy() -> Self {
-        let dummy_priority_queue = Arc::new(Mutex::new(PriorityQueue::new()));
+        let dummy_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
         let dummy_halter = Arc::new(AtomicBool::new(false));
-        GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_halter)
+        GlobalScheduler::new(dummy_queue, dummy_time, dummy_halter)
     }
 }

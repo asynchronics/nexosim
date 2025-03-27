@@ -40,7 +40,7 @@ impl EndpointRegistry {
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: Serialize + DeserializeOwned + std::fmt::Debug + Clone + Send + 'static,
+        T: DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.add(source, name)
     }

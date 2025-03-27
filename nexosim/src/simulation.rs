@@ -77,6 +77,7 @@
 //! or requests) in their mailboxes.
 mod mailbox;
 mod scheduler;
+mod scheduler_events;
 mod sim_init;
 
 pub(crate) use scheduler::{
@@ -85,11 +86,11 @@ pub(crate) use scheduler::{
 
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError};
+pub use scheduler_events::SourceId;
 pub use sim_init::SimInit;
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
@@ -102,16 +103,14 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{Serialize, Serializer};
-use tai_time::TaiTime;
 
-use scheduler::{ScheduledEvent, SchedulerQueue, SerializableEvent};
+use scheduler::SchedulerQueue;
+use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel};
 use crate::ports::{InputFn, ReplierFn};
-use crate::registry::EventSourceRegistry;
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::slot;
@@ -158,7 +157,6 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-    registry: EventSourceRegistry,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -175,7 +173,6 @@ impl Simulation {
     pub(crate) fn new(
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-        registry: EventSourceRegistry,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
@@ -187,7 +184,6 @@ impl Simulation {
         Self {
             executor,
             scheduler_queue,
-            registry,
             time,
             clock,
             clock_tolerance,
@@ -468,10 +464,10 @@ impl Simulation {
                 // Since there are no other actions with the same origin and the
                 // same time, the action is spawned immediately.
 
-                let source = self
+                let source = scheduler_queue
                     .registry
-                    .get(&event.source)
-                    .ok_or(ExecutionError::InvalidEvent(event.source.to_string()))?;
+                    .get(&event.source_id)
+                    .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
                 // action.spawn_and_forget(&self.executor);
                 let fut = source.into_future(&*event.arg);
                 let mut action_sequence = SeqFuture::new();
@@ -566,45 +562,45 @@ impl Simulation {
         }
     }
 
-    pub fn serializable_queue(&self) -> impl Serialize {
-        let queue = self.scheduler_queue.lock().unwrap();
+    // pub fn serializable_queue(&self) -> impl Serialize {
+    //     let queue = self.scheduler_queue.lock().unwrap();
 
-        let mut v = Vec::new();
-        for a in queue.iter() {
-            let source = self.registry.get(&a.value.source).unwrap();
-            let arg = source.serialize_arg(&*a.value.arg);
-            v.push((
-                a.key,
-                a.epoch,
-                SerializableEvent {
-                    source: a.value.source.to_string(),
-                    arg,
-                },
-            ));
-        }
-        v
-    }
+    //     let mut v = Vec::new();
+    //     for a in queue.iter() {
+    //         let source = self.registry.get(&a.value.source).unwrap();
+    //         let arg = source.serialize_arg(&*a.value.arg);
+    //         v.push((
+    //             a.key,
+    //             a.epoch,
+    //             SerializableEvent {
+    //                 source: a.value.source.to_string(),
+    //                 arg,
+    //             },
+    //         ));
+    //     }
+    //     v
+    // }
 
-    pub fn restore_deserialized_queue(
-        &self,
-        v: Vec<((TaiTime<0>, usize), f64, SerializableEvent)>,
-    ) {
-        let mut queue = self.scheduler_queue.lock().unwrap();
-        // TODO add drain or clear
-        while let Some(_) = queue.pull() {}
+    // pub fn restore_deserialized_queue(
+    //     &self,
+    //     v: Vec<((TaiTime<0>, usize), f64, SerializableEvent)>,
+    // ) {
+    //     let mut queue = self.scheduler_queue.lock().unwrap();
+    //     // TODO add drain or clear
+    //     while let Some(_) = queue.pull() {}
 
-        for entry in v {
-            let source = self.registry.get(&entry.2.source).unwrap();
-            let arg = source.deserialize_arg(&entry.2.arg);
-            queue.insert(
-                entry.0,
-                ScheduledEvent {
-                    source: entry.2.source,
-                    arg,
-                },
-            );
-        }
-    }
+    //     for entry in v {
+    //         let source = self.registry.get(&entry.2.source).unwrap();
+    //         let arg = source.deserialize_arg(&entry.2.arg);
+    //         queue.insert(
+    //             entry.0,
+    //             ScheduledEvent {
+    //                 source: entry.2.source,
+    //                 arg,
+    //             },
+    //         );
+    //     }
+    // }
 
     /// Returns a scheduler handle.
     #[cfg(feature = "server")]
@@ -719,7 +715,7 @@ pub enum ExecutionError {
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
     // TODO
-    InvalidEvent(String),
+    InvalidEvent(SourceId),
 }
 
 impl fmt::Display for ExecutionError {
@@ -789,7 +785,7 @@ impl fmt::Display for ExecutionError {
             }
             Self::InvalidEvent(e) => write!(
                 f,
-                "Invalid event: {}",
+                "Invalid event: {:?}",
                 e
             )
         }
