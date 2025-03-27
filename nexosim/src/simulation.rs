@@ -211,7 +211,7 @@ impl Simulation {
         self.time.read()
     }
 
-    /// Reinitialize simulation's clock (eg. after halting)
+    /// Reinitialize simulation's clock (e.g. after halting).
     pub fn reset_clock(&mut self, clock: impl Clock + 'static) {
         self.clock = Box::new(clock);
     }

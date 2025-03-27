@@ -1,4 +1,4 @@
-//! Simulation pause and resume
+//! Simulation halt and resume.
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -50,19 +50,27 @@ fn halt_and_resume() -> Result<(), SimulationError> {
     let simulation = Arc::new(Mutex::new(simu));
     let spawned_simulation = simulation.clone();
 
-    thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
+    let simulation_handle =
+        thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
 
     thread::sleep(Duration::from_secs(1));
 
     scheduler.halt();
     thread::sleep(Duration::from_secs(1));
 
-    // assert that the step has completed, even though `pause` was called before it's scheduled time
+    // Assert that the step has completed, even though `halt` was called before
+    // its scheduled time.
     assert!(message.next().is_some());
+
+    match simulation_handle.join().unwrap() {
+        Err(ExecutionError::Halted) => (),
+        Err(e) => return Err(e.into()),
+        _ => (),
+    };
 
     thread::sleep(Duration::from_secs(3));
 
-    // halted - no new messages
+    // Halted - no new messages.
     assert!(message.next().is_none());
 
     {
@@ -75,7 +83,8 @@ fn halt_and_resume() -> Result<(), SimulationError> {
         thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
 
     thread::sleep(Duration::from_secs(1));
-    // // now new messages yet, as the halted time should be invisible to the scheduler
+    // No new messages yet, as the halted time should be invisible to the
+    // scheduler.
     assert!(message.next().is_none());
 
     thread::sleep(Duration::from_secs(2));
