@@ -11,6 +11,7 @@ use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::Serialize;
 use tai_time::TaiTime;
 
 use crate::channel::Sender;
@@ -93,8 +94,10 @@ impl Scheduler {
         T: Send + Clone + 'static,
         S: Send + 'static,
     {
-        self.0
-            .schedule_event_from(deadline, func, arg, address, GLOBAL_SCHEDULER_ORIGIN_ID)
+        // TODO
+        // self.0
+        //     .schedule_event_from(deadline, func, arg, address, GLOBAL_SCHEDULER_ORIGIN_ID)
+        Ok(())
     }
 
     /// Schedules a cancellable event at a future time and returns an event key.
@@ -142,14 +145,16 @@ impl Scheduler {
         T: Send + Clone + 'static,
         S: Send + 'static,
     {
-        self.0.schedule_periodic_event_from(
-            deadline,
-            period,
-            func,
-            arg,
-            address,
-            GLOBAL_SCHEDULER_ORIGIN_ID,
-        )
+        // TODO
+        // self.0.schedule_periodic_event_from(
+        //     deadline,
+        //     period,
+        //     func,
+        //     arg,
+        //     address,
+        //     GLOBAL_SCHEDULER_ORIGIN_ID,
+        // )
+        Ok(())
     }
 
     /// Schedules a cancellable, periodically recurring event at a future time
@@ -187,6 +192,18 @@ impl Scheduler {
     /// Requests the simulation to stop when advancing to the next step.
     pub fn halt(&mut self) {
         self.0.halt()
+    }
+
+    // TEMP - for testing
+    pub fn dump_queue(&self) -> impl Serialize {
+        self.0.scheduler_queue.lock().unwrap().into_serializable()
+    }
+    pub fn load_queue(&self, queue: Vec<SerializableQueueEntry>) {
+        self.0
+            .scheduler_queue
+            .lock()
+            .unwrap()
+            .from_deserialized(queue);
     }
 }
 
@@ -354,8 +371,7 @@ impl fmt::Debug for Action {
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
 ///
-// pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), ScheduledEvent>;
-// TODO docs
+// TODO update docs
 pub(crate) struct SchedulerQueue {
     inner: PriorityQueue<(MonotonicTime, usize), ScheduledEvent>,
     pub(crate) registry: SchedulerSourceRegistry,
@@ -376,7 +392,47 @@ impl SchedulerQueue {
     pub(crate) fn pull(&mut self) -> Option<((tai_time::TaiTime<0>, usize), ScheduledEvent)> {
         self.inner.pull()
     }
+    pub fn into_serializable(&self) -> impl Serialize {
+        // TODO test order after ser - de
+        // TODO error handling
+        self.inner
+            .iter()
+            .map(|a| {
+                let source = self.registry.get(&a.value.source_id).unwrap();
+                let arg = source.serialize_arg(&*a.value.arg);
+                (
+                    a.key,
+                    // TODO epoch is not needed?
+                    a.value.source_id,
+                    arg,
+                    a.value.period,
+                )
+            })
+            .collect::<Vec<_>>()
+    }
+    pub fn from_deserialized(&mut self, queue: Vec<SerializableQueueEntry>) {
+        // drain the queue
+        // TODO impl on PriorityQueue?
+        while let Some(_) = self.inner.pull() {}
+
+        for entry in queue {
+            // TODO error handling
+            let source = self.registry.get(&entry.1).unwrap();
+            let arg = source.deserialize_arg(&entry.2);
+            self.inner.insert(
+                entry.0,
+                ScheduledEvent {
+                    source_id: entry.1,
+                    arg,
+                    period: entry.3,
+                },
+            );
+        }
+    }
 }
+
+// TODO change visibility
+pub type SerializableQueueEntry = ((TaiTime<0>, usize), SourceId, Vec<u8>, Option<Duration>);
 
 /// Internal implementation of the global scheduler.
 #[derive(Clone)]
@@ -437,8 +493,8 @@ impl GlobalScheduler {
         Ok(())
     }
 
-    // TODO temp impl.
-    pub(crate) fn schedule_event_from_source<T: Clone + Send + 'static>(
+    // TODO update docs
+    pub(crate) fn schedule_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
         source_id: SourceId,
@@ -452,44 +508,44 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::new(source_id, Box::new(arg));
+        let event = ScheduledEvent::once(source_id, Box::new(arg));
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
     }
 
     /// Schedules an event identified by its origin at a future time.
-    pub(crate) fn schedule_event_from<M, F, T, S>(
-        &self,
-        deadline: impl Deadline,
-        func: F,
-        arg: T,
-        address: impl Into<Address<M>>,
-        origin_id: usize,
-    ) -> Result<(), SchedulingError>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
-        T: Send + Clone + 'static,
-        S: Send + 'static,
-    {
-        let sender = address.into().0;
-        let action = Action::new(OnceAction::new(process_event(func, arg, sender)));
+    // pub(crate) fn schedule_event_from<M, F, T, S>(
+    //     &self,
+    //     deadline: impl Deadline,
+    //     func: F,
+    //     arg: T,
+    //     address: impl Into<Address<M>>,
+    //     origin_id: usize,
+    // ) -> Result<(), SchedulingError>
+    // where
+    //     M: Model,
+    //     F: for<'a> InputFn<'a, M, T, S>,
+    //     T: Send + Clone + 'static,
+    //     S: Send + 'static,
+    // {
+    //     let sender = address.into().0;
+    //     let action = Action::new(OnceAction::new(process_event(func, arg, sender)));
 
-        // The scheduler queue must always be locked when reading the time (see
-        // `schedule_from`).
-        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
-        let now = self.time();
-        let time = deadline.into_time(now);
-        if now >= time {
-            return Err(SchedulingError::InvalidScheduledTime);
-        }
+    //     // The scheduler queue must always be locked when reading the time (see
+    //     // `schedule_from`).
+    //     let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+    //     let now = self.time();
+    //     let time = deadline.into_time(now);
+    //     if now >= time {
+    //         return Err(SchedulingError::InvalidScheduledTime);
+    //     }
 
-        // TODO
-        // scheduler_queue.insert((time, origin_id), action);
+    //     // TODO
+    //     // scheduler_queue.insert((time, origin_id), action);
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Schedules a cancellable event identified by its origin at a future time
     /// and returns an event key.
@@ -531,29 +587,17 @@ impl GlobalScheduler {
 
     /// Schedules a periodically recurring event identified by its origin at a
     /// future time.
-    pub(crate) fn schedule_periodic_event_from<M, F, T, S>(
+    pub(crate) fn schedule_periodic_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
+        source_id: SourceId,
         period: Duration,
-        func: F,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
-    ) -> Result<(), SchedulingError>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
-        T: Send + Clone + 'static,
-        S: Send + 'static,
-    {
+    ) -> Result<(), SchedulingError> {
         if period.is_zero() {
             return Err(SchedulingError::NullRepetitionPeriod);
         }
-        let sender = address.into().0;
-        let action = Action::new(PeriodicAction::new(
-            || process_event(func, arg, sender),
-            period,
-        ));
 
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
@@ -564,8 +608,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        // TODO
-        // scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::periodic(source_id, Box::new(arg), period);
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
     }

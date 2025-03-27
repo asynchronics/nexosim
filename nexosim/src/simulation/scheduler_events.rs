@@ -2,14 +2,16 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use bincode;
+use dyn_clone::DynClone;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ports::EventSource;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct SourceId(usize);
 
 #[derive(Default)]
@@ -63,16 +65,37 @@ where
 pub(crate) struct ScheduledEvent {
     pub source_id: SourceId,
     pub arg: Box<dyn Any + Send>,
+    pub period: Option<Duration>,
 }
 impl ScheduledEvent {
-    pub(crate) fn new(source_id: SourceId, arg: Box<dyn Any + Send>) -> Self {
-        Self { source_id, arg }
+    pub(crate) fn once(source_id: SourceId, arg: Box<dyn Any + Send>) -> Self {
+        Self {
+            source_id,
+            arg,
+            period: None,
+        }
+    }
+    pub(crate) fn periodic(
+        source_id: SourceId,
+        arg: Box<dyn Any + Send>,
+        period: Duration,
+    ) -> Self {
+        Self {
+            source_id,
+            arg,
+            period: Some(period),
+        }
     }
     pub(crate) fn is_cancelled(&self) -> bool {
         false
     }
-    // pub(crate) fn next(&self) -> Option<(ScheduledEvent, Duration)> {
-    //     None
+    // pub(crate) fn next(&self) -> Option<ScheduledEvent> {
+    //     Some(Self {
+    //         source_id: self.source_id,
+    //         // TODO check the overhead of dyn_clone
+    //         arg: dyn_clone::clone_box(&*self.arg),
+    //         period: Some(self.period?.clone()),
+    //     })
     // }
 }
 

@@ -167,30 +167,16 @@ impl<M: Model> Context<M> {
     ///
     /// impl Model for Timer {}
     /// ```
-    pub fn schedule_event<F, T, S>(
-        &self,
-        deadline: impl Deadline,
-        func: F,
-        arg: T,
-    ) -> Result<(), SchedulingError>
-    where
-        F: for<'a> InputFn<'a, M, T, S>,
-        T: Send + Clone + 'static,
-        S: Send + 'static,
-    {
-        self.scheduler
-            .schedule_event_from(deadline, func, arg, &self.address, self.origin_id)
-    }
 
-    // TODO temp name -> ultimately replace schedule_event
-    pub fn schedule_event_from_source<T: Clone + Send + 'static>(
+    // TODO update docs
+    pub fn schedule_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
         source_id: SourceId,
         arg: T,
     ) -> Result<(), SchedulingError> {
         self.scheduler
-            .schedule_event_from_source(deadline, source_id, arg, self.origin_id)
+            .schedule_event_from(deadline, source_id, arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -294,24 +280,19 @@ impl<M: Model> Context<M> {
     ///
     /// impl Model for BeepingAlarmClock {}
     /// ```
-    pub fn schedule_periodic_event<F, T, S>(
+    // TODO update the docs
+    pub fn schedule_periodic_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
+        source_id: SourceId,
         period: Duration,
-        func: F,
         arg: T,
-    ) -> Result<(), SchedulingError>
-    where
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
-        T: Send + Clone + 'static,
-        S: Send + 'static,
-    {
+    ) -> Result<(), SchedulingError> {
         self.scheduler.schedule_periodic_event_from(
             deadline,
+            source_id,
             period,
-            func,
             arg,
-            &self.address,
             self.origin_id,
         )
     }

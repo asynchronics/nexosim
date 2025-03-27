@@ -3,15 +3,23 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use nexosim::model::{Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{Address, ExecutionError, Mailbox, SimInit, SimulationError, SourceId};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct CustomArg {
+    pub key: String,
+    pub val: usize,
+}
+
 /// The `Listener` Model.
 pub struct Listener {
     pub message: Output<u32>,
-    pub message_str: Output<String>,
+    pub message_str: Output<CustomArg>,
 }
 
 impl Listener {
@@ -26,8 +34,8 @@ impl Listener {
         println!("Running! {}", msg);
         self.message.send(msg).await;
     }
-    pub async fn process_str(&mut self, msg: String) {
-        println!("Running! {}", msg);
+    pub async fn process_str(&mut self, msg: CustomArg) {
+        println!("Running! {:?}", msg);
         self.message_str.send(msg).await;
     }
 }
@@ -35,18 +43,28 @@ impl Listener {
 impl Model for Listener {
     /// Initialize model.
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        // let mut input = EventSource::new();
-        // input.connect(Listener::process, cx)
-        // let input_id = cx.register_event_source(input);
         let input_id = cx.register_input(Listener::process);
-        cx.schedule_event_from_source(Duration::from_secs(2), input_id, 13u32)
+        cx.schedule_event(Duration::from_secs(2), input_id, 13u32)
             .unwrap();
-        // cx.schedule_event_from_source(Duration::from_secs(5), "input", 15u32)
-        //     .unwrap();
-        // cx.schedule_event_from_source(Duration::from_secs(7), "input", 20u32)
-        //     .unwrap();
-        // cx.schedule_event_from_source(Duration::from_secs(3), "input_str", "Three".to_string())
-        //     .unwrap();
+
+        let input_str_id = cx.register_input(Listener::process_str);
+        cx.schedule_event(
+            Duration::from_secs(2),
+            input_str_id,
+            CustomArg {
+                key: "SomeKey".to_string(),
+                val: 54,
+            },
+        )
+        .unwrap();
+
+        cx.schedule_periodic_event(
+            Duration::from_secs(1),
+            input_id,
+            Duration::from_secs(1),
+            17u32,
+        )
+        .unwrap();
 
         self.into()
     }
@@ -71,9 +89,9 @@ fn main() -> Result<(), SimulationError> {
         .set_clock(AutoSystemClock::new())
         .init(t0)?;
 
-    // let s = serde_json::to_string(&simu.serializable_queue()).unwrap();
-    // println!("{}", s);
-    // simu.restore_deserialized_queue(serde_json::from_str(&s).unwrap());
+    let s = serde_json::to_string(&scheduler.dump_queue()).unwrap();
+    println!("{}", s);
+    scheduler.load_queue(serde_json::from_str(&s).unwrap());
 
     simu.step_unbounded().unwrap();
 
