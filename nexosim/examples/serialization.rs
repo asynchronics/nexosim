@@ -16,6 +16,11 @@ struct CustomArg {
     pub val: usize,
 }
 
+#[derive(Default, Serialize, Deserialize)]
+struct ListenerState {
+    counter: usize,
+}
+
 /// The `Listener` Model.
 pub struct Listener {
     pub message: Output<u32>,
@@ -30,8 +35,8 @@ impl Listener {
             message_str: Output::default(),
         }
     }
-    pub async fn process(&mut self, msg: u32) {
-        println!("Running! {}", msg);
+    pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
+        println!("Running! {} @{}", msg, cx.time());
         self.message.send(msg).await;
     }
     pub async fn process_str(&mut self, msg: CustomArg) {

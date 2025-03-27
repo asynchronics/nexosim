@@ -5,7 +5,6 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use bincode;
-use dyn_clone::DynClone;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +14,7 @@ use crate::ports::EventSource;
 pub struct SourceId(usize);
 
 #[derive(Default)]
+// TODO use a vec since the key is usize?
 pub(crate) struct SchedulerSourceRegistry(HashMap<SourceId, Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
     pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId
