@@ -83,20 +83,32 @@ impl<'de> Deserialize<'de> for KeyList {
     }
 }
 
+#[derive(Debug, Serialize)] // --> can't derive Deserialize
+struct UserModel {
+    pub value: usize,
+    pub key: ActionKey,
+}
+
 fn main() {
     let a = ActionKey(Arc::new(AtomicBool::new(false)));
     let b = a.clone();
 
     let c = ActionKey(Arc::new(AtomicBool::new(false)));
+    let model = UserModel {
+        value: 13,
+        key: a.clone(),
+    };
     let list = KeyList(vec![a, b, c]);
 
-    let s = serde_json::to_string(&list).unwrap();
-    println!("{}", s);
+    let s_list = serde_json::to_string(&list).unwrap();
+    println!("{}", s_list);
+    let s_model = serde_json::to_string(&model).unwrap();
+    println!("{}", s_model);
 
-    let list: KeyList = serde_json::from_str(&s).unwrap();
-    println!("{:?}", list);
-    list.0[0].0.store(true, Ordering::Relaxed);
-    println!("{:?}", list);
-    assert!(list.0[1].0.load(Ordering::Relaxed));
-    assert_eq!(false, list.0[2].0.load(Ordering::Relaxed));
+    let d_list: KeyList = serde_json::from_str(&s_list).unwrap();
+    println!("{:?}", d_list);
+    d_list.0[0].0.store(true, Ordering::Relaxed);
+    println!("{:?}", d_list);
+    assert!(d_list.0[1].0.load(Ordering::Relaxed));
+    assert_eq!(false, d_list.0[2].0.load(Ordering::Relaxed));
 }
