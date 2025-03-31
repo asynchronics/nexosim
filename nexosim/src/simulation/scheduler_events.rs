@@ -56,6 +56,7 @@ where
     fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(EventSource::into_future(
             self,
+            // TODO error handling
             arg.downcast_ref::<T>().unwrap().clone(),
         ))
     }
@@ -89,18 +90,4 @@ impl ScheduledEvent {
     pub(crate) fn is_cancelled(&self) -> bool {
         false
     }
-    // pub(crate) fn next(&self) -> Option<ScheduledEvent> {
-    //     Some(Self {
-    //         source_id: self.source_id,
-    //         // TODO check the overhead of dyn_clone
-    //         arg: dyn_clone::clone_box(&*self.arg),
-    //         period: Some(self.period?.clone()),
-    //     })
-    // }
 }
-
-// #[derive(Deserialize, Serialize)]
-// pub struct SerializableEvent {
-//     pub source: String,
-//     pub arg: Vec<u8>,
-// }
