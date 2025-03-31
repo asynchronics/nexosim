@@ -99,9 +99,9 @@ impl<T: Send> fmt::Debug for EventQueue<T> {
 /// Implements [`EventSinkReader`]. Calls to the iterator's `next` method are
 /// blocking or non-blocking depending on its mode.
 ///
-/// `None` is returned when
-/// * all writer handles have been dropped (i.e. the `Simulation` object has
-///   been dropped);
+/// `None` is returned
+/// * when all writer handles have been dropped (i.e. the `Simulation` object
+///   has been dropped);
 /// * on timeout if one has been set;
 /// * when there are no events at the moment (in the non-blocking mode).
 ///
