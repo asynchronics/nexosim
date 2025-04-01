@@ -57,7 +57,7 @@ impl ProtoModel for ProtoListener {
 }
 
 fn main() -> Result<(), SimulationError> {
-    let mut listener = ProtoListener;
+    let listener = ProtoListener;
     let mut listener_env = ListenerEnvironment::new();
     let listener_mbox = Mailbox::new();
 
@@ -73,7 +73,6 @@ fn main() -> Result<(), SimulationError> {
         .init(t0)?;
 
     simu.step().unwrap();
-    // assert!(message.next().is_some());
     println!("{:?}", message.next());
 
     Ok(())

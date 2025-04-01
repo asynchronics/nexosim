@@ -81,8 +81,8 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
-    name: String,
     pub environment: M::Environment,
+    name: String,
     scheduler: GlobalScheduler,
     address: Address<M>,
     origin_id: usize,
