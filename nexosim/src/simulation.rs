@@ -421,12 +421,7 @@ impl Simulation {
         fn pull_next_scheduled_event(
             scheduler_queue: &mut MutexGuard<SchedulerQueue>,
         ) -> ScheduledEvent {
-            let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
-            // TODO
-            // if let Some((action_clone, period)) = event.next() {
-            //     scheduler_queue.insert((time + period, channel_id), action_clone);
-            // }
-
+            let (_, event) = scheduler_queue.pull().unwrap();
             event
         }
 
