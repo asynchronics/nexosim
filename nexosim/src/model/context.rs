@@ -124,25 +124,6 @@ impl<M: Model> Context<M> {
         self.scheduler.time()
     }
 
-    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId
-    where
-        T: Serialize + DeserializeOwned + Clone + Send,
-    {
-        let mut queue = self.scheduler.scheduler_queue.lock().unwrap();
-        queue.registry.add(source)
-    }
-
-    pub fn register_input<F, T, S>(&self, func: F) -> SourceId
-    where
-        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-        S: Send + Sync + 'static,
-    {
-        let mut source = EventSource::new();
-        source.connect(func, self.address.clone());
-        self.register_event_source(source)
-    }
-
     /// Schedules an event at a future time on this model.
     ///
     /// An error is returned if the specified deadline is not in the future of
@@ -513,6 +494,25 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// Returns a handle to the model's mailbox.
     pub fn address(&self) -> Address<P::Model> {
         self.mailbox.address()
+    }
+
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId
+    where
+        T: Serialize + DeserializeOwned + Clone + Send,
+    {
+        let mut queue = self.scheduler.scheduler_queue.lock().unwrap();
+        queue.registry.add(source)
+    }
+
+    pub fn register_input<F, T, S>(&self, func: F) -> SourceId
+    where
+        F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        S: Send + Sync + 'static,
+    {
+        let mut source = EventSource::new();
+        source.connect(func, self.address().clone());
+        self.register_event_source(source)
     }
 
     /// Adds a sub-model to the simulation bench.
