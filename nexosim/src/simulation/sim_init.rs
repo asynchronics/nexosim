@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
-use crate::model::ProtoModel;
+use crate::model::{Model, ProtoModel};
 use crate::ports::EventSource;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
 use crate::util::priority_queue::PriorityQueue;
@@ -88,6 +88,7 @@ impl SimInit {
     pub fn add_model<P: ProtoModel>(
         mut self,
         model: P,
+        environment: <P::Model as Model>::Environment,
         mailbox: Mailbox<P::Model>,
         name: impl Into<String>,
     ) -> Self {
@@ -105,6 +106,7 @@ impl SimInit {
 
         add_model(
             model,
+            environment,
             mailbox,
             name,
             scheduler,

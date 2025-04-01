@@ -192,7 +192,6 @@
 //!     }
 //! }
 //! impl Model for ChildModel {}
-//!
 //! ```
 use std::future::Future;
 
@@ -244,6 +243,8 @@ pub trait Model: Sized + Send + 'static {
     ///     }
     /// }
     /// ```
+    type Environment: Send + 'static;
+
     fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }

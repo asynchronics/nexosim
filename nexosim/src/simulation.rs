@@ -53,8 +53,8 @@
 //! rare in practice, these may occur due to one of the below:
 //!
 //! 1. *query loopback*: if a model sends a query which loops back to itself
-//!    (either directly or transitively via other models), that model
-//!    would in effect wait for its own response and block,
+//!    (either directly or transitively via other models), that model would in
+//!    effect wait for its own response and block,
 //! 2. *mailbox saturation loopback*: if an asynchronous model method sends in
 //!    the same call many events that end up saturating its own mailbox (either
 //!    directly or transitively via other models), then any attempt to send
@@ -854,6 +854,7 @@ impl From<SchedulingError> for SimulationError {
 /// Adds a model and its mailbox to the simulation bench.
 pub(crate) fn add_model<P: ProtoModel>(
     model: P,
+    environment: <P::Model as Model>::Environment,
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
@@ -877,7 +878,7 @@ pub(crate) fn add_model<P: ProtoModel>(
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
-    let mut cx = Context::new(name.clone(), scheduler, address);
+    let mut cx = Context::new(name.clone(), environment, scheduler, address);
     let fut = async move {
         let mut model = model.init(&mut cx).await.0;
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}

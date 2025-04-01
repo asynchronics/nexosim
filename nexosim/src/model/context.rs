@@ -82,6 +82,7 @@ use crate::channel::Receiver;
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
     name: String,
+    pub environment: M::Environment,
     scheduler: GlobalScheduler,
     address: Address<M>,
     origin_id: usize,
@@ -89,7 +90,12 @@ pub struct Context<M: Model> {
 
 impl<M: Model> Context<M> {
     /// Creates a new local context.
-    pub(crate) fn new(name: String, scheduler: GlobalScheduler, address: Address<M>) -> Self {
+    pub(crate) fn new(
+        name: String,
+        environment: M::Environment,
+        scheduler: GlobalScheduler,
+        address: Address<M>,
+    ) -> Self {
         // The only requirement for the origin ID is that it must be (i)
         // specific to each model and (ii) different from 0 (which is reserved
         // for the global scheduler). The channel ID of the model mailbox
@@ -98,6 +104,7 @@ impl<M: Model> Context<M> {
 
         Self {
             name,
+            environment,
             scheduler,
             address,
             origin_id,
@@ -464,7 +471,6 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///         mult
 ///     }
 /// }
-///
 /// ```
 #[derive(Debug)]
 pub struct BuildContext<'a, P: ProtoModel> {
@@ -520,6 +526,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn add_submodel<S: ProtoModel>(
         &mut self,
         model: S,
+        environment: <S::Model as Model>::Environment,
         mailbox: Mailbox<S::Model>,
         name: impl Into<String>,
     ) {
@@ -531,6 +538,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
         simulation::add_model(
             model,
+            environment,
             mailbox,
             submodel_name,
             self.scheduler.clone(),
@@ -542,12 +550,13 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
-impl<M: Model> Context<M> {
+impl<M: Model<Environment = usize>> Context<M> {
     /// Creates a dummy context for testing purposes.
     pub(crate) fn new_dummy() -> Self {
         let dummy_address = Receiver::new(1).sender();
         Context::new(
             String::new(),
+            17,
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
         )
