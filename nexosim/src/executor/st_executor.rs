@@ -164,7 +164,8 @@ struct ExecutorInner {
 
 impl ExecutorInner {
     fn run(&mut self) -> Result<(), ExecutorError> {
-        // In case this executor is nested in another one, reset the counter of in-flight messages.
+        // In case this executor is nested in another one, reset the counter of
+        // in-flight messages.
         let msg_count_stash = channel::THREAD_MSG_COUNT.replace(self.context.msg_count);
 
         let result = SIMULATION_CONTEXT.set(&self.simulation_context, || {

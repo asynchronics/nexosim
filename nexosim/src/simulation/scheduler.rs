@@ -1,4 +1,5 @@
 //! Scheduling functions and types.
+use std::cell::Cell;
 use std::error::Error;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -11,22 +12,24 @@ use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tai_time::TaiTime;
 
 use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
-use crate::ports::InputFn;
+use crate::ports::{EventSource, InputFn};
 use crate::simulation::scheduler_events::{ScheduledEvent, SchedulerSourceRegistry, SourceId};
 use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
-#[cfg(all(test, not(nexosim_loom)))]
+// #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = 0;
+thread_local! { pub(crate) static SCHEDULER: GlobalScheduler = GlobalScheduler::new(Arc::new(Mutex::new(SchedulerQueue::new())), SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader(), Arc::new(AtomicBool::new(false))); }
 
 /// A global simulation scheduler.
 ///
@@ -51,7 +54,7 @@ impl Scheduler {
     /// use nexosim::simulation::Scheduler;
     /// use nexosim::time::MonotonicTime;
     ///
-    /// fn is_third_millenium(scheduler: &Scheduler) -> bool {
+    /// fn is_third_millennium(scheduler: &Scheduler) -> bool {
     ///     let time = scheduler.time();
     ///     time >= MonotonicTime::new(978307200, 0).unwrap()
     ///         && time < MonotonicTime::new(32535216000, 0).unwrap()
@@ -61,6 +64,13 @@ impl Scheduler {
         self.0.time()
     }
 
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        let mut queue = self.0.scheduler_queue.lock().unwrap();
+        queue.registry.add(source)
+    }
     /// Schedules an action at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
@@ -81,23 +91,17 @@ impl Scheduler {
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
-    pub fn schedule_event<M, F, T, S>(
+    pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId,
         arg: T,
-        address: impl Into<Address<M>>,
     ) -> Result<(), SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
-        // TODO
-        // self.0
-        //     .schedule_event_from(deadline, func, arg, address, GLOBAL_SCHEDULER_ORIGIN_ID)
-        Ok(())
+        self.0
+            .schedule_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules a cancellable event at a future time and returns an event key.
@@ -370,7 +374,6 @@ impl fmt::Debug for Action {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-///
 // TODO update docs
 pub(crate) struct SchedulerQueue {
     inner: PriorityQueue<(MonotonicTime, usize), ScheduledEvent>,
@@ -474,10 +477,10 @@ impl GlobalScheduler {
     ) -> Result<(), SchedulingError> {
         // The scheduler queue must always be locked when reading the time,
         // otherwise the following race could occur:
-        // 1) this method reads the time and concludes that it is not too late
-        //    to schedule the action,
-        // 2) the `Simulation` object takes the lock, increments simulation time
-        //    and runs the simulation step,
+        // 1) this method reads the time and concludes that it is not too late to
+        //    schedule the action,
+        // 2) the `Simulation` object takes the lock, increments simulation time and
+        //    runs the simulation step,
         // 3) this method takes the lock and schedules the now-outdated action.
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
 
@@ -509,6 +512,8 @@ impl GlobalScheduler {
         }
 
         let event = ScheduledEvent::once(source_id, Box::new(arg));
+        println!("{:?} {}", event, origin_id);
+        println!("{:?}", scheduler_queue.registry.get(&source_id));
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
@@ -751,7 +756,7 @@ where
     G: (FnOnce() -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
-    /// A clonable generator for the associated future.
+    /// A cloneable generator for the associated future.
     gen: G,
     /// The action repetition period.
     period: Duration,
@@ -839,7 +844,7 @@ where
     G: (FnOnce(ActionKey) -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
-    /// A clonable generator for associated future.
+    /// A cloneable generator for associated future.
     gen: G,
     /// The repetition period.
     period: Duration,

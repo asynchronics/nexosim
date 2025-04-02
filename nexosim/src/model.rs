@@ -193,9 +193,13 @@
 //! }
 //! impl Model for ChildModel {}
 //! ```
+use std::borrow::Borrow;
 use std::future::Future;
 
 pub use context::{BuildContext, Context};
+
+use crate::simulation::{SchedulingError, SourceId};
+use crate::time::Deadline;
 
 mod context;
 
@@ -243,7 +247,7 @@ pub trait Model: Sized + Send + 'static {
     ///     }
     /// }
     /// ```
-    type Environment: Send + 'static;
+    type Environment: Environment + Send + 'static;
 
     fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
@@ -293,5 +297,21 @@ impl<M: Model> ProtoModel for M {
 
     fn build(self, _: &mut BuildContext<Self>) -> Self::Model {
         self
+    }
+}
+
+pub trait Environment {
+    // fn time(&self) -> crate::time::MonotonicTime {
+    //     crate::simulation::SCHEDULER.with(|s| s.get().as_ref().unwrap().time())
+    // }
+    fn schedule_event_from<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        source_id: SourceId,
+        arg: T,
+        origin_id: usize,
+    ) -> Result<(), SchedulingError> {
+        crate::simulation::SCHEDULER
+            .with(|f| f.schedule_event_from(deadline, source_id, arg, origin_id))
     }
 }

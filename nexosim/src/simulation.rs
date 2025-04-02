@@ -89,6 +89,8 @@ pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError
 pub use scheduler_events::SourceId;
 pub use sim_init::SimInit;
 
+pub(crate) use scheduler::SCHEDULER;
+
 use std::any::{Any, TypeId};
 use std::cell::Cell;
 use std::error::Error;
@@ -879,7 +881,19 @@ pub(crate) fn add_model<P: ProtoModel>(
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
     let mut cx = Context::new(name.clone(), environment, scheduler, address);
+    crate::simulation::SCHEDULER.with(|f| {
+        println!(
+            "Source: {:?}",
+            f.scheduler_queue.lock().unwrap().registry.get(&SourceId(0))
+        )
+    });
     let fut = async move {
+        crate::simulation::SCHEDULER.with(|f| {
+            println!(
+                "Source: {:?}",
+                f.scheduler_queue.lock().unwrap().registry.get(&SourceId(0))
+            )
+        });
         let mut model = model.init(&mut cx).await.0;
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };

@@ -30,7 +30,7 @@ impl SchedulerSourceRegistry {
     }
 }
 
-pub(crate) trait SchedulerEventSource: Send + Sync + 'static {
+pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + Sync + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8>;
     fn deserialize_arg(&self, arg: &[u8]) -> Box<dyn Any + Send>;
     fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>>;

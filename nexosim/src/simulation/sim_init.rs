@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -53,6 +54,7 @@ impl SimInit {
             num_threads.clamp(1, usize::BITS as usize)
         };
         let time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH));
+        // TODO redundant
         let simulation_context = SimulationContext {
             #[cfg(feature = "tracing")]
             time_reader: time.reader(),
@@ -65,9 +67,11 @@ impl SimInit {
             Executor::new_multi_threaded(num_threads, simulation_context, abort_signal.clone())
         };
 
+        let scheduler_queue = crate::simulation::SCHEDULER.with(|f| f.scheduler_queue.clone());
+
         Self {
             executor,
-            scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
+            scheduler_queue,
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),

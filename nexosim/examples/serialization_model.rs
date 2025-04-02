@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Context, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Context, Environment, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{Address, ExecutionError, Mailbox, SimInit, SimulationError, SourceId};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
@@ -20,6 +20,7 @@ impl ListenerEnvironment {
         }
     }
 }
+impl Environment for ListenerEnvironment {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Listener {
@@ -29,9 +30,11 @@ pub struct Listener {
 
 impl Listener {
     pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
+        println!("Process {}", msg);
         cx.environment
             .message
-            .send(format!("{} @{}", msg, cx.time()))
+            // .send(format!("{} @{}", msg, cx.environment.time()))
+            .send(format!("{}", msg))
             .await;
     }
 }
@@ -41,7 +44,10 @@ impl Model for Listener {
 
     /// Initialize model.
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        cx.schedule_event(Duration::from_secs(2), self.input_id, 13u32)
+        cx.schedule_event(Duration::from_secs(3), self.input_id, 17u32)
+            .unwrap();
+        cx.environment
+            .schedule_event_from(Duration::from_secs(2), self.input_id, 13u32, 1)
             .unwrap();
         self.into()
     }
@@ -56,6 +62,10 @@ impl ProtoModel for ProtoListener {
     }
 }
 
+fn dump(listener: &mut Listener) {
+    println!("dump")
+}
+
 fn main() -> Result<(), SimulationError> {
     let listener = ProtoListener;
     let mut listener_env = ListenerEnvironment::new();
@@ -65,6 +75,9 @@ fn main() -> Result<(), SimulationError> {
     listener_env.message.connect_sink(&message);
     let mut message = message.into_reader();
 
+    let mut dump_source = EventSource::new();
+    dump_source.connect(dump, listener_mbox.address().clone());
+
     let t0 = MonotonicTime::EPOCH;
 
     let (mut simu, mut scheduler) = SimInit::new()
@@ -73,6 +86,14 @@ fn main() -> Result<(), SimulationError> {
         .init(t0)?;
 
     simu.step().unwrap();
+
+    // let dump_id = scheduler.register_event_source(dump_source);
+    // scheduler
+    //     .schedule_event(Duration::from_secs(5), dump_id, ())
+    //     .unwrap();
+
+    // simu.step().unwrap();
+
     println!("{:?}", message.next());
 
     Ok(())
