@@ -1,11 +1,10 @@
 //! Scheduling functions and types.
-use std::cell::Cell;
 use std::error::Error;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use std::{fmt, ptr};
@@ -18,6 +17,7 @@ use tai_time::TaiTime;
 
 use crate::channel::Sender;
 use crate::executor::Executor;
+use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::Model;
 use crate::ports::{EventSource, InputFn};
 use crate::simulation::scheduler_events::{ScheduledEvent, SchedulerSourceRegistry, SourceId};
@@ -29,7 +29,7 @@ use crate::util::priority_queue::PriorityQueue;
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = 0;
-thread_local! { pub(crate) static SCHEDULER: GlobalScheduler = GlobalScheduler::new(Arc::new(Mutex::new(SchedulerQueue::new())), SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader(), Arc::new(AtomicBool::new(false))); }
+scoped_thread_local!(pub(crate) static MODEL_SCHEDULER: GlobalScheduler);
 
 /// A global simulation scheduler.
 ///
@@ -299,6 +299,8 @@ pub enum SchedulingError {
     InvalidScheduledTime,
     /// The repetition period is zero.
     NullRepetitionPeriod,
+    /// The scheduler object has not been properly initialized.
+    SchedulerNotReady,
 }
 
 impl fmt::Display for SchedulingError {
@@ -309,6 +311,10 @@ impl fmt::Display for SchedulingError {
                 "the scheduled time should be in the future of the current simulation time"
             ),
             Self::NullRepetitionPeriod => write!(fmt, "the repetition period cannot be zero"),
+            Self::SchedulerNotReady => write!(
+                fmt,
+                "the scheduler object has not been properly initialized"
+            ),
         }
     }
 }
@@ -512,8 +518,6 @@ impl GlobalScheduler {
         }
 
         let event = ScheduledEvent::once(source_id, Box::new(arg));
-        println!("{:?} {}", event, origin_id);
-        println!("{:?}", scheduler_queue.registry.get(&source_id));
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())

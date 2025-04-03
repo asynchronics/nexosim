@@ -13,7 +13,7 @@ use std::time::Duration;
 use crossbeam_utils::CachePadded;
 
 use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::simulation::ModelId;
+use crate::simulation::{GlobalScheduler, ModelId};
 #[cfg(feature = "tracing")]
 use crate::time::AtomicTimeReader;
 use task::Promise;
@@ -69,11 +69,13 @@ impl Executor {
         num_threads: usize,
         simulation_context: SimulationContext,
         abort_signal: Signal,
+        scheduler: GlobalScheduler,
     ) -> Self {
         Self::MtExecutor(mt_executor::Executor::new(
             num_threads,
             simulation_context,
             abort_signal,
+            scheduler,
         ))
     }
 

@@ -30,11 +30,9 @@ pub struct Listener {
 
 impl Listener {
     pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
-        println!("Process {}", msg);
         cx.environment
             .message
-            // .send(format!("{} @{}", msg, cx.environment.time()))
-            .send(format!("{}", msg))
+            .send(format!("{} @{}", msg, cx.environment.time()))
             .await;
     }
 }
@@ -87,12 +85,13 @@ fn main() -> Result<(), SimulationError> {
 
     simu.step().unwrap();
 
+    println!("{:?}", message.next());
     // let dump_id = scheduler.register_event_source(dump_source);
     // scheduler
     //     .schedule_event(Duration::from_secs(5), dump_id, ())
     //     .unwrap();
 
-    // simu.step().unwrap();
+    simu.step().unwrap();
 
     println!("{:?}", message.next());
 

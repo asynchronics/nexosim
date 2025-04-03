@@ -61,19 +61,26 @@ impl SimInit {
         };
 
         let abort_signal = Signal::new();
+        let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
+        let is_halted = Arc::new(AtomicBool::new(false));
+        let scheduler =
+            GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_halted.clone());
         let executor = if num_threads == 1 {
             Executor::new_single_threaded(simulation_context, abort_signal.clone())
         } else {
-            Executor::new_multi_threaded(num_threads, simulation_context, abort_signal.clone())
+            Executor::new_multi_threaded(
+                num_threads,
+                simulation_context,
+                abort_signal.clone(),
+                scheduler,
+            )
         };
-
-        let scheduler_queue = crate::simulation::SCHEDULER.with(|f| f.scheduler_queue.clone());
 
         Self {
             executor,
             scheduler_queue,
             time,
-            is_halted: Arc::new(AtomicBool::new(false)),
+            is_halted,
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,

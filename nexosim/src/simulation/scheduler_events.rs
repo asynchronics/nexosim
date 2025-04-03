@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::ports::EventSource;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct SourceId(usize);
+pub struct SourceId(pub usize);
 
 #[derive(Default)]
 // TODO use a vec since the key is usize?
