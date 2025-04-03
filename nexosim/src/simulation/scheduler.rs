@@ -28,6 +28,8 @@ use crate::util::priority_queue::PriorityQueue;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
+use super::scheduler_events::SerializableEvent;
+
 // -1 as plain usize::MAX is used e.g. to mark a missing ModelId
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
 scoped_thread_local!(pub(crate) static MODEL_SCHEDULER: GlobalScheduler);
@@ -197,18 +199,6 @@ impl Scheduler {
     /// Requests the simulation to stop when advancing to the next step.
     pub fn halt(&mut self) {
         self.0.halt()
-    }
-
-    // TEMP - for testing
-    pub fn dump_queue(&self) -> impl Serialize {
-        self.0.scheduler_queue.lock().unwrap().into_serializable()
-    }
-    pub fn load_queue(&self, queue: Vec<SerializableQueueEntry>) {
-        self.0
-            .scheduler_queue
-            .lock()
-            .unwrap()
-            .from_deserialized(queue);
     }
 }
 
@@ -402,47 +392,43 @@ impl SchedulerQueue {
     pub(crate) fn pull(&mut self) -> Option<((tai_time::TaiTime<0>, usize), ScheduledEvent)> {
         self.inner.pull()
     }
-    pub fn into_serializable(&self) -> impl Serialize {
-        // TODO test order after ser - de
-        // TODO error handling
-        self.inner
+    pub(crate) fn serialize(&self) -> Vec<u8> {
+        let queue = self
+            .inner
             .iter()
-            .map(|a| {
-                let source = self.registry.get(&a.value.source_id).unwrap();
-                let arg = source.serialize_arg(&*a.value.arg);
+            .map(|e| {
                 (
-                    a.key,
-                    // TODO epoch is not needed?
-                    a.value.source_id,
-                    arg,
-                    a.value.period,
+                    e.key,
+                    SerializableEvent::from_scheduled_event(&e.value, &self.registry),
                 )
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        bincode::serde::encode_to_vec(queue, bincode::config::standard()).unwrap()
     }
-    pub fn from_deserialized(&mut self, queue: Vec<SerializableQueueEntry>) {
-        // drain the queue
-        // TODO impl on PriorityQueue?
-        while let Some(_) = self.inner.pull() {}
+    // pub fn from_deserialized(&mut self, queue: Vec<SerializableQueueEntry>) {
+    //     // drain the queue
+    //     // TODO impl on PriorityQueue?
+    //     while let Some(_) = self.inner.pull() {}
 
-        for entry in queue {
-            // TODO error handling
-            let source = self.registry.get(&entry.1).unwrap();
-            let arg = source.deserialize_arg(&entry.2);
-            self.inner.insert(
-                entry.0,
-                ScheduledEvent {
-                    source_id: entry.1,
-                    arg,
-                    period: entry.3,
-                },
-            );
-        }
-    }
+    //     for entry in queue {
+    //         // TODO error handling
+    //         let source = self.registry.get(&entry.1).unwrap();
+    //         let arg = source.deserialize_arg(&entry.2);
+    //         self.inner.insert(
+    //             entry.0,
+    //             ScheduledEvent {
+    //                 source_id: entry.1,
+    //                 arg,
+    //                 period: entry.3,
+    //             },
+    //         );
+    //     }
+    // }
 }
 
 // TODO change visibility
-pub type SerializableQueueEntry = ((TaiTime<0>, usize), SourceId, Vec<u8>, Option<Duration>);
+// pub type SerializableQueueEntry = ((TaiTime<0>, usize), SourceId, Vec<u8>,
+// Option<Duration>);
 
 /// Internal implementation of the global scheduler.
 #[derive(Clone)]

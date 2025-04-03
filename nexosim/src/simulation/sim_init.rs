@@ -209,6 +209,26 @@ impl SimInit {
 
         Ok((simulation, scheduler))
     }
+    pub fn restore(mut self, state: Vec<u8>) -> Result<(Simulation, Scheduler), ExecutionError> {
+        let scheduler = Scheduler::new(
+            self.scheduler_queue.clone(),
+            self.time.reader(),
+            self.is_halted.clone(),
+        );
+        let mut simulation = Simulation::new(
+            self.executor,
+            self.scheduler_queue,
+            self.time,
+            self.clock,
+            self.clock_tolerance,
+            self.timeout,
+            self.observers,
+            self.registered_models,
+            self.is_halted,
+        );
+
+        Ok((simulation, scheduler))
+    }
 }
 
 impl Default for SimInit {

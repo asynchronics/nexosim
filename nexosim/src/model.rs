@@ -333,7 +333,7 @@ pub(crate) struct RegisteredModel {
 impl RegisteredModel {
     pub fn new<M: Model + Serialize>(name: String, address: Address<M>) -> Self {
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_query(dump_model, (), address.clone())
+            sim.process_query(serialize_model, (), address.clone())
         });
         Self { name, serialize }
     }
@@ -343,6 +343,6 @@ impl std::fmt::Debug for RegisteredModel {
         write!(f, "RegisteredModel: {}", self.name)
     }
 }
-async fn dump_model<M: Serialize>(model: &mut M) -> Vec<u8> {
+async fn serialize_model<M: Serialize>(model: &mut M) -> Vec<u8> {
     bincode::serde::encode_to_vec(model, bincode::config::standard()).unwrap()
 }

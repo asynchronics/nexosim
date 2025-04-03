@@ -91,3 +91,24 @@ impl ScheduledEvent {
         false
     }
 }
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct SerializableEvent {
+    source_id: SourceId,
+    arg: Vec<u8>,
+    period: Option<Duration>,
+}
+impl SerializableEvent {
+    pub fn from_scheduled_event(
+        event: &ScheduledEvent,
+        registry: &SchedulerSourceRegistry,
+    ) -> Self {
+        let source = registry.get(&event.source_id).unwrap();
+        let arg = source.serialize_arg(&*event.arg);
+        Self {
+            source_id: event.source_id,
+            arg,
+            period: event.period,
+        }
+    }
+}

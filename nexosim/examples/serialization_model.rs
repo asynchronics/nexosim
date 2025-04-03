@@ -97,6 +97,7 @@ fn main() -> Result<(), SimulationError> {
         .set_clock(AutoSystemClock::new())
         .init(t0)?;
 
+    println!("{:?}", simu.serialize());
     simu.step().unwrap();
 
     println!("{:?}", message.next());
@@ -105,7 +106,7 @@ fn main() -> Result<(), SimulationError> {
     println!("{:?}", message.next());
     simu.step().unwrap();
 
-    println!("{:?}", simu.serialize_models());
+    println!("{:?}", simu.serialize());
 
     Ok(())
 }
