@@ -195,10 +195,18 @@
 //! ```
 use std::borrow::Borrow;
 use std::future::Future;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use bincode;
+use serde::Serialize;
 
 pub use context::{BuildContext, Context};
 
-use crate::simulation::{SchedulingError, SourceId, MODEL_SCHEDULER};
+use crate::simulation::{
+    Address, ExecutionError, SchedulingError, Simulation, SourceId, CURRENT_MODEL_ID,
+    MODEL_SCHEDULER,
+};
 use crate::time::Deadline;
 
 mod context;
@@ -305,15 +313,36 @@ pub trait Environment {
         // TODO error handling ?
         MODEL_SCHEDULER.map(|s| s.time()).unwrap()
     }
-    fn schedule_event_from<T: Clone + Send + 'static>(
+    fn schedule_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
         source_id: SourceId,
         arg: T,
-        origin_id: usize,
     ) -> Result<(), SchedulingError> {
+        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
         MODEL_SCHEDULER
             .map(|s| s.schedule_event_from(deadline, source_id, arg, origin_id))
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
+}
+
+pub(crate) struct RegisteredModel {
+    pub name: String,
+    pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError>>,
+}
+impl RegisteredModel {
+    pub fn new<M: Model + Serialize>(name: String, address: Address<M>) -> Self {
+        let serialize = Box::new(move |sim: &mut Simulation| {
+            sim.process_query(dump_model, (), address.clone())
+        });
+        Self { name, serialize }
+    }
+}
+impl std::fmt::Debug for RegisteredModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RegisteredModel: {}", self.name)
+    }
+}
+async fn dump_model<M: Serialize>(model: &mut M) -> Vec<u8> {
+    bincode::serde::encode_to_vec(model, bincode::config::standard()).unwrap()
 }

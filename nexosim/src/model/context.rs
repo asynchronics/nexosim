@@ -11,7 +11,7 @@ use crate::simulation::{
 };
 use crate::time::{Deadline, MonotonicTime};
 
-use super::{Model, ProtoModel};
+use super::{Model, ProtoModel, RegisteredModel};
 
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::channel::Receiver;
@@ -460,7 +460,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     scheduler: &'a GlobalScheduler,
     executor: &'a Executor,
     abort_signal: &'a Signal,
-    model_names: &'a mut Vec<String>,
+    registered_models: &'a mut Vec<RegisteredModel>,
 }
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
@@ -471,7 +471,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         scheduler: &'a GlobalScheduler,
         executor: &'a Executor,
         abort_signal: &'a Signal,
-        model_names: &'a mut Vec<String>,
+        registered_models: &'a mut Vec<RegisteredModel>,
     ) -> Self {
         Self {
             mailbox,
@@ -479,7 +479,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             scheduler,
             executor,
             abort_signal,
-            model_names,
+            registered_models,
         }
     }
 
@@ -529,7 +529,9 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         environment: <S::Model as Model>::Environment,
         mailbox: Mailbox<S::Model>,
         name: impl Into<String>,
-    ) {
+    ) where
+        <S as ProtoModel>::Model: Serialize,
+    {
         let mut submodel_name = name.into();
         if submodel_name.is_empty() {
             submodel_name = String::from("<unknown>");
@@ -544,7 +546,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             self.scheduler.clone(),
             self.executor,
             self.abort_signal,
-            self.model_names,
+            self.registered_models,
         );
     }
 }

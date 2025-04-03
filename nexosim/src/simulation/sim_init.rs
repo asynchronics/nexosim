@@ -16,8 +16,8 @@ use crate::util::priority_queue::PriorityQueue;
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ExecutionError, GlobalScheduler, Mailbox, Scheduler, SchedulerQueue,
-    SchedulerSourceRegistry, Signal, Simulation,
+    add_model, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
+    SchedulerQueue, SchedulerSourceRegistry, Signal, Simulation,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -31,7 +31,7 @@ pub struct SimInit {
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
-    model_names: Vec<String>,
+    registered_models: Vec<RegisteredModel>,
 }
 
 impl SimInit {
@@ -86,7 +86,7 @@ impl SimInit {
             timeout: Duration::ZERO,
             observers: Vec::new(),
             abort_signal,
-            model_names: Vec::new(),
+            registered_models: Vec::new(),
         }
     }
 
@@ -102,7 +102,10 @@ impl SimInit {
         environment: <P::Model as Model>::Environment,
         mailbox: Mailbox<P::Model>,
         name: impl Into<String>,
-    ) -> Self {
+    ) -> Self
+    where
+        <P as ProtoModel>::Model: Serialize,
+    {
         let mut name = name.into();
         if name.is_empty() {
             name = String::from("<unknown>");
@@ -123,7 +126,7 @@ impl SimInit {
             scheduler,
             &self.executor,
             &self.abort_signal,
-            &mut self.model_names,
+            &mut self.registered_models,
         );
 
         self
@@ -199,7 +202,7 @@ impl SimInit {
             self.clock_tolerance,
             self.timeout,
             self.observers,
-            self.model_names,
+            self.registered_models,
             self.is_halted,
         );
         simulation.run()?;

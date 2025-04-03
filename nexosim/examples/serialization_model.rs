@@ -30,6 +30,7 @@ pub struct Listener {
 
 impl Listener {
     pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
+        self.value += 1;
         cx.environment
             .message
             .send(format!("{} @{}", msg, cx.environment.time()))
@@ -41,11 +42,12 @@ impl Model for Listener {
     type Environment = ListenerEnvironment;
 
     /// Initialize model.
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        self.value = 2;
         cx.schedule_event(Duration::from_secs(3), self.input_id, 17u32)
             .unwrap();
         cx.environment
-            .schedule_event_from(Duration::from_secs(2), self.input_id, 13u32, 1)
+            .schedule_event(Duration::from_secs(2), self.input_id, 13u32)
             .unwrap();
         self.into()
     }
@@ -60,8 +62,14 @@ impl ProtoModel for ProtoListener {
     }
 }
 
-fn dump(listener: &mut Listener) {
-    println!("dump")
+async fn dump<M: Serialize>(model: &mut M) -> Vec<u8> {
+    let mut v = Vec::new();
+    let mut serializer = serde_json::Serializer::new(&mut v);
+    println!("{:?}", model.serialize(&mut serializer));
+    v
+}
+fn ping(listener: &mut Listener) {
+    println!("pong")
 }
 
 fn main() -> Result<(), SimulationError> {
@@ -69,31 +77,35 @@ fn main() -> Result<(), SimulationError> {
     let mut listener_env = ListenerEnvironment::new();
     let listener_mbox = Mailbox::new();
 
+    let listener_b = ProtoListener;
+    let mut listener_b_env = ListenerEnvironment::new();
+    let listener_b_mbox = Mailbox::new();
+
     let message = EventQueue::new();
     listener_env.message.connect_sink(&message);
     let mut message = message.into_reader();
 
-    let mut dump_source = EventSource::new();
-    dump_source.connect(dump, listener_mbox.address().clone());
+    let mut ping_source = EventSource::new();
+    ping_source.connect(ping, listener_mbox.address().clone());
 
     let t0 = MonotonicTime::EPOCH;
+    let addr = listener_mbox.address();
 
     let (mut simu, mut scheduler) = SimInit::new()
         .add_model(listener, listener_env, listener_mbox, "listener")
+        .add_model(listener_b, listener_b_env, listener_b_mbox, "listener_b")
         .set_clock(AutoSystemClock::new())
         .init(t0)?;
 
     simu.step().unwrap();
 
     println!("{:?}", message.next());
-    // let dump_id = scheduler.register_event_source(dump_source);
-    // scheduler
-    //     .schedule_event(Duration::from_secs(5), dump_id, ())
-    //     .unwrap();
 
     simu.step().unwrap();
-
     println!("{:?}", message.next());
+    simu.step().unwrap();
+
+    println!("{:?}", simu.serialize_models());
 
     Ok(())
 }

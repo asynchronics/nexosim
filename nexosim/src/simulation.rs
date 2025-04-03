@@ -105,13 +105,14 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::Serialize;
 
 use scheduler::SchedulerQueue;
 use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
-use crate::model::{BuildContext, Context, Model, ProtoModel};
+use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
 use crate::ports::{InputFn, ReplierFn};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
@@ -164,7 +165,7 @@ pub struct Simulation {
     clock_tolerance: Option<Duration>,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
-    model_names: Vec<String>,
+    registered_models: Vec<RegisteredModel>,
     is_halted: Arc<AtomicBool>,
     is_terminated: bool,
 }
@@ -180,7 +181,7 @@ impl Simulation {
         clock_tolerance: Option<Duration>,
         timeout: Duration,
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
-        model_names: Vec<String>,
+        registered_models: Vec<RegisteredModel>,
         is_halted: Arc<AtomicBool>,
     ) -> Self {
         Self {
@@ -191,7 +192,7 @@ impl Simulation {
             clock_tolerance,
             timeout,
             observers,
-            model_names,
+            registered_models,
             is_halted,
             is_terminated: false,
         }
@@ -381,7 +382,7 @@ impl Simulation {
                 ExecutorError::Panic(model_id, payload) => {
                     let model = model_id
                         .get()
-                        .map(|id| self.model_names.get(id).unwrap().clone());
+                        .map(|id| self.registered_models.get(id).unwrap().name.clone());
 
                     // Filter out panics originating from a `SendError`.
                     if (*payload).type_id() == TypeId::of::<SendError>() {
@@ -631,6 +632,18 @@ impl Simulation {
             self.is_halted.clone(),
         )
     }
+
+    /// Serialize models
+    pub fn serialize_models(&mut self) -> Vec<Vec<u8>> {
+        // move out to avoid double simulation borrow
+        let models = self.registered_models.drain(..).collect::<Vec<_>>();
+        let mut values = Vec::new();
+        for model in models {
+            values.push((model.serialize)(self).unwrap());
+            self.registered_models.push(model);
+        }
+        values
+    }
 }
 
 impl fmt::Debug for Simulation {
@@ -862,8 +875,10 @@ pub(crate) fn add_model<P: ProtoModel>(
     scheduler: GlobalScheduler,
     executor: &Executor,
     abort_signal: &Signal,
-    model_names: &mut Vec<String>,
-) {
+    registered_models: &mut Vec<RegisteredModel>,
+) where
+    <P as ProtoModel>::Model: Serialize,
+{
     #[cfg(feature = "tracing")]
     let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", name);
 
@@ -873,7 +888,7 @@ pub(crate) fn add_model<P: ProtoModel>(
         &scheduler,
         executor,
         abort_signal,
-        model_names,
+        registered_models,
     );
     let model = model.build(&mut build_cx);
 
@@ -881,14 +896,15 @@ pub(crate) fn add_model<P: ProtoModel>(
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
 
-    let mut cx = Context::new(name.clone(), environment, scheduler, address);
+    // TODO remove context creation
+    let mut cx = Context::new(name.clone(), environment, scheduler, address.clone());
     let fut = async move {
         let mut model = model.init(&mut cx).await.0;
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };
 
-    let model_id = ModelId::new(model_names.len());
-    model_names.push(name);
+    let model_id = ModelId::new(registered_models.len());
+    registered_models.push(RegisteredModel::new(name, address));
 
     #[cfg(not(feature = "tracing"))]
     let fut = ModelFuture::new(fut, model_id);
@@ -920,6 +936,9 @@ impl ModelId {
         } else {
             None
         }
+    }
+    pub(crate) fn get_unchecked(&self) -> usize {
+        self.0
     }
 }
 

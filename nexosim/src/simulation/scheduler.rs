@@ -25,10 +25,11 @@ use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
-// #[cfg(all(test, not(nexosim_loom)))]
+#[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
-const GLOBAL_SCHEDULER_ORIGIN_ID: usize = 0;
+// -1 as plain usize::MAX is used e.g. to mark a missing ModelId
+const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
 scoped_thread_local!(pub(crate) static MODEL_SCHEDULER: GlobalScheduler);
 
 /// A global simulation scheduler.
