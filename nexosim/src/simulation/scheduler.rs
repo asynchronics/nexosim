@@ -1,13 +1,12 @@
 //! Scheduling functions and types.
 use std::error::Error;
+use std::fmt;
 use std::future::Future;
-use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
@@ -28,7 +27,7 @@ use crate::util::priority_queue::PriorityQueue;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
-use super::scheduler_events::SerializableEvent;
+use super::scheduler_events::{ActionKey, SerializableEvent};
 
 // -1 as plain usize::MAX is used e.g. to mark a missing ModelId
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
@@ -117,9 +116,8 @@ impl Scheduler {
     pub fn schedule_keyed_event<M, F, T, S>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId,
         arg: T,
-        address: impl Into<Address<M>>,
     ) -> Result<ActionKey, SchedulingError>
     where
         M: Model,
@@ -128,7 +126,7 @@ impl Scheduler {
         S: Send + 'static,
     {
         self.0
-            .schedule_keyed_event_from(deadline, func, arg, address, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_keyed_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules a periodically recurring event at a future time.
@@ -207,78 +205,6 @@ impl fmt::Debug for Scheduler {
         f.debug_struct("Scheduler")
             .field("time", &self.time())
             .finish_non_exhaustive()
-    }
-}
-
-/// Managed handle to a scheduled action.
-///
-/// An `AutoActionKey` is a managed handle to a scheduled action that cancels
-/// its associated action on drop.
-#[derive(Debug)]
-#[must_use = "dropping this key immediately cancels the associated action"]
-pub struct AutoActionKey {
-    is_cancelled: Arc<AtomicBool>,
-}
-
-impl Drop for AutoActionKey {
-    fn drop(&mut self) {
-        self.is_cancelled.store(true, Ordering::Relaxed);
-    }
-}
-
-/// Handle to a scheduled action.
-///
-/// An `ActionKey` can be used to cancel a scheduled action.
-#[derive(Clone, Debug)]
-#[must_use = "prefer unkeyed scheduling methods if the action is never cancelled"]
-pub struct ActionKey {
-    is_cancelled: Arc<AtomicBool>,
-}
-
-impl ActionKey {
-    /// Creates a key for a pending action.
-    pub(crate) fn new() -> Self {
-        Self {
-            is_cancelled: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Checks whether the action was cancelled.
-    pub(crate) fn is_cancelled(&self) -> bool {
-        self.is_cancelled.load(Ordering::Relaxed)
-    }
-
-    /// Cancels the associated action.
-    pub fn cancel(self) {
-        self.is_cancelled.store(true, Ordering::Relaxed);
-    }
-
-    /// Converts action key to a managed key.
-    pub fn into_auto(self) -> AutoActionKey {
-        AutoActionKey {
-            is_cancelled: self.is_cancelled,
-        }
-    }
-}
-
-impl PartialEq for ActionKey {
-    /// Implements equality by considering clones to be equivalent, rather than
-    /// keys with the same `is_cancelled` value.
-    fn eq(&self, other: &Self) -> bool {
-        ptr::eq(&*self.is_cancelled, &*other.is_cancelled)
-    }
-}
-
-impl Eq for ActionKey {}
-
-impl Hash for ActionKey {
-    /// Implements `Hash`` by considering clones to be equivalent, rather than
-    /// keys with the same `is_cancelled` value.
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        ptr::hash(&*self.is_cancelled, state)
     }
 }
 
@@ -403,24 +329,14 @@ impl SchedulerQueue {
                 )
             })
             .collect::<Vec<_>>();
-        let s = bincode::serde::encode_to_vec(
+        bincode::serde::encode_to_vec(
             queue,
             crate::util::serialization::get_serialization_config(),
         )
-        .unwrap();
-        let deserialized_state: Vec<((TaiTime<0>, usize), SerializableEvent)> =
-            bincode::serde::decode_from_slice(
-                &s,
-                crate::util::serialization::get_serialization_config(),
-            )
-            .unwrap()
-            .0;
-        println!("{:?}", s);
-        s
+        .unwrap()
     }
 
     pub(crate) fn restore(&mut self, state: Vec<u8>) {
-        println!("{:?}", state);
         let deserialized_state: Vec<((TaiTime<0>, usize), SerializableEvent)> =
             bincode::serde::decode_from_slice(
                 &state,
@@ -471,6 +387,8 @@ impl GlobalScheduler {
         self.time.read()
     }
 
+    // TODO
+
     /// Schedules an action identified by its origin at a future time.
     pub(crate) fn schedule_from(
         &self,
@@ -514,7 +432,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::once(source_id, Box::new(arg));
+        let event = ScheduledEvent::new(source_id, Box::new(arg));
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
@@ -555,26 +473,17 @@ impl GlobalScheduler {
 
     /// Schedules a cancellable event identified by its origin at a future time
     /// and returns an event key.
-    pub(crate) fn schedule_keyed_event_from<M, F, T, S>(
+    pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
     ) -> Result<ActionKey, SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         let event_key = ActionKey::new();
-        let sender = address.into().0;
-        let action = Action::new(KeyedOnceAction::new(
-            |ek| send_keyed_event(ek, func, arg, sender),
-            event_key.clone(),
-        ));
 
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
@@ -585,8 +494,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        // TODO
-        // scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::new(source_id, Box::new(arg)).with_key(event_key.clone());
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(event_key)
     }
@@ -614,7 +523,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::periodic(source_id, Box::new(arg), period);
+        let event = ScheduledEvent::new(source_id, Box::new(arg)).with_period(period);
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())

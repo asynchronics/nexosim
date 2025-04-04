@@ -212,7 +212,7 @@ impl<M: Model> Context<M> {
     pub fn schedule_keyed_event<F, T, S>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId,
         arg: T,
     ) -> Result<ActionKey, SchedulingError>
     where
@@ -220,13 +220,9 @@ impl<M: Model> Context<M> {
         T: Send + Clone + 'static,
         S: Send + 'static,
     {
-        let event_key = self.scheduler.schedule_keyed_event_from(
-            deadline,
-            func,
-            arg,
-            &self.address,
-            self.origin_id,
-        )?;
+        let event_key =
+            self.scheduler
+                .schedule_keyed_event_from(deadline, source_id, arg, self.origin_id)?;
 
         Ok(event_key)
     }

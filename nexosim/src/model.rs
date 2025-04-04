@@ -205,8 +205,8 @@ use serde::{de::DeserializeOwned, Serialize};
 pub use context::{BuildContext, Context};
 
 use crate::simulation::{
-    Address, ExecutionError, ModelFuture, SchedulingError, Simulation, SourceId, CURRENT_MODEL_ID,
-    MODEL_SCHEDULER,
+    ActionKey, Address, ExecutionError, ModelFuture, SchedulingError, Simulation, SourceId,
+    CURRENT_MODEL_ID, MODEL_SCHEDULER,
 };
 use crate::time::Deadline;
 
@@ -335,6 +335,17 @@ pub trait Environment {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
         MODEL_SCHEDULER
             .map(|s| s.schedule_periodic_event_from(deadline, source_id, period, arg, origin_id))
+            .ok_or(SchedulingError::SchedulerNotReady)?
+    }
+    fn schedule_keyed_event<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        source_id: SourceId,
+        arg: T,
+    ) -> Result<ActionKey, SchedulingError> {
+        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
+        MODEL_SCHEDULER
+            .map(|s| s.schedule_keyed_event_from(deadline, source_id, arg, origin_id))
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
 }

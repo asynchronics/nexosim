@@ -85,8 +85,8 @@ pub(crate) use scheduler::{
 };
 
 pub use mailbox::{Address, Mailbox};
-pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError};
-pub use scheduler_events::SourceId;
+pub use scheduler::{Action, Scheduler, SchedulingError};
+pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
@@ -420,15 +420,6 @@ impl Simulation {
             return Err(ExecutionError::Halted);
         }
 
-        // Function pulling the next action. If the action is periodic, it is
-        // immediately re-scheduled.
-        fn pull_next_scheduled_event(
-            scheduler_queue: &mut MutexGuard<SchedulerQueue>,
-        ) -> ScheduledEvent {
-            let (_, event) = scheduler_queue.pull().unwrap();
-            event
-        }
-
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
 
         // Closure returning the next key which time stamp is no older than the
@@ -436,8 +427,8 @@ impl Simulation {
         let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
             loop {
                 match scheduler_queue.peek() {
-                    Some((&key, action)) if key.0 <= upper_time_bound => {
-                        if !action.is_cancelled() {
+                    Some((&key, event)) if key.0 <= upper_time_bound => {
+                        if !event.is_cancelled() {
                             break Some(key);
                         }
                         // Discard cancelled actions.
@@ -639,6 +630,8 @@ impl Simulation {
         .0
     }
     pub fn restore_state(&mut self, state: Vec<u8>) {
+        scheduler_events::ACTION_KEY_REG.lock().unwrap().clear();
+
         let deserialized_state = Simulation::deserialize_state(state);
         self.time.write(deserialized_state.time);
         self.restore_models(deserialized_state.models);

@@ -1,14 +1,24 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 use std::pin::Pin;
+use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use bincode;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::de::{DeserializeOwned, Visitor};
+use serde::ser::SerializeTuple;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ports::EventSource;
+
+// TODO consider using scoped_thread_local (would involve implementing a mutable
+// borrow)
+pub(super) static ACTION_KEY_REG: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct SourceId(pub usize);
@@ -74,28 +84,30 @@ pub(crate) struct ScheduledEvent {
     pub source_id: SourceId,
     pub arg: Box<dyn Any + Send>,
     pub period: Option<Duration>,
+    pub action_key: Option<ActionKey>,
 }
 impl ScheduledEvent {
-    pub(crate) fn once(source_id: SourceId, arg: Box<dyn Any + Send>) -> Self {
+    pub(crate) fn new(source_id: SourceId, arg: Box<dyn Any + Send>) -> Self {
         Self {
             source_id,
             arg,
             period: None,
+            action_key: None,
         }
     }
-    pub(crate) fn periodic(
-        source_id: SourceId,
-        arg: Box<dyn Any + Send>,
-        period: Duration,
-    ) -> Self {
-        Self {
-            source_id,
-            arg,
-            period: Some(period),
-        }
+    pub(crate) fn with_period(mut self, period: Duration) -> Self {
+        self.period = Some(period);
+        self
+    }
+    pub(crate) fn with_key(mut self, action_key: ActionKey) -> Self {
+        self.action_key = Some(action_key);
+        self
     }
     pub(crate) fn is_cancelled(&self) -> bool {
-        false
+        match &self.action_key {
+            Some(key) => key.is_cancelled(),
+            None => false,
+        }
     }
 }
 
@@ -104,6 +116,7 @@ pub(crate) struct SerializableEvent {
     source_id: SourceId,
     arg: Vec<u8>,
     period: Option<Duration>,
+    action_key: Option<ActionKey>,
 }
 impl SerializableEvent {
     pub fn from_scheduled_event(
@@ -116,6 +129,7 @@ impl SerializableEvent {
             source_id: event.source_id,
             arg,
             period: event.period,
+            action_key: event.action_key.clone(),
         }
     }
     pub fn to_scheduled_event(&self, registry: &SchedulerSourceRegistry) -> ScheduledEvent {
@@ -125,6 +139,123 @@ impl SerializableEvent {
             source_id: self.source_id,
             arg,
             period: self.period,
+            action_key: self.action_key.clone(),
         }
+    }
+}
+
+/// Managed handle to a scheduled action.
+///
+/// An `AutoActionKey` is a managed handle to a scheduled action that cancels
+/// its associated action on drop.
+#[derive(Debug)]
+#[must_use = "dropping this key immediately cancels the associated action"]
+pub struct AutoActionKey {
+    is_cancelled: Arc<AtomicBool>,
+}
+
+impl Drop for AutoActionKey {
+    fn drop(&mut self) {
+        self.is_cancelled.store(true, Ordering::Relaxed);
+    }
+}
+
+// TODO should also be serializable?
+
+/// Handle to a scheduled action.
+///
+/// An `ActionKey` can be used to cancel a scheduled action.
+#[derive(Clone, Debug)]
+#[must_use = "prefer unkeyed scheduling methods if the action is never cancelled"]
+pub struct ActionKey {
+    is_cancelled: Arc<AtomicBool>,
+}
+
+impl ActionKey {
+    /// Creates a key for a pending action.
+    pub(crate) fn new() -> Self {
+        Self {
+            is_cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn restore(is_cancelled: Arc<AtomicBool>) -> Self {
+        Self { is_cancelled }
+    }
+
+    /// Checks whether the action was cancelled.
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.is_cancelled.load(Ordering::Relaxed)
+    }
+
+    /// Cancels the associated action.
+    pub fn cancel(self) {
+        self.is_cancelled.store(true, Ordering::Relaxed);
+    }
+
+    /// Converts action key to a managed key.
+    pub fn into_auto(self) -> AutoActionKey {
+        AutoActionKey {
+            is_cancelled: self.is_cancelled,
+        }
+    }
+}
+
+impl PartialEq for ActionKey {
+    /// Implements equality by considering clones to be equivalent, rather than
+    /// keys with the same `is_cancelled` value.
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(&*self.is_cancelled, &*other.is_cancelled)
+    }
+}
+
+impl Eq for ActionKey {}
+
+impl Hash for ActionKey {
+    /// Implements `Hash`` by considering clones to be equivalent, rather than
+    /// keys with the same `is_cancelled` value.
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        ptr::hash(&*self.is_cancelled, state)
+    }
+}
+
+impl Serialize for ActionKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut tup = serializer.serialize_tuple(2)?;
+        tup.serialize_element(&self.is_cancelled.load(Ordering::Relaxed))?;
+        tup.serialize_element(&Arc::as_ptr(&self.is_cancelled).addr())?;
+        tup.end()
+    }
+}
+impl<'de> Deserialize<'de> for ActionKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ActionKeyVisitor;
+        impl<'de> Visitor<'de> for ActionKeyVisitor {
+            type Value = ActionKey;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("tuple")
+            }
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let value = seq.next_element()?.unwrap();
+                let addr: usize = seq.next_element()?.unwrap();
+                let mut reg = ACTION_KEY_REG.lock().unwrap();
+                let target = reg.entry(addr).or_insert(Arc::new(value));
+                Ok(ActionKey::restore(target.clone()))
+            }
+        }
+
+        deserializer.deserialize_tuple_struct("ActionKey", 2, ActionKeyVisitor)
     }
 }
