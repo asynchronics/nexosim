@@ -197,14 +197,15 @@ use std::borrow::Borrow;
 use std::future::Future;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bincode;
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 
 pub use context::{BuildContext, Context};
 
 use crate::simulation::{
-    Address, ExecutionError, SchedulingError, Simulation, SourceId, CURRENT_MODEL_ID,
+    Address, ExecutionError, ModelFuture, SchedulingError, Simulation, SourceId, CURRENT_MODEL_ID,
     MODEL_SCHEDULER,
 };
 use crate::time::Deadline;
@@ -324,18 +325,39 @@ pub trait Environment {
             .map(|s| s.schedule_event_from(deadline, source_id, arg, origin_id))
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
+    fn schedule_periodic_event<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        source_id: SourceId,
+        period: Duration,
+        arg: T,
+    ) -> Result<(), SchedulingError> {
+        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
+        MODEL_SCHEDULER
+            .map(|s| s.schedule_periodic_event_from(deadline, source_id, period, arg, origin_id))
+            .ok_or(SchedulingError::SchedulerNotReady)?
+    }
 }
 
 pub(crate) struct RegisteredModel {
     pub name: String,
     pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError>>,
+    pub deserialize: Box<dyn Fn(&mut Simulation, Vec<u8>) -> Result<(), ExecutionError>>,
 }
 impl RegisteredModel {
-    pub fn new<M: Model + Serialize>(name: String, address: Address<M>) -> Self {
+    pub fn new<M: Model + Serialize + DeserializeOwned>(name: String, address: Address<M>) -> Self {
+        let serialize_address = address.clone();
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_query(serialize_model, (), address.clone())
+            sim.process_query(serialize_model, (), serialize_address.clone())
         });
-        Self { name, serialize }
+        let deserialize = Box::new(move |sim: &mut Simulation, state: Vec<u8>| {
+            sim.process_event(deserialize_model, state, address.clone())
+        });
+        Self {
+            name,
+            serialize,
+            deserialize,
+        }
     }
 }
 impl std::fmt::Debug for RegisteredModel {
@@ -344,5 +366,21 @@ impl std::fmt::Debug for RegisteredModel {
     }
 }
 async fn serialize_model<M: Serialize>(model: &mut M) -> Vec<u8> {
-    bincode::serde::encode_to_vec(model, bincode::config::standard()).unwrap()
+    // TODO reconsider blocking in async context
+    bincode::serde::encode_to_vec(
+        model,
+        crate::util::serialization::get_serialization_config(),
+    )
+    .unwrap()
+}
+
+fn deserialize_model<M: DeserializeOwned>(model: &mut M, state: Vec<u8>) {
+    // TODO reconsider blocking in async context
+    let new = bincode::serde::decode_from_slice(
+        &state,
+        crate::util::serialization::get_serialization_config(),
+    )
+    .unwrap()
+    .0;
+    std::mem::replace(model, new);
 }

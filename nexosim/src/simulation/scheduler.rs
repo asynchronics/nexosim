@@ -403,32 +403,42 @@ impl SchedulerQueue {
                 )
             })
             .collect::<Vec<_>>();
-        bincode::serde::encode_to_vec(queue, bincode::config::standard()).unwrap()
+        let s = bincode::serde::encode_to_vec(
+            queue,
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap();
+        let deserialized_state: Vec<((TaiTime<0>, usize), SerializableEvent)> =
+            bincode::serde::decode_from_slice(
+                &s,
+                crate::util::serialization::get_serialization_config(),
+            )
+            .unwrap()
+            .0;
+        println!("{:?}", s);
+        s
     }
-    // pub fn from_deserialized(&mut self, queue: Vec<SerializableQueueEntry>) {
-    //     // drain the queue
-    //     // TODO impl on PriorityQueue?
-    //     while let Some(_) = self.inner.pull() {}
 
-    //     for entry in queue {
-    //         // TODO error handling
-    //         let source = self.registry.get(&entry.1).unwrap();
-    //         let arg = source.deserialize_arg(&entry.2);
-    //         self.inner.insert(
-    //             entry.0,
-    //             ScheduledEvent {
-    //                 source_id: entry.1,
-    //                 arg,
-    //                 period: entry.3,
-    //             },
-    //         );
-    //     }
-    // }
+    pub(crate) fn restore(&mut self, state: Vec<u8>) {
+        println!("{:?}", state);
+        let deserialized_state: Vec<((TaiTime<0>, usize), SerializableEvent)> =
+            bincode::serde::decode_from_slice(
+                &state,
+                crate::util::serialization::get_serialization_config(),
+            )
+            .unwrap()
+            .0;
+
+        // drain the queue
+        // TODO impl on PriorityQueue?
+        while let Some(_) = self.inner.pull() {}
+
+        for entry in deserialized_state {
+            self.inner
+                .insert(entry.0, entry.1.to_scheduled_event(&self.registry));
+        }
+    }
 }
-
-// TODO change visibility
-// pub type SerializableQueueEntry = ((TaiTime<0>, usize), SourceId, Vec<u8>,
-// Option<Duration>);
 
 /// Internal implementation of the global scheduler.
 #[derive(Clone)]

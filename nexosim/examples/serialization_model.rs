@@ -33,7 +33,7 @@ impl Listener {
         self.value += 1;
         cx.environment
             .message
-            .send(format!("{} @{}", msg, cx.environment.time()))
+            .send(format!("{}/{} @{}", msg, self.value, cx.environment.time()))
             .await;
     }
 }
@@ -44,10 +44,15 @@ impl Model for Listener {
     /// Initialize model.
     async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         self.value = 2;
-        cx.schedule_event(Duration::from_secs(3), self.input_id, 17u32)
-            .unwrap();
+        // cx.schedule_event(Duration::from_secs(3), self.input_id, 17u32)
+        //     .unwrap();
         cx.environment
-            .schedule_event(Duration::from_secs(2), self.input_id, 13u32)
+            .schedule_periodic_event(
+                Duration::from_secs(2),
+                self.input_id,
+                Duration::from_secs(2),
+                13u32,
+            )
             .unwrap();
         self.into()
     }
@@ -91,22 +96,28 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
     let addr = listener_mbox.address();
 
-    let (mut simu, mut scheduler) = SimInit::new()
+    let bench = SimInit::new()
         .add_model(listener, listener_env, listener_mbox, "listener")
         .add_model(listener_b, listener_b_env, listener_b_mbox, "listener_b")
-        .set_clock(AutoSystemClock::new())
-        .init(t0)?;
+        .set_clock(AutoSystemClock::new());
 
-    println!("{:?}", simu.serialize());
+    let (mut simu, mut scheduler) = bench.init(t0)?;
+
+    let state = simu.serialize_state();
+
     simu.step().unwrap();
+    println!("{:?}", message.next());
 
+    simu.step().unwrap();
+    println!("{:?}", message.next());
+
+    simu.restore_state(state);
+
+    simu.step().unwrap();
     println!("{:?}", message.next());
 
     simu.step().unwrap();
     println!("{:?}", message.next());
-    simu.step().unwrap();
-
-    println!("{:?}", simu.serialize());
 
     Ok(())
 }

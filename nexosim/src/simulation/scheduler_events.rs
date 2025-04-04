@@ -43,15 +43,22 @@ where
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Box<dyn Any + Send> {
         // TODO check if the standard config suits us best
         // TODO unwrap
-        let arg: T = bincode::serde::decode_from_slice(serialized_arg, bincode::config::standard())
-            .unwrap()
-            .0;
+        let arg: T = bincode::serde::decode_from_slice(
+            serialized_arg,
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap()
+        .0;
         Box::new(arg)
     }
     fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8> {
         // TODO unwrap
         let value = arg.downcast_ref::<T>().unwrap();
-        bincode::serde::encode_to_vec(value, bincode::config::standard()).unwrap()
+        bincode::serde::encode_to_vec(
+            value,
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap()
     }
     fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(EventSource::into_future(
@@ -109,6 +116,15 @@ impl SerializableEvent {
             source_id: event.source_id,
             arg,
             period: event.period,
+        }
+    }
+    pub fn to_scheduled_event(&self, registry: &SchedulerSourceRegistry) -> ScheduledEvent {
+        let source = registry.get(&self.source_id).unwrap();
+        let arg = source.deserialize_arg(&self.arg);
+        ScheduledEvent {
+            source_id: self.source_id,
+            arg,
+            period: self.period,
         }
     }
 }

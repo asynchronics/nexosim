@@ -87,6 +87,7 @@ pub(crate) use scheduler::{
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError};
 pub use scheduler_events::SourceId;
+use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
 pub(crate) use scheduler::MODEL_SCHEDULER;
@@ -105,7 +106,7 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use scheduler::SchedulerQueue;
 use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry};
@@ -583,46 +584,6 @@ impl Simulation {
         }
     }
 
-    // pub fn serializable_queue(&self) -> impl Serialize {
-    //     let queue = self.scheduler_queue.lock().unwrap();
-
-    //     let mut v = Vec::new();
-    //     for a in queue.iter() {
-    //         let source = self.registry.get(&a.value.source).unwrap();
-    //         let arg = source.serialize_arg(&*a.value.arg);
-    //         v.push((
-    //             a.key,
-    //             a.epoch,
-    //             SerializableEvent {
-    //                 source: a.value.source.to_string(),
-    //                 arg,
-    //             },
-    //         ));
-    //     }
-    //     v
-    // }
-
-    // pub fn restore_deserialized_queue(
-    //     &self,
-    //     v: Vec<((TaiTime<0>, usize), f64, SerializableEvent)>,
-    // ) {
-    //     let mut queue = self.scheduler_queue.lock().unwrap();
-    //     // TODO add drain or clear
-    //     while let Some(_) = queue.pull() {}
-
-    //     for entry in v {
-    //         let source = self.registry.get(&entry.2.source).unwrap();
-    //         let arg = source.deserialize_arg(&entry.2.arg);
-    //         queue.insert(
-    //             entry.0,
-    //             ScheduledEvent {
-    //                 source: entry.2.source,
-    //                 arg,
-    //             },
-    //         );
-    //     }
-    // }
-
     /// Returns a scheduler handle.
     #[cfg(feature = "server")]
     pub(crate) fn scheduler(&self) -> Scheduler {
@@ -644,22 +605,45 @@ impl Simulation {
         }
         values
     }
-    fn serialize_scheduler(&self) -> Vec<u8> {
-        let queue = self.scheduler_queue.lock().unwrap().serialize();
-        bincode::serde::encode_to_vec((queue, self.time()), bincode::config::standard()).unwrap()
+    fn restore_models(&mut self, model_state: Vec<Vec<u8>>) {
+        // move out to avoid double simulation borrow
+        let models = self.registered_models.drain(..).collect::<Vec<_>>();
+        for (model, model_state) in models.iter().zip(model_state) {
+            // TODO handle errors
+            let _ = (model.deserialize)(self, model_state);
+        }
+        self.registered_models = models;
+    }
+
+    fn serialize_scheduler_queue(&self) -> Vec<u8> {
+        self.scheduler_queue.lock().unwrap().serialize()
     }
     pub fn serialize_state(&mut self) -> Vec<u8> {
+        let state = SimulationState {
+            models: self.serialize_models(),
+            scheduler_queue: self.serialize_scheduler_queue(),
+            time: self.time(),
+        };
         bincode::serde::encode_to_vec(
-            (self.serialize_models(), self.serialize_scheduler()),
-            bincode::config::standard(),
+            state,
+            crate::util::serialization::get_serialization_config(),
         )
         .unwrap()
     }
-    pub(crate) fn deserialize_state(&mut self, state: Vec<u8>) {
-        let (models, scheduler): (Vec<u8>, Vec<u8>) =
-            bincode::serde::decode_from_slice(&state, bincode::config::standard())
-                .unwrap()
-                .0;
+    fn deserialize_state(state: Vec<u8>) -> SimulationState {
+        bincode::serde::decode_from_slice(
+            &state,
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap()
+        .0
+    }
+    pub fn restore_state(&mut self, state: Vec<u8>) {
+        let deserialized_state = Simulation::deserialize_state(state);
+        self.time.write(deserialized_state.time);
+        self.restore_models(deserialized_state.models);
+        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+        scheduler_queue.restore(deserialized_state.scheduler_queue);
     }
 }
 
@@ -669,6 +653,13 @@ impl fmt::Debug for Simulation {
             .field("time", &self.time.read())
             .finish_non_exhaustive()
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct SimulationState {
+    pub(crate) models: Vec<Vec<u8>>,
+    pub(crate) scheduler_queue: Vec<u8>,
+    pub(crate) time: MonotonicTime,
 }
 
 /// Information regarding a deadlocked model.
@@ -887,20 +878,20 @@ impl From<SchedulingError> for SimulationError {
 pub(crate) fn add_model<P: ProtoModel>(
     model: P,
     environment: <P::Model as Model>::Environment,
-    mailbox: &Mailbox<P::Model>,
+    mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
     executor: &Executor,
     abort_signal: &Signal,
     registered_models: &mut Vec<RegisteredModel>,
 ) where
-    <P as ProtoModel>::Model: Serialize,
+    <P as ProtoModel>::Model: Serialize + DeserializeOwned,
 {
     #[cfg(feature = "tracing")]
     let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", name);
 
     let mut build_cx = BuildContext::new(
-        mailbox,
+        &mailbox,
         &name,
         &scheduler,
         executor,
@@ -908,53 +899,21 @@ pub(crate) fn add_model<P: ProtoModel>(
         registered_models,
     );
     let model = model.build(&mut build_cx);
-    let model_id = ModelId::new(registered_models.len());
+
     let address = mailbox.address();
-    registered_models.push(RegisteredModel::new(name, address));
-
-    // let mut receiver = mailbox.0;
-    // let abort_signal = abort_signal.clone();
-
-    // TODO remove context creation
-    // let mut cx = Context::new(name.clone(), environment, scheduler,
-    // address.clone()); let fut = async move {
-    //     let mut model = model.init(&mut cx).await.0;
-    //     while !abort_signal.is_set() && receiver.recv(&mut model, &mut
-    // cx).await.is_ok() {} };
-
-    // #[cfg(not(feature = "tracing"))]
-    // let fut = ModelFuture::new(fut, model_id);
-    // #[cfg(feature = "tracing")]
-    // let fut = ModelFuture::new(fut, model_id, span);
-
-    // executor.spawn_and_forget(fut);
-}
-
-fn run_model<M: Model>(
-    model_id: ModelId,
-    model: M,
-    environment: M::Environment,
-    mailbox: Mailbox<M>,
-    executor: &Executor,
-    abort_signal: &Signal,
-    is_restored: bool,
-) {
-    // TODO remove context creation
     let mut receiver = mailbox.0;
-    let mut cx = Context::new(
-        "Temp".to_string(),
-        environment,
-        scheduler,
-        mailbox.address().clone(),
-    );
+    let abort_signal = abort_signal.clone();
+
+    // TODO remove context creation
+    let mut cx = Context::new(name.clone(), environment, scheduler, address.clone());
+
     let fut = async move {
-        let mut model = if is_restored {
-            model
-        } else {
-            model.init(&mut cx).await.0
-        };
+        let mut model = model.init(&mut cx).await.0;
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };
+
+    let model_id = ModelId::new(registered_models.len());
+    registered_models.push(RegisteredModel::new(name, address));
 
     #[cfg(not(feature = "tracing"))]
     let fut = ModelFuture::new(fut, model_id);
@@ -999,7 +958,7 @@ impl Default for ModelId {
 }
 
 #[pin_project]
-struct ModelFuture<F> {
+pub(crate) struct ModelFuture<F> {
     #[pin]
     fut: F,
     id: ModelId,

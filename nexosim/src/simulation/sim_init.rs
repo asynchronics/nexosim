@@ -17,7 +17,7 @@ use crate::util::sync_cell::SyncCell;
 
 use super::{
     add_model, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
-    SchedulerQueue, SchedulerSourceRegistry, Signal, Simulation,
+    SchedulerQueue, SchedulerSourceRegistry, Signal, Simulation, SimulationState,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -104,7 +104,7 @@ impl SimInit {
         name: impl Into<String>,
     ) -> Self
     where
-        <P as ProtoModel>::Model: Serialize,
+        <P as ProtoModel>::Model: Serialize + DeserializeOwned,
     {
         let mut name = name.into();
         if name.is_empty() {
@@ -117,7 +117,6 @@ impl SimInit {
             self.time.reader(),
             self.is_halted.clone(),
         );
-
         add_model(
             model,
             environment,
