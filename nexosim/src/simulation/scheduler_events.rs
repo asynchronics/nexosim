@@ -22,19 +22,18 @@ pub(super) static ACTION_KEY_REG: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>
 pub struct SourceId(pub usize);
 
 #[derive(Default)]
-// TODO use a vec since the key is usize?
-pub(crate) struct SchedulerSourceRegistry(HashMap<SourceId, Box<dyn SchedulerEventSource>>);
+pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
     pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         let source_id = SourceId(self.0.len());
-        self.0.insert(source_id, Box::new(source));
+        self.0.push(Box::new(source));
         source_id
     }
     pub(crate) fn get(&self, source_id: &SourceId) -> Option<&dyn SchedulerEventSource> {
-        self.0.get(source_id).map(|s| s.as_ref())
+        self.0.get(source_id.0).map(|s| s.as_ref())
     }
 }
 
