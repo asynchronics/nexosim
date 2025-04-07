@@ -408,7 +408,7 @@ impl GlobalScheduler {
         panic!("Not implemented!");
     }
 
-    // TODO update docs
+    /// Schedules an event identified by its origin at a future time.
     pub(crate) fn schedule_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
@@ -428,39 +428,6 @@ impl GlobalScheduler {
 
         Ok(())
     }
-
-    /// Schedules an event identified by its origin at a future time.
-    // pub(crate) fn schedule_event_from<M, F, T, S>(
-    //     &self,
-    //     deadline: impl Deadline,
-    //     func: F,
-    //     arg: T,
-    //     address: impl Into<Address<M>>,
-    //     origin_id: usize,
-    // ) -> Result<(), SchedulingError>
-    // where
-    //     M: Model,
-    //     F: for<'a> InputFn<'a, M, T, S>,
-    //     T: Send + Clone + 'static,
-    //     S: Send + 'static,
-    // {
-    //     let sender = address.into().0;
-    //     let action = Action::new(OnceAction::new(process_event(func, arg, sender)));
-
-    //     // The scheduler queue must always be locked when reading the time (see
-    //     // `schedule_from`).
-    //     let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
-    //     let now = self.time();
-    //     let time = deadline.into_time(now);
-    //     if now >= time {
-    //         return Err(SchedulingError::InvalidScheduledTime);
-    //     }
-
-    //     // TODO
-    //     // scheduler_queue.insert((time, origin_id), action);
-
-    //     Ok(())
-    // }
 
     /// Schedules a cancellable event identified by its origin at a future time
     /// and returns an event key.

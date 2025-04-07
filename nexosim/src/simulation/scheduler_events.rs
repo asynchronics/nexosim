@@ -146,19 +146,17 @@ impl SerializableEvent {
 ///
 /// An `AutoActionKey` is a managed handle to a scheduled action that cancels
 /// its associated action on drop.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 #[must_use = "dropping this key immediately cancels the associated action"]
 pub struct AutoActionKey {
-    is_cancelled: Arc<AtomicBool>,
+    inner: ActionKey,
 }
 
 impl Drop for AutoActionKey {
     fn drop(&mut self) {
-        self.is_cancelled.store(true, Ordering::Relaxed);
+        self.inner.is_cancelled.store(true, Ordering::Relaxed);
     }
 }
-
-// TODO should also be serializable?
 
 /// Handle to a scheduled action.
 ///
@@ -193,9 +191,7 @@ impl ActionKey {
 
     /// Converts action key to a managed key.
     pub fn into_auto(self) -> AutoActionKey {
-        AutoActionKey {
-            is_cancelled: self.is_cancelled,
-        }
+        AutoActionKey { inner: self }
     }
 }
 
