@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -458,6 +459,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     executor: &'a Executor,
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
+    is_resumed: Arc<AtomicBool>,
 }
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
@@ -469,6 +471,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         executor: &'a Executor,
         abort_signal: &'a Signal,
         registered_models: &'a mut Vec<RegisteredModel>,
+        is_resumed: Arc<AtomicBool>,
     ) -> Self {
         Self {
             mailbox,
@@ -477,6 +480,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             executor,
             abort_signal,
             registered_models,
+            is_resumed,
         }
     }
 
@@ -544,6 +548,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             self.executor,
             self.abort_signal,
             self.registered_models,
+            self.is_resumed.clone(),
         );
     }
 }

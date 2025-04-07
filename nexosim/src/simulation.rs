@@ -598,7 +598,7 @@ impl Simulation {
         .unwrap()
         .0
     }
-    pub fn restore_state(&mut self, state: Vec<u8>) {
+    pub(crate) fn restore_state(&mut self, state: Vec<u8>) {
         scheduler_events::ACTION_KEY_REG.lock().unwrap().clear();
 
         let deserialized_state = Simulation::deserialize_state(state);
@@ -846,6 +846,7 @@ pub(crate) fn add_model<P: ProtoModel>(
     executor: &Executor,
     abort_signal: &Signal,
     registered_models: &mut Vec<RegisteredModel>,
+    is_resumed: Arc<AtomicBool>,
 ) where
     <P as ProtoModel>::Model: Serialize + DeserializeOwned,
 {
@@ -859,6 +860,7 @@ pub(crate) fn add_model<P: ProtoModel>(
         executor,
         abort_signal,
         registered_models,
+        is_resumed.clone(),
     );
     let model = model.build(&mut build_cx);
 
@@ -867,7 +869,10 @@ pub(crate) fn add_model<P: ProtoModel>(
     let abort_signal = abort_signal.clone();
 
     let fut = async move {
-        let mut model = model.init(&mut environment).await.0;
+        let mut model = match is_resumed.load(Ordering::Relaxed) {
+            false => model.init(&mut environment).await.0,
+            true => model,
+        };
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut environment).await.is_ok() {}
     };
 

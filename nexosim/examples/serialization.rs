@@ -1,16 +1,14 @@
-use std::any::Any;
-use std::collections::HashMap;
-use std::future::Future;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
-use nexosim::ports::{EventQueue, EventSource, Output};
-use nexosim::simulation::{
-    ActionKey, Address, ExecutionError, Mailbox, SimInit, SimulationError, SourceId,
-};
+use nexosim::ports::{EventQueue, EventQueueReader, Output};
+use nexosim::simulation::{ActionKey, Mailbox, SimInit, SimulationError, SourceId};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
+
+static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub struct ListenerEnvironment {
     pub message: Output<String>,
@@ -52,6 +50,7 @@ impl Model for Listener {
 
     /// Initialize model.
     async fn init(mut self, env: &mut ListenerEnvironment) -> InitializedModel<Self> {
+        INIT_COUNT.fetch_add(1, Ordering::Relaxed);
         self.value = 2;
         env.schedule_periodic_event(
             Duration::from_secs(2),
@@ -83,30 +82,25 @@ impl ProtoModel for ProtoListener {
     }
 }
 
-fn ping(listener: &mut Listener) {
-    println!("pong")
-}
-
-fn main() -> Result<(), SimulationError> {
+fn get_bench() -> (SimInit, EventQueueReader<String>) {
     let listener = ProtoListener;
     let mut listener_env = ListenerEnvironment::new();
     let listener_mbox = Mailbox::new();
 
     let message = EventQueue::new();
     listener_env.message.connect_sink(&message);
-    let mut message = message.into_reader();
-
-    let mut ping_source = EventSource::new();
-    ping_source.connect(ping, listener_mbox.address().clone());
-
-    let t0 = MonotonicTime::EPOCH;
-    let addr = listener_mbox.address();
 
     let bench = SimInit::new()
         .add_model(listener, listener_env, listener_mbox, "listener")
         .set_clock(AutoSystemClock::new());
+    (bench, message.into_reader())
+}
 
-    let (mut simu, mut scheduler) = bench.init(t0)?;
+fn main() -> Result<(), SimulationError> {
+    let (bench, mut message) = get_bench();
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut simu, _) = bench.init(t0)?;
 
     // save state at the beginning
     let state_0 = simu.serialize_state();
@@ -127,7 +121,9 @@ fn main() -> Result<(), SimulationError> {
     );
 
     println!("Restore 0");
-    simu.restore_state(state_0);
+    let (bench, mut message) = get_bench();
+    let (mut simu, _) = bench.restore(state_0)?;
+
     simu.step().unwrap();
     // back to value == 3 and time == :02
     assert_eq!(
@@ -141,7 +137,11 @@ fn main() -> Result<(), SimulationError> {
     );
 
     println!("Restore 1");
-    simu.restore_state(state_1);
+    let (bench, mut message) = get_bench();
+    let (mut simu, _) = bench.restore(state_1)?;
+
+    assert_eq!(1, INIT_COUNT.load(Ordering::Relaxed));
+
     simu.step().unwrap();
     // now back to value == 4 and time == :04
     assert_eq!(

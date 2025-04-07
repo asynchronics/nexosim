@@ -1,6 +1,5 @@
-use std::borrow::Borrow;
 use std::fmt;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -10,14 +9,12 @@ use serde::Serialize;
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
 use crate::model::{Model, ProtoModel};
-use crate::ports::EventSource;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
-use crate::util::priority_queue::PriorityQueue;
 use crate::util::sync_cell::SyncCell;
 
 use super::{
     add_model, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
-    SchedulerQueue, SchedulerSourceRegistry, Signal, Simulation, SimulationState,
+    SchedulerQueue, Signal, Simulation,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -26,6 +23,7 @@ pub struct SimInit {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     is_running: Arc<AtomicBool>,
+    is_resumed: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
@@ -81,6 +79,7 @@ impl SimInit {
             scheduler_queue,
             time,
             is_running,
+            is_resumed: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,
@@ -126,6 +125,7 @@ impl SimInit {
             &self.executor,
             &self.abort_signal,
             &mut self.registered_models,
+            self.is_resumed.clone(),
         );
 
         self
@@ -214,6 +214,7 @@ impl SimInit {
     }
 
     pub fn restore(mut self, state: Vec<u8>) -> Result<(Simulation, Scheduler), ExecutionError> {
+        self.is_resumed.store(true, Ordering::Relaxed);
         let (mut simulation, scheduler) = self.build();
         simulation.run()?;
         simulation.restore_state(state);
