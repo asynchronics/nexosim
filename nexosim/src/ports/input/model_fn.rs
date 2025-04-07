@@ -2,7 +2,7 @@
 
 use std::future::{ready, Future, Ready};
 
-use crate::model::{Context, Model};
+use crate::model::Model;
 
 use super::markers;
 
@@ -29,7 +29,7 @@ pub trait InputFn<'a, M: Model, T, S>: Send + 'static {
     type Future: Future<Output = ()> + Send + 'a;
 
     /// Calls the method.
-    fn call(self, model: &'a mut M, arg: T, cx: &'a mut Context<M>) -> Self::Future;
+    fn call(self, model: &'a mut M, arg: T, env: &'a mut M::Environment) -> Self::Future;
 }
 
 impl<'a, M, F> InputFn<'a, M, (), markers::WithoutArguments> for F
@@ -39,7 +39,7 @@ where
 {
     type Future = Ready<()>;
 
-    fn call(self, model: &'a mut M, _arg: (), _cx: &'a mut Context<M>) -> Self::Future {
+    fn call(self, model: &'a mut M, _arg: (), _env: &'a mut M::Environment) -> Self::Future {
         self(model);
 
         ready(())
@@ -53,7 +53,7 @@ where
 {
     type Future = Ready<()>;
 
-    fn call(self, model: &'a mut M, arg: T, _cx: &'a mut Context<M>) -> Self::Future {
+    fn call(self, model: &'a mut M, arg: T, _env: &'a mut M::Environment) -> Self::Future {
         self(model, arg);
 
         ready(())
@@ -63,12 +63,12 @@ where
 impl<'a, M, T, F> InputFn<'a, M, T, markers::WithContext> for F
 where
     M: Model,
-    F: FnOnce(&'a mut M, T, &'a mut Context<M>) + Send + 'static,
+    F: FnOnce(&'a mut M, T, &'a mut M::Environment) + Send + 'static,
 {
     type Future = Ready<()>;
 
-    fn call(self, model: &'a mut M, arg: T, cx: &'a mut Context<M>) -> Self::Future {
-        self(model, arg, cx);
+    fn call(self, model: &'a mut M, arg: T, env: &'a mut M::Environment) -> Self::Future {
+        self(model, arg, env);
 
         ready(())
     }
@@ -82,7 +82,7 @@ where
 {
     type Future = Fut;
 
-    fn call(self, model: &'a mut M, _arg: (), _cx: &'a mut Context<M>) -> Self::Future {
+    fn call(self, model: &'a mut M, _arg: (), _env: &'a mut M::Environment) -> Self::Future {
         self(model)
     }
 }
@@ -95,7 +95,7 @@ where
 {
     type Future = Fut;
 
-    fn call(self, model: &'a mut M, arg: T, _cx: &'a mut Context<M>) -> Self::Future {
+    fn call(self, model: &'a mut M, arg: T, _env: &'a mut M::Environment) -> Self::Future {
         self(model, arg)
     }
 }
@@ -104,12 +104,12 @@ impl<'a, M, T, Fut, F> InputFn<'a, M, T, markers::AsyncWithContext> for F
 where
     M: Model,
     Fut: Future<Output = ()> + Send + 'a,
-    F: FnOnce(&'a mut M, T, &'a mut Context<M>) -> Fut + Send + 'static,
+    F: FnOnce(&'a mut M, T, &'a mut M::Environment) -> Fut + Send + 'static,
 {
     type Future = Fut;
 
-    fn call(self, model: &'a mut M, arg: T, cx: &'a mut Context<M>) -> Self::Future {
-        self(model, arg, cx)
+    fn call(self, model: &'a mut M, arg: T, env: &'a mut M::Environment) -> Self::Future {
+        self(model, arg, env)
     }
 }
 
@@ -132,7 +132,7 @@ pub trait ReplierFn<'a, M: Model, T, R, S>: Send + 'static {
     type Future: Future<Output = R> + Send + 'a;
 
     /// Calls the method.
-    fn call(self, model: &'a mut M, arg: T, cx: &'a mut Context<M>) -> Self::Future;
+    fn call(self, model: &'a mut M, arg: T, env: &'a mut M::Environment) -> Self::Future;
 }
 
 impl<'a, M, R, Fut, F> ReplierFn<'a, M, (), R, markers::AsyncWithoutArguments> for F
@@ -143,7 +143,7 @@ where
 {
     type Future = Fut;
 
-    fn call(self, model: &'a mut M, _arg: (), _cx: &'a mut Context<M>) -> Self::Future {
+    fn call(self, model: &'a mut M, _arg: (), _env: &'a mut M::Environment) -> Self::Future {
         self(model)
     }
 }
@@ -156,7 +156,7 @@ where
 {
     type Future = Fut;
 
-    fn call(self, model: &'a mut M, arg: T, _cx: &'a mut Context<M>) -> Self::Future {
+    fn call(self, model: &'a mut M, arg: T, _env: &'a mut M::Environment) -> Self::Future {
         self(model, arg)
     }
 }
@@ -165,11 +165,11 @@ impl<'a, M, T, R, Fut, F> ReplierFn<'a, M, T, R, markers::AsyncWithContext> for 
 where
     M: Model,
     Fut: Future<Output = R> + Send + 'a,
-    F: FnOnce(&'a mut M, T, &'a mut Context<M>) -> Fut + Send + 'static,
+    F: FnOnce(&'a mut M, T, &'a mut M::Environment) -> Fut + Send + 'static,
 {
     type Future = Fut;
 
-    fn call(self, model: &'a mut M, arg: T, cx: &'a mut Context<M>) -> Self::Future {
-        self(model, arg, cx)
+    fn call(self, model: &'a mut M, arg: T, env: &'a mut M::Environment) -> Self::Future {
+        self(model, arg, env)
     }
 }

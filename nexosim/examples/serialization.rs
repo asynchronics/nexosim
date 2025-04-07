@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Context, Environment, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{
     ActionKey, Address, ExecutionError, Mailbox, SimInit, SimulationError, SourceId,
@@ -32,11 +32,10 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
+    pub async fn process(&mut self, msg: u32, env: &mut ListenerEnvironment) {
         self.value += 1;
-        cx.environment
-            .message
-            .send(format!("{}/{} @{}", msg, self.value, cx.environment.time()))
+        env.message
+            .send(format!("{}/{} @{}", msg, self.value, env.time()))
             .await;
         if self.value > 6 && self.key.is_some() {
             println!("Cancelling");
@@ -49,20 +48,18 @@ impl Model for Listener {
     type Environment = ListenerEnvironment;
 
     /// Initialize model.
-    async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(mut self, env: &mut ListenerEnvironment) -> InitializedModel<Self> {
         self.value = 2;
-        cx.environment
-            .schedule_periodic_event(
-                Duration::from_secs(2),
-                self.input_id,
-                Duration::from_secs(2),
-                13u32,
-            )
-            .unwrap();
+        env.schedule_periodic_event(
+            Duration::from_secs(2),
+            self.input_id,
+            Duration::from_secs(2),
+            13u32,
+        )
+        .unwrap();
 
         self.key = Some(
-            cx.environment
-                .schedule_keyed_event(Duration::from_secs(15), self.input_id, 17u32)
+            env.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17u32)
                 .unwrap(),
         );
 

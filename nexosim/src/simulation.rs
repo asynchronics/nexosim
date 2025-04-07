@@ -113,7 +113,7 @@ use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
-use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
+use crate::model::{BuildContext, Model, ProtoModel, RegisteredModel};
 use crate::ports::{InputFn, ReplierFn};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
@@ -839,7 +839,7 @@ impl From<SchedulingError> for SimulationError {
 /// Adds a model and its mailbox to the simulation bench.
 pub(crate) fn add_model<P: ProtoModel>(
     model: P,
-    environment: <P::Model as Model>::Environment,
+    mut environment: <P::Model as Model>::Environment,
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
@@ -866,12 +866,9 @@ pub(crate) fn add_model<P: ProtoModel>(
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
 
-    // TODO remove context creation
-    let mut cx = Context::new(name.clone(), environment, scheduler, address.clone());
-
     let fut = async move {
-        let mut model = model.init(&mut cx).await.0;
-        while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
+        let mut model = model.init(&mut environment).await.0;
+        while !abort_signal.is_set() && receiver.recv(&mut model, &mut environment).await.is_ok() {}
     };
 
     let model_id = ModelId::new(registered_models.len());

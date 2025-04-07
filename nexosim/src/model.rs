@@ -202,7 +202,7 @@ use std::time::Duration;
 use bincode;
 use serde::{de::DeserializeOwned, Serialize};
 
-pub use context::{BuildContext, Context};
+pub use context::BuildContext;
 
 use crate::simulation::{
     ActionKey, Address, ExecutionError, ModelFuture, SchedulingError, Simulation, SourceId,
@@ -258,7 +258,10 @@ pub trait Model: Sized + Send + 'static {
     /// ```
     type Environment: Environment + Send + 'static;
 
-    fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
+    fn init(
+        self,
+        _: &mut Self::Environment,
+    ) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
 }

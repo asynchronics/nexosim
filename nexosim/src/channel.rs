@@ -19,7 +19,7 @@ use recycle_box::RecycleBox;
 use queue::{PopError, PushError, Queue};
 use recycle_box::coerce_box;
 
-use crate::model::{Context, Model};
+use crate::model::{Environment, Model};
 
 // Counts the difference between the number of sent and received messages for
 // this thread.
@@ -57,7 +57,8 @@ impl<M: 'static> Inner<M> {
 pub(crate) struct Receiver<M> {
     /// Shared data.
     inner: Arc<Inner<M>>,
-    /// A recyclable box to temporarily store the `async` closure to be executed.
+    /// A recyclable box to temporarily store the `async` closure to be
+    /// executed.
     future_box: Option<RecycleBox<()>>,
 }
 
@@ -105,7 +106,7 @@ impl<M: Model> Receiver<M> {
     pub(crate) async fn recv(
         &mut self,
         model: &mut M,
-        cx: &mut Context<M>,
+        env: &mut M::Environment,
     ) -> Result<(), RecvError> {
         let msg = unsafe {
             self.inner
@@ -124,7 +125,7 @@ impl<M: Model> Receiver<M> {
                 THREAD_MSG_COUNT.set(THREAD_MSG_COUNT.get().wrapping_sub(1));
 
                 // Take the message to obtain a boxed future.
-                let fut = msg.call_once(model, cx, self.future_box.take().unwrap());
+                let fut = msg.call_once(model, env, self.future_box.take().unwrap());
 
                 // Now that the message was taken, drop `msg` to free its slot
                 // in the queue and signal to one awaiting sender that a slot is
@@ -207,7 +208,7 @@ impl<M: Model> Sender<M> {
     where
         F: for<'a> FnOnce(
                 &'a mut M,
-                &'a mut Context<M>,
+                &'a mut M::Environment,
                 RecycleBox<()>,
             ) -> RecycleBox<dyn Future<Output = ()> + Send + 'a>
             + Send
@@ -380,7 +381,7 @@ trait MessageFn<M: Model>: Send {
     fn call_once<'a>(
         &mut self,
         model: &'a mut M,
-        cx: &'a mut Context<M>,
+        env: &'a mut M::Environment,
         recycle_box: RecycleBox<()>,
     ) -> RecycleBox<dyn Future<Output = ()> + Send + 'a>;
 }
@@ -402,7 +403,7 @@ impl<F, M: Model> MessageFn<M> for MessageFnOnce<F, M>
 where
     F: for<'a> FnOnce(
             &'a mut M,
-            &'a mut Context<M>,
+            &'a mut M::Environment,
             RecycleBox<()>,
         ) -> RecycleBox<dyn Future<Output = ()> + Send + 'a>
         + Send,
@@ -410,12 +411,12 @@ where
     fn call_once<'a>(
         &mut self,
         model: &'a mut M,
-        cx: &'a mut Context<M>,
+        env: &'a mut M::Environment,
         recycle_box: RecycleBox<()>,
     ) -> RecycleBox<dyn Future<Output = ()> + Send + 'a> {
         let closure = self.msg_fn.take().unwrap();
 
-        (closure)(model, cx, recycle_box)
+        (closure)(model, env, recycle_box)
     }
 }
 
