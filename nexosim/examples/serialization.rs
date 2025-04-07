@@ -38,7 +38,7 @@ impl Listener {
             .send(format!("{}/{} @{}", msg, self.value, env.time()))
             .await;
         if self.value > 6 && self.key.is_some() {
-            println!("Cancelling");
+            println!("Cancelling single event");
             self.key.take().unwrap().cancel();
         }
         if msg == 17 {
@@ -108,29 +108,50 @@ fn main() -> Result<(), SimulationError> {
 
     let (mut simu, mut scheduler) = bench.init(t0)?;
 
+    // save state at the beginning
     let state_0 = simu.serialize_state();
 
     simu.step().unwrap();
-    println!("{:?}", message.next());
+    assert_eq!(
+        message.next(),
+        Some("13/3 @1970-01-01 00:00:02".to_string())
+    );
 
+    // save state after one step
     let state_1 = simu.serialize_state();
 
     simu.step().unwrap();
-    println!("{:?}", message.next());
+    assert_eq!(
+        message.next(),
+        Some("13/4 @1970-01-01 00:00:04".to_string())
+    );
 
     println!("Restore 0");
     simu.restore_state(state_0);
     simu.step().unwrap();
-    println!("{:?}", message.next());
+    // back to value == 3 and time == :02
+    assert_eq!(
+        message.next(),
+        Some("13/3 @1970-01-01 00:00:02".to_string())
+    );
     simu.step().unwrap();
-    println!("{:?}", message.next());
+    assert_eq!(
+        message.next(),
+        Some("13/4 @1970-01-01 00:00:04".to_string())
+    );
 
     println!("Restore 1");
     simu.restore_state(state_1);
+    simu.step().unwrap();
+    // now back to value == 4 and time == :04
+    assert_eq!(
+        message.next(),
+        Some("13/4 @1970-01-01 00:00:04".to_string())
+    );
 
-    for _ in 0..20 {
+    // run in a loop to make sure the cancelled event won't fire
+    for _ in 0..10 {
         simu.step().unwrap();
-        println!("{:?}", message.next());
     }
 
     Ok(())
