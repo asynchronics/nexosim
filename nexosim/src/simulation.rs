@@ -262,9 +262,10 @@ impl Simulation {
     ///
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
+
     pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
-        action.spawn_and_forget(&self.executor);
-        self.run()
+        // TODO - this method will be removed
+        panic!("Not implemented!");
     }
 
     /// Processes an event immediately, blocking until completion.

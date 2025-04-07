@@ -201,16 +201,8 @@ impl SimInit {
             self.clock_tolerance,
             self.timeout,
             self.observers,
-<<<<<<< HEAD
             self.registered_models,
-            self.is_halted,
-||||||| e57f31c
-            self.model_names,
-            self.is_halted,
-=======
-            self.model_names,
             self.is_running,
->>>>>>> origin/main
         );
         simulation.run()?;
 
@@ -220,9 +212,9 @@ impl SimInit {
         let scheduler = Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_halted.clone(),
+            self.is_running.clone(),
         );
-        let mut simulation = Simulation::new(
+        let simulation = Simulation::new(
             self.executor,
             self.scheduler_queue,
             self.time,
@@ -231,7 +223,7 @@ impl SimInit {
             self.timeout,
             self.observers,
             self.registered_models,
-            self.is_halted,
+            self.is_running,
         );
 
         Ok((simulation, scheduler))

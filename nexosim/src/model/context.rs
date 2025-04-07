@@ -334,8 +334,8 @@ impl<M: Model> Context<M> {
     pub fn schedule_keyed_periodic_event<F, T, S>(
         &self,
         deadline: impl Deadline,
+        source_id: SourceId,
         period: Duration,
-        func: F,
         arg: T,
     ) -> Result<ActionKey, SchedulingError>
     where
@@ -345,10 +345,9 @@ impl<M: Model> Context<M> {
     {
         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
             deadline,
+            source_id,
             period,
-            func,
             arg,
-            &self.address,
             self.origin_id,
         )?;
 

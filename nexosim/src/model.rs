@@ -348,6 +348,20 @@ pub trait Environment {
             .map(|s| s.schedule_keyed_event_from(deadline, source_id, arg, origin_id))
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
+    fn schedule_keyed_periodic_event<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        source_id: SourceId,
+        period: Duration,
+        arg: T,
+    ) -> Result<ActionKey, SchedulingError> {
+        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
+        MODEL_SCHEDULER
+            .map(|s| {
+                s.schedule_keyed_periodic_event_from(deadline, source_id, period, arg, origin_id)
+            })
+            .ok_or(SchedulingError::SchedulerNotReady)?
+    }
 }
 
 pub(crate) struct RegisteredModel {

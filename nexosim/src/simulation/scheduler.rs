@@ -82,8 +82,8 @@ impl Scheduler {
     /// model, these events are guaranteed to be processed according to the
     /// scheduling order of the actions.
     pub fn schedule(&self, deadline: impl Deadline, action: Action) -> Result<(), SchedulingError> {
-        self.0
-            .schedule_from(deadline, action, GLOBAL_SCHEDULER_ORIGIN_ID)
+        // TODO - this method will be removed
+        panic!("Not implemented!");
     }
 
     /// Schedules an event at a future time.
@@ -139,10 +139,9 @@ impl Scheduler {
     pub fn schedule_periodic_event<M, F, T, S>(
         &self,
         deadline: impl Deadline,
+        source_id: SourceId,
         period: Duration,
-        func: F,
         arg: T,
-        address: impl Into<Address<M>>,
     ) -> Result<(), SchedulingError>
     where
         M: Model,
@@ -150,16 +149,13 @@ impl Scheduler {
         T: Send + Clone + 'static,
         S: Send + 'static,
     {
-        // TODO
-        // self.0.schedule_periodic_event_from(
-        //     deadline,
-        //     period,
-        //     func,
-        //     arg,
-        //     address,
-        //     GLOBAL_SCHEDULER_ORIGIN_ID,
-        // )
-        Ok(())
+        self.0.schedule_periodic_event_from(
+            deadline,
+            source_id,
+            period,
+            arg,
+            GLOBAL_SCHEDULER_ORIGIN_ID,
+        )
     }
 
     /// Schedules a cancellable, periodically recurring event at a future time
@@ -173,10 +169,9 @@ impl Scheduler {
     pub fn schedule_keyed_periodic_event<M, F, T, S>(
         &self,
         deadline: impl Deadline,
+        source_id: SourceId,
         period: Duration,
-        func: F,
         arg: T,
-        address: impl Into<Address<M>>,
     ) -> Result<ActionKey, SchedulingError>
     where
         M: Model,
@@ -186,10 +181,9 @@ impl Scheduler {
     {
         self.0.schedule_keyed_periodic_event_from(
             deadline,
+            source_id,
             period,
-            func,
             arg,
-            address,
             GLOBAL_SCHEDULER_ORIGIN_ID,
         )
     }
@@ -387,9 +381,8 @@ impl GlobalScheduler {
         self.time.read()
     }
 
-    // TODO
-
     /// Schedules an action identified by its origin at a future time.
+    // FIXME - this method will be removed
     pub(crate) fn schedule_from(
         &self,
         deadline: impl Deadline,
@@ -411,10 +404,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        // TODO
-        // scheduler_queue.insert((time, origin_id), action);
-
-        Ok(())
+        // TODO - removed method
+        panic!("Not implemented!");
     }
 
     // TODO update docs
@@ -531,31 +522,18 @@ impl GlobalScheduler {
 
     /// Schedules a cancellable, periodically recurring event identified by its
     /// origin at a future time and returns an event key.
-    pub(crate) fn schedule_keyed_periodic_event_from<M, F, T, S>(
+    pub(crate) fn schedule_keyed_periodic_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
+        source_id: SourceId,
         period: Duration,
-        func: F,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
-    ) -> Result<ActionKey, SchedulingError>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
-        T: Send + Clone + 'static,
-        S: Send + 'static,
-    {
+    ) -> Result<ActionKey, SchedulingError> {
         if period.is_zero() {
             return Err(SchedulingError::NullRepetitionPeriod);
         }
         let event_key = ActionKey::new();
-        let sender = address.into().0;
-        let action = Action::new(KeyedPeriodicAction::new(
-            |ek| send_keyed_event(ek, func, arg, sender),
-            period,
-            event_key.clone(),
-        ));
 
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
@@ -566,8 +544,10 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        // TODO
-        // scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::new(source_id, Box::new(arg))
+            .with_period(period)
+            .with_key(event_key.clone());
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(event_key)
     }
