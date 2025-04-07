@@ -521,11 +521,11 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn add_submodel<S: ProtoModel>(
         &mut self,
         model: S,
-        mut environment: <S::Model as Model>::Environment,
+        environment: <S::Model as Model>::Environment,
         mailbox: Mailbox<S::Model>,
         name: impl Into<String>,
     ) where
-        <S as ProtoModel>::Model: Serialize,
+        <S as ProtoModel>::Model: Serialize + DeserializeOwned,
     {
         let mut submodel_name = name.into();
         if submodel_name.is_empty() {
@@ -533,17 +533,16 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         };
         submodel_name = self.name.to_string() + "." + &submodel_name;
 
-        // TODO
-        // simulation::add_model(
-        //     model,
-        //     environment,
-        //     mailbox,
-        //     submodel_name,
-        //     self.scheduler.clone(),
-        //     self.executor,
-        //     self.abort_signal,
-        //     self.registered_models,
-        // );
+        simulation::add_model(
+            model,
+            environment,
+            mailbox,
+            submodel_name,
+            self.scheduler.clone(),
+            self.executor,
+            self.abort_signal,
+            self.registered_models,
+        );
     }
 }
 

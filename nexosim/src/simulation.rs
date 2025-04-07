@@ -447,7 +447,6 @@ impl Simulation {
             let mut action_sequence = SeqFuture::new();
             loop {
                 let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
-                // let event = pull_next_scheduled_event(&mut scheduler_queue);
                 let source = scheduler_queue
                     .registry
                     .get(&event.source_id)
@@ -468,34 +467,6 @@ impl Simulation {
             self.executor.spawn_and_forget(action_sequence);
 
             // TODO test that this refactor covers all cases
-
-            // if next_key != Some(current_key) {
-            //     // Since there are no other actions with the same origin and the
-            //     // same time, the action is spawned immediately.
-
-            //     let source = scheduler_queue
-            //         .registry
-            //         .get(&event.source_id)
-            //         .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
-            //     let fut = source.into_future(&*event.arg);
-            //     let mut action_sequence = SeqFuture::new();
-            //     action_sequence.push(fut);
-            //     self.executor.spawn_and_forget(action_sequence);
-            // } else {
-            //     // To ensure that their relative order of execution is
-            //     // preserved, all actions with the same origin are executed
-            //     // sequentially within a single compound future.
-            //     // TODO
-            //     let mut action_sequence = SeqFuture::new();
-            //     action_sequence.push(action.into_future());
-            //     loop {
-            //         let action = pull_next_action(&mut scheduler_queue);
-            //         action_sequence.push(action.into_future());
-            //         next_key = peek_next_key(&mut scheduler_queue);
-            //         if next_key != Some(current_key) {
-            //             break;
-            //         }
-            //     }
 
             // Spawn a compound future that sequentially polls all actions
             // targeting the same mailbox.
