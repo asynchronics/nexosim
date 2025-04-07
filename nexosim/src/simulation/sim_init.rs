@@ -169,6 +169,26 @@ impl SimInit {
         self
     }
 
+    fn build(self) -> (Simulation, Scheduler) {
+        let scheduler = Scheduler::new(
+            self.scheduler_queue.clone(),
+            self.time.reader(),
+            self.is_running.clone(),
+        );
+        let simulation = Simulation::new(
+            self.executor,
+            self.scheduler_queue,
+            self.time,
+            self.clock,
+            self.clock_tolerance,
+            self.timeout,
+            self.observers,
+            self.registered_models,
+            self.is_running,
+        );
+        (simulation, scheduler)
+    }
+
     /// Builds a simulation initialized at the specified simulation time,
     /// executing the [`Model::init`](crate::model::Model::init) method on all
     /// model initializers.
@@ -187,44 +207,16 @@ impl SimInit {
                 }
             }
         }
-
-        let scheduler = Scheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_running.clone(),
-        );
-        let mut simulation = Simulation::new(
-            self.executor,
-            self.scheduler_queue,
-            self.time,
-            self.clock,
-            self.clock_tolerance,
-            self.timeout,
-            self.observers,
-            self.registered_models,
-            self.is_running,
-        );
+        let (mut simulation, scheduler) = self.build();
         simulation.run()?;
 
         Ok((simulation, scheduler))
     }
+
     pub fn restore(mut self, state: Vec<u8>) -> Result<(Simulation, Scheduler), ExecutionError> {
-        let scheduler = Scheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_running.clone(),
-        );
-        let simulation = Simulation::new(
-            self.executor,
-            self.scheduler_queue,
-            self.time,
-            self.clock,
-            self.clock_tolerance,
-            self.timeout,
-            self.observers,
-            self.registered_models,
-            self.is_running,
-        );
+        let (mut simulation, scheduler) = self.build();
+        simulation.run()?;
+        simulation.restore_state(state);
 
         Ok((simulation, scheduler))
     }
