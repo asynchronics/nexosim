@@ -1,8 +1,10 @@
 //! Simulation server.
 
+use std::future::Future;
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::{Mutex, RwLock};
 
@@ -28,7 +30,31 @@ where
     F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
 {
-    run_service(GrpcSimulationService::new(sim_gen), addr)
+    run_service(GrpcSimulationService::new(sim_gen), addr, None)
+}
+
+/// Runs a simulation from a network server.
+///
+/// The first argument is a closure that takes an initialization configuration
+/// and is called every time the simulation is (re)started by the remote client.
+/// It must create a new simulation, complemented by a registry that exposes the
+/// public event and query interface. Shutdowns when the provided signal is
+/// received.
+pub fn run_with_shutdown<F, I, S>(
+    sim_gen: F,
+    addr: SocketAddr,
+    signal: S,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    I: DeserializeOwned,
+    for<'a> S: Future<Output = ()> + 'a,
+{
+    run_service(
+        GrpcSimulationService::new(sim_gen),
+        addr,
+        Some(Box::pin(signal)),
+    )
 }
 
 /// Monomorphization of the network server.
@@ -38,16 +64,20 @@ where
 fn run_service(
     service: GrpcSimulationService,
     addr: SocketAddr,
+    signal: Option<Pin<Box<dyn Future<Output = ()>>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .build()?;
 
     rt.block_on(async move {
-        Server::builder()
-            .add_service(simulation_server::SimulationServer::new(service))
-            .serve(addr)
-            .await?;
+        let service =
+            Server::builder().add_service(simulation_server::SimulationServer::new(service));
+
+        match signal {
+            Some(signal) => service.serve_with_shutdown(addr, signal).await?,
+            None => service.serve(addr).await?,
+        };
 
         Ok(())
     })
@@ -67,7 +97,33 @@ where
     P: AsRef<Path>,
 {
     let path = path.as_ref();
-    run_local_service(GrpcSimulationService::new(sim_gen), path)
+    run_local_service(GrpcSimulationService::new(sim_gen), path, None)
+}
+
+/// Runs a simulation locally from a Unix Domain Sockets server.
+///
+/// The first argument is a closure that takes an initialization configuration
+/// and is called every time the simulation is (re)started by the remote client.
+/// It must create a new simulation, complemented by a registry that exposes the
+/// public event and query interface.
+#[cfg(unix)]
+pub fn run_local_with_shutdown<F, I, P, S>(
+    sim_gen: F,
+    path: P,
+    signal: S,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    I: DeserializeOwned,
+    P: AsRef<Path>,
+    for<'a> S: Future<Output = ()> + 'a,
+{
+    let path = path.as_ref();
+    run_local_service(
+        GrpcSimulationService::new(sim_gen),
+        path,
+        Some(Box::pin(signal)),
+    )
 }
 
 /// Monomorphization of the Unix Domain Sockets server.
@@ -78,6 +134,7 @@ where
 fn run_local_service(
     service: GrpcSimulationService,
     path: &Path,
+    signal: Option<Pin<Box<dyn Future<Output = ()>>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
     use std::io;
@@ -116,10 +173,17 @@ fn run_local_service(
         let uds = UnixListener::bind(path)?;
         let uds_stream = UnixListenerStream::new(uds);
 
-        Server::builder()
-            .add_service(simulation_server::SimulationServer::new(service))
-            .serve_with_incoming(uds_stream)
-            .await?;
+        let service =
+            Server::builder().add_service(simulation_server::SimulationServer::new(service));
+
+        match signal {
+            Some(signal) => {
+                service
+                    .serve_with_incoming_shutdown(uds_stream, signal)
+                    .await?
+            }
+            None => service.serve_with_incoming(uds_stream).await?,
+        };
 
         Ok(())
     })
@@ -248,6 +312,17 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }
 
         Ok(Response::new(reply))
+    }
+    async fn shutdown(
+        &self,
+        _request: Request<ShutdownRequest>,
+    ) -> Result<Response<ShutdownReply>, Status> {
+        *self.controller_service.lock().unwrap() = ControllerService::NotStarted;
+        *self.monitor_service.write().unwrap() = MonitorService::NotStarted;
+        *self.scheduler_service.lock().unwrap() = SchedulerService::NotStarted;
+        Ok(Response::new(ShutdownReply {
+            result: Some(shutdown_reply::Result::Empty(())),
+        }))
     }
     async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
         let request = request.into_inner();

@@ -15,8 +15,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ports::EventSource;
 
-// TODO consider using scoped_thread_local (would involve implementing a mutable
-// borrow)
 pub(super) static ACTION_KEY_REG: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 

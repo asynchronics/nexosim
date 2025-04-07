@@ -167,7 +167,7 @@ pub struct Simulation {
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     registered_models: Vec<RegisteredModel>,
-    is_halted: Arc<AtomicBool>,
+    is_running: Arc<AtomicBool>,
     is_terminated: bool,
 }
 
@@ -183,7 +183,7 @@ impl Simulation {
         timeout: Duration,
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
         registered_models: Vec<RegisteredModel>,
-        is_halted: Arc<AtomicBool>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
         Self {
             executor,
@@ -194,7 +194,7 @@ impl Simulation {
             timeout,
             observers,
             registered_models,
-            is_halted,
+            is_running,
             is_terminated: false,
         }
     }
@@ -216,6 +216,11 @@ impl Simulation {
     /// Returns the current simulation time.
     pub fn time(&self) -> MonotonicTime {
         self.time.read()
+    }
+
+    /// Reinitialize simulation's clock (e.g. after halting).
+    pub fn reset_clock(&mut self, clock: impl Clock + 'static) {
+        self.clock = Box::new(clock);
     }
 
     /// Advances simulation time to that of the next scheduled event, processing
@@ -247,10 +252,8 @@ impl Simulation {
     /// Iteratively advances the simulation time, as if by calling
     /// [`Simulation::step`] repeatedly.
     ///
-    /// This method blocks until
-    /// * the simulation is halted for real-time clock,
-    /// * the simulation is halted or all scheduled events have completed for
-    ///   non real-time clock.
+    /// This method blocks until the simulation is halted or all scheduled
+    /// events have completed.
     pub fn step_unbounded(&mut self) -> Result<(), ExecutionError> {
         self.step_until_unchecked(None)
     }
@@ -352,11 +355,6 @@ impl Simulation {
             return Err(ExecutionError::Terminated);
         }
 
-        if self.is_halted.load(Ordering::Relaxed) {
-            self.is_terminated = true;
-            return Err(ExecutionError::Halted);
-        }
-
         self.executor.run(self.timeout).map_err(|e| {
             self.is_terminated = true;
 
@@ -413,11 +411,6 @@ impl Simulation {
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
-        }
-
-        if self.is_halted.load(Ordering::Relaxed) {
-            self.is_terminated = true;
-            return Err(ExecutionError::Halted);
         }
 
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
@@ -547,7 +540,11 @@ impl Simulation {
         &mut self,
         target_time: Option<MonotonicTime>,
     ) -> Result<(), ExecutionError> {
+        self.is_running.store(true, Ordering::Relaxed);
         loop {
+            if !self.is_running.load(Ordering::Relaxed) {
+                return Err(ExecutionError::Halted);
+            }
             match self.step_to_next(target_time) {
                 // The target time was reached exactly.
                 Ok(time) if time == target_time => return Ok(()),
@@ -581,7 +578,7 @@ impl Simulation {
         Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_halted.clone(),
+            self.is_running.clone(),
         )
     }
 

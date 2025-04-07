@@ -36,6 +36,25 @@ pub mod init_reply {
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShutdownRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShutdownReply {
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "shutdown_reply::Result", tags = "1, 100")]
+    pub result: ::core::option::Option<shutdown_reply::Result>,
+}
+/// Nested message and enum types in `ShutdownReply`.
+pub mod shutdown_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct HaltRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HaltReply {
@@ -363,7 +382,7 @@ pub struct AnyRequest {
     /// Expects exactly 1 variant.
     #[prost(
         oneof = "any_request::Request",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"
     )]
     pub request: ::core::option::Option<any_request::Request>,
 }
@@ -400,6 +419,8 @@ pub mod any_request {
         AwaitEventRequest(super::AwaitEventRequest),
         #[prost(message, tag = "14")]
         StepUnboundedRequest(super::StepUnboundedRequest),
+        #[prost(message, tag = "15")]
+        ShutdownRequest(super::ShutdownRequest),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -505,6 +526,10 @@ pub mod simulation_server {
             &self,
             request: tonic::Request<super::InitRequest>,
         ) -> std::result::Result<tonic::Response<super::InitReply>, tonic::Status>;
+        async fn shutdown(
+            &self,
+            request: tonic::Request<super::ShutdownRequest>,
+        ) -> std::result::Result<tonic::Response<super::ShutdownReply>, tonic::Status>;
         async fn halt(
             &self,
             request: tonic::Request<super::HaltRequest>,
@@ -677,6 +702,51 @@ pub mod simulation_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = InitSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/Shutdown" => {
+                    #[allow(non_camel_case_types)]
+                    struct ShutdownSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ShutdownRequest>
+                    for ShutdownSvc<T> {
+                        type Response = super::ShutdownReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ShutdownRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::shutdown(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ShutdownSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

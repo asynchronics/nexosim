@@ -43,9 +43,9 @@ impl Scheduler {
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
-        is_halted: Arc<AtomicBool>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
-        Self(GlobalScheduler::new(scheduler_queue, time, is_halted))
+        Self(GlobalScheduler::new(scheduler_queue, time, is_running))
     }
 
     /// Returns the current simulation time.
@@ -361,19 +361,19 @@ impl SchedulerQueue {
 pub(crate) struct GlobalScheduler {
     pub(crate) scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTimeReader,
-    is_halted: Arc<AtomicBool>,
+    is_running: Arc<AtomicBool>,
 }
 
 impl GlobalScheduler {
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
-        is_halted: Arc<AtomicBool>,
+        is_running: Arc<AtomicBool>,
     ) -> Self {
         Self {
             scheduler_queue,
             time,
-            is_halted,
+            is_running,
         }
     }
 
@@ -574,7 +574,7 @@ impl GlobalScheduler {
 
     /// Requests the simulation to stop when advancing to the next step.
     pub(crate) fn halt(&mut self) {
-        self.is_halted.store(true, Ordering::Relaxed);
+        self.is_running.store(false, Ordering::Relaxed);
     }
 }
 
@@ -859,7 +859,7 @@ impl GlobalScheduler {
     pub(crate) fn new_dummy() -> Self {
         let dummy_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
-        let dummy_halter = Arc::new(AtomicBool::new(false));
-        GlobalScheduler::new(dummy_queue, dummy_time, dummy_halter)
+        let dummy_running = Arc::new(AtomicBool::new(false));
+        GlobalScheduler::new(dummy_queue, dummy_time, dummy_running)
     }
 }

@@ -25,7 +25,7 @@ pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
-    is_halted: Arc<AtomicBool>,
+    is_running: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
@@ -62,9 +62,9 @@ impl SimInit {
 
         let abort_signal = Signal::new();
         let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
-        let is_halted = Arc::new(AtomicBool::new(false));
+        let is_running = Arc::new(AtomicBool::new(false));
         let scheduler =
-            GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_halted.clone());
+            GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_running.clone());
         let executor = if num_threads == 1 {
             Executor::new_single_threaded(simulation_context, abort_signal.clone())
         } else {
@@ -80,7 +80,7 @@ impl SimInit {
             executor,
             scheduler_queue,
             time,
-            is_halted,
+            is_running,
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,
@@ -115,7 +115,7 @@ impl SimInit {
         let scheduler = GlobalScheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_halted.clone(),
+            self.is_running.clone(),
         );
         add_model(
             model,
@@ -191,7 +191,7 @@ impl SimInit {
         let scheduler = Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_halted.clone(),
+            self.is_running.clone(),
         );
         let mut simulation = Simulation::new(
             self.executor,
@@ -201,8 +201,16 @@ impl SimInit {
             self.clock_tolerance,
             self.timeout,
             self.observers,
+<<<<<<< HEAD
             self.registered_models,
             self.is_halted,
+||||||| e57f31c
+            self.model_names,
+            self.is_halted,
+=======
+            self.model_names,
+            self.is_running,
+>>>>>>> origin/main
         );
         simulation.run()?;
 
