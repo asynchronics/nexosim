@@ -10,15 +10,9 @@ use nexosim::time::{AutoSystemClock, MonotonicTime};
 
 static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
 
+#[derive(Default)]
 pub struct ListenerEnvironment {
     pub message: Output<String>,
-}
-impl ListenerEnvironment {
-    pub fn new() -> Self {
-        Self {
-            message: Output::new(),
-        }
-    }
 }
 impl Environment for ListenerEnvironment {}
 
@@ -84,7 +78,7 @@ impl ProtoModel for ProtoListener {
 
 fn get_bench() -> (SimInit, EventQueueReader<String>) {
     let listener = ProtoListener;
-    let mut listener_env = ListenerEnvironment::new();
+    let mut listener_env = ListenerEnvironment::default();
     let listener_mbox = Mailbox::new();
 
     let message = EventQueue::new();
@@ -153,6 +147,5 @@ fn main() -> Result<(), SimulationError> {
     for _ in 0..10 {
         simu.step().unwrap();
     }
-
     Ok(())
 }
