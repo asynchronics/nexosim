@@ -26,7 +26,7 @@ impl Environment for ListenerEnvironment {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Listener {
-    input_id: SourceId,
+    input_id: SourceId<u32>,
     pub value: u32,
     pub key: Option<ActionKey>,
 }
@@ -57,12 +57,12 @@ impl Model for Listener {
             Duration::from_secs(2),
             self.input_id,
             Duration::from_secs(2),
-            13u32,
+            13,
         )
         .unwrap();
 
         self.key = Some(
-            env.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17u32)
+            env.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17)
                 .unwrap(),
         );
 

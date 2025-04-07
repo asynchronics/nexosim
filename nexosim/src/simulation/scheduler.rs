@@ -66,7 +66,7 @@ impl Scheduler {
         self.0.time()
     }
 
-    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -96,7 +96,7 @@ impl Scheduler {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -116,7 +116,7 @@ impl Scheduler {
     pub fn schedule_keyed_event<M, F, T, S>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         arg: T,
     ) -> Result<ActionKey, SchedulingError>
     where
@@ -139,7 +139,7 @@ impl Scheduler {
     pub fn schedule_periodic_event<M, F, T, S>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         period: Duration,
         arg: T,
     ) -> Result<(), SchedulingError>
@@ -169,7 +169,7 @@ impl Scheduler {
     pub fn schedule_keyed_periodic_event<M, F, T, S>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         period: Duration,
         arg: T,
     ) -> Result<ActionKey, SchedulingError>
@@ -412,7 +412,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError> {
@@ -434,7 +434,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<ActionKey, SchedulingError>
@@ -463,7 +463,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_periodic_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         period: Duration,
         arg: T,
         origin_id: usize,
@@ -492,7 +492,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_keyed_periodic_event_from<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         period: Duration,
         arg: T,
         origin_id: usize,

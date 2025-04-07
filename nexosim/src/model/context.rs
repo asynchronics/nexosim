@@ -493,7 +493,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
-    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send,
     {
@@ -501,7 +501,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         queue.registry.add(source)
     }
 
-    pub fn register_input<F, T, S>(&self, func: F) -> SourceId
+    pub fn register_input<F, T, S>(&self, func: F) -> SourceId<T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
         T: Serialize + DeserializeOwned + Clone + Send + 'static,

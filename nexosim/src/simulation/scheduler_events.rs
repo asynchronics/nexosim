@@ -2,6 +2,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,21 +19,31 @@ use crate::ports::EventSource;
 pub(super) static ACTION_KEY_REG: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct SourceId(pub usize);
+// Typed SourceId allows for compile time argument validation.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct SourceId<T>(usize, PhantomData<T>);
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct SourceIdErased(usize);
+
+impl<T> From<SourceId<T>> for SourceIdErased {
+    fn from(value: SourceId<T>) -> Self {
+        Self(value.0)
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
-    pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId
+    pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        let source_id = SourceId(self.0.len());
+        let source_id = SourceId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
         source_id
     }
-    pub(crate) fn get(&self, source_id: &SourceId) -> Option<&dyn SchedulerEventSource> {
+    pub(crate) fn get(&self, source_id: &SourceIdErased) -> Option<&dyn SchedulerEventSource> {
         self.0.get(source_id.0).map(|s| s.as_ref())
     }
 }
@@ -78,15 +89,15 @@ where
 
 #[derive(Debug)]
 pub(crate) struct ScheduledEvent {
-    pub source_id: SourceId,
+    pub source_id: SourceIdErased,
     pub arg: Box<dyn Any + Send>,
     pub period: Option<Duration>,
     pub action_key: Option<ActionKey>,
 }
 impl ScheduledEvent {
-    pub(crate) fn new(source_id: SourceId, arg: Box<dyn Any + Send>) -> Self {
+    pub(crate) fn new<T>(source_id: SourceId<T>, arg: Box<dyn Any + Send>) -> Self {
         Self {
-            source_id,
+            source_id: source_id.into(),
             arg,
             period: None,
             action_key: None,
@@ -110,7 +121,7 @@ impl ScheduledEvent {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SerializableEvent {
-    source_id: SourceId,
+    source_id: SourceIdErased,
     arg: Vec<u8>,
     period: Option<Duration>,
     action_key: Option<ActionKey>,

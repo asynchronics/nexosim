@@ -109,7 +109,7 @@ use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
 
 use scheduler::SchedulerQueue;
-use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry};
+use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry, SourceIdErased};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
@@ -718,7 +718,7 @@ pub enum ExecutionError {
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
     // TODO
-    InvalidEvent(SourceId),
+    InvalidEvent(SourceIdErased),
 }
 
 impl fmt::Display for ExecutionError {

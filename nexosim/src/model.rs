@@ -320,7 +320,7 @@ pub trait Environment {
     fn schedule_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         arg: T,
     ) -> Result<(), SchedulingError> {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
@@ -331,7 +331,7 @@ pub trait Environment {
     fn schedule_periodic_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         period: Duration,
         arg: T,
     ) -> Result<(), SchedulingError> {
@@ -343,7 +343,7 @@ pub trait Environment {
     fn schedule_keyed_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         arg: T,
     ) -> Result<ActionKey, SchedulingError> {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
@@ -354,7 +354,7 @@ pub trait Environment {
     fn schedule_keyed_periodic_event<T: Clone + Send + 'static>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId,
+        source_id: SourceId<T>,
         period: Duration,
         arg: T,
     ) -> Result<ActionKey, SchedulingError> {
