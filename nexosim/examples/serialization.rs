@@ -41,6 +41,9 @@ impl Listener {
             println!("Cancelling");
             self.key.take().unwrap().cancel();
         }
+        if msg == 17 {
+            panic!("This event should have been cancelled!");
+        }
     }
 }
 
