@@ -53,8 +53,13 @@ impl Executor {
     pub(crate) fn new_single_threaded(
         simulation_context: SimulationContext,
         abort_signal: Signal,
+        scheduler: GlobalScheduler,
     ) -> Self {
-        Self::StExecutor(st_executor::Executor::new(simulation_context, abort_signal))
+        Self::StExecutor(st_executor::Executor::new(
+            simulation_context,
+            abort_signal,
+            scheduler,
+        ))
     }
 
     /// Creates an executor that runs futures on a thread pool.

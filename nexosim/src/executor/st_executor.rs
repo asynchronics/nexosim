@@ -16,7 +16,7 @@ use super::NEXT_EXECUTOR_ID;
 use crate::channel;
 use crate::executor::{ExecutorError, Signal, SimulationContext, SIMULATION_CONTEXT};
 use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::simulation::CURRENT_MODEL_ID;
+use crate::simulation::{GlobalScheduler, CURRENT_MODEL_ID, MODEL_SCHEDULER};
 
 const QUEUE_MIN_CAPACITY: usize = 32;
 
@@ -29,11 +29,16 @@ pub(crate) struct Executor {
     inner: Option<Box<ExecutorInner>>,
     /// Handle to the forced termination signal.
     abort_signal: Signal,
+    scheduler: GlobalScheduler,
 }
 
 impl Executor {
     /// Creates an executor that runs futures on the current thread.
-    pub(crate) fn new(simulation_context: SimulationContext, abort_signal: Signal) -> Self {
+    pub(crate) fn new(
+        simulation_context: SimulationContext,
+        abort_signal: Signal,
+        scheduler: GlobalScheduler,
+    ) -> Self {
         // Each executor instance has a unique ID inherited by tasks to ensure
         // that tasks are scheduled on their parent executor.
         let executor_id = NEXT_EXECUTOR_ID.fetch_add(1, Ordering::Relaxed);
@@ -53,6 +58,7 @@ impl Executor {
                 abort_signal: abort_signal.clone(),
             })),
             abort_signal,
+            scheduler,
         }
     }
 
@@ -119,34 +125,36 @@ impl Executor {
     /// Execute spawned tasks, blocking until all futures have completed or an
     /// error is encountered.
     pub(crate) fn run(&mut self, timeout: Duration) -> Result<(), ExecutorError> {
-        if timeout.is_zero() {
-            return self.inner.as_mut().unwrap().run();
-        }
+        MODEL_SCHEDULER.set(&self.scheduler, || {
+            if timeout.is_zero() {
+                return self.inner.as_mut().unwrap().run();
+            }
 
-        // Temporarily move out the inner state so it can be moved to another
-        // thread.
-        let mut inner = self.inner.take().unwrap();
+            // Temporarily move out the inner state so it can be moved to another
+            // thread.
+            let mut inner = self.inner.take().unwrap();
 
-        let parker = Parker::new();
-        let unparker = parker.unparker();
-        let th = thread::spawn(move || {
-            let res = inner.run();
-            unparker.unpark();
+            let parker = Parker::new();
+            let unparker = parker.unparker();
+            let th = thread::spawn(move || {
+                let res = inner.run();
+                unparker.unpark();
 
-            (inner, res)
-        });
+                (inner, res)
+            });
 
-        if !parker.park_timeout(timeout) {
-            // Make a best-effort attempt at stopping the worker thread.
-            self.abort_signal.set();
+            if !parker.park_timeout(timeout) {
+                // Make a best-effort attempt at stopping the worker thread.
+                self.abort_signal.set();
 
-            return Err(ExecutorError::Timeout);
-        }
+                return Err(ExecutorError::Timeout);
+            }
 
-        let (inner, res) = th.join().unwrap();
-        self.inner = Some(inner);
+            let (inner, res) = th.join().unwrap();
+            self.inner = Some(inner);
 
-        res
+            res
+        })
     }
 }
 

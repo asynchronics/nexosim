@@ -64,7 +64,7 @@ impl SimInit {
         let scheduler =
             GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_running.clone());
         let executor = if num_threads == 1 {
-            Executor::new_single_threaded(simulation_context, abort_signal.clone())
+            Executor::new_single_threaded(simulation_context, abort_signal.clone(), scheduler)
         } else {
             Executor::new_multi_threaded(
                 num_threads,
@@ -216,8 +216,9 @@ impl SimInit {
     pub fn restore(mut self, state: Vec<u8>) -> Result<(Simulation, Scheduler), ExecutionError> {
         self.is_resumed.store(true, Ordering::Relaxed);
         let (mut simulation, scheduler) = self.build();
-        simulation.run()?;
         simulation.restore_state(state);
+        // TODO verify if run should be called?
+        simulation.run()?;
 
         Ok((simulation, scheduler))
     }

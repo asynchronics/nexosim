@@ -157,13 +157,13 @@ impl Executor {
                         let active_tasks = active_tasks.clone();
                         let simulation_context = simulation_context.clone();
                         let abort_signal = abort_signal.clone();
-                        let sch = scheduler.clone();
+                        let thread_scheduler = scheduler.clone();
 
                         move || {
                             let worker = Worker::new(local_queue, context);
                             // TODO simulation context is redundant
                             SIMULATION_CONTEXT.set(&simulation_context, || {
-                                MODEL_SCHEDULER.set(&sch, || {
+                                MODEL_SCHEDULER.set(&thread_scheduler, || {
                                     ACTIVE_TASKS.set(&active_tasks, || {
                                         LOCAL_WORKER.set(&worker, || {
                                             run_local_worker(
