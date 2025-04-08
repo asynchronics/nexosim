@@ -300,14 +300,22 @@ pub trait ProtoModel: Sized {
     /// This method is invoked when the
     /// [`SimInit::add_model`](crate::simulation::SimInit::add_model) or
     /// [`BuildContext::add_submodel`] method are called.
-    fn build(self, cx: &mut BuildContext<Self>) -> Self::Model;
+    fn build(
+        self,
+        cx: &mut BuildContext<Self>,
+        env: &mut <Self::Model as Model>::Environment,
+    ) -> Self::Model;
 }
 
 // Every model can be used as a prototype for itself.
 impl<M: Model> ProtoModel for M {
     type Model = Self;
 
-    fn build(self, _: &mut BuildContext<Self>) -> Self::Model {
+    fn build(
+        self,
+        _: &mut BuildContext<Self>,
+        _: &mut <Self::Model as Model>::Environment,
+    ) -> Self::Model {
         self
     }
 }

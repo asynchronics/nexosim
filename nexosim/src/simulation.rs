@@ -881,7 +881,7 @@ pub(crate) fn add_model<P: ProtoModel>(
         registered_models,
         is_resumed.clone(),
     );
-    let model = model.build(&mut build_cx);
+    let model = model.build(&mut build_cx, &mut environment);
 
     let address = mailbox.address();
     let mut receiver = mailbox.0;
