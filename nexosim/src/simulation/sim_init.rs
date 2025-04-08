@@ -9,12 +9,13 @@ use serde::Serialize;
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
 use crate::model::{Model, ProtoModel};
+use crate::ports::EventSource;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
 use crate::util::sync_cell::SyncCell;
 
 use super::{
     add_model, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
-    SchedulerQueue, Signal, Simulation,
+    SchedulerQueue, Signal, Simulation, SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -167,6 +168,14 @@ impl SimInit {
         self.timeout = timeout;
 
         self
+    }
+
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        let mut queue = self.scheduler_queue.lock().unwrap();
+        queue.registry.add(source)
     }
 
     fn build(self) -> (Simulation, Scheduler) {

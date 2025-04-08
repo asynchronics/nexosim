@@ -66,13 +66,6 @@ impl Scheduler {
         self.0.time()
     }
 
-    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    {
-        let mut queue = self.0.scheduler_queue.lock().unwrap();
-        queue.registry.add(source)
-    }
     /// Schedules an action at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the

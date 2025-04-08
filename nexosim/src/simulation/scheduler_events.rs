@@ -59,13 +59,16 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Box<dyn Any + Send> {
-        // TODO check if the standard config suits us best
-        // TODO unwrap
+        // TODO error
         let arg: T = bincode::serde::decode_from_slice(
             serialized_arg,
             crate::util::serialization::get_serialization_config(),
         )
-        .unwrap()
+        .expect(&format!(
+            "Argument deserialization failed. Cannot interpret {:?} as {}",
+            serialized_arg,
+            std::any::type_name::<T>()
+        ))
         .0;
         Box::new(arg)
     }
@@ -131,6 +134,7 @@ impl SerializableEvent {
         event: &ScheduledEvent,
         registry: &SchedulerSourceRegistry,
     ) -> Self {
+        // TODO error handling
         let source = registry.get(&event.source_id).unwrap();
         let arg = source.serialize_arg(&*event.arg);
         Self {
@@ -141,6 +145,7 @@ impl SerializableEvent {
         }
     }
     pub fn to_scheduled_event(&self, registry: &SchedulerSourceRegistry) -> ScheduledEvent {
+        // TODO error handling
         let source = registry.get(&self.source_id).unwrap();
         let arg = source.deserialize_arg(&self.arg);
         ScheduledEvent {
