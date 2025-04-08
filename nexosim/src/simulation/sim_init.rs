@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -7,20 +8,21 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::channel::ChannelObserver;
-use crate::executor::{Executor, SimulationContext};
+use crate::executor::Executor;
 use crate::model::{Model, ProtoModel};
 use crate::ports::EventSource;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
-    SchedulerQueue, Signal, Simulation, SourceId,
+    add_model, ActionKeyReg, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
+    SchedulerQueue, Signal, Simulation, SimulationContext, SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
     executor: Executor,
+    simulation_context: SimulationContext,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     is_running: Arc<AtomicBool>,
@@ -52,32 +54,37 @@ impl SimInit {
         } else {
             num_threads.clamp(1, usize::BITS as usize)
         };
+
+        let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
+        let is_running = Arc::new(AtomicBool::new(false));
         let time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH));
-        // TODO redundant
+
+        let action_key_reg = Arc::new(Mutex::new(HashMap::new()));
+        let scheduler =
+            GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_running.clone());
+
         let simulation_context = SimulationContext {
             #[cfg(feature = "tracing")]
             time_reader: time.reader(),
+            scheduler,
+            action_key_reg,
         };
 
         let abort_signal = Signal::new();
-        let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
-        let is_running = Arc::new(AtomicBool::new(false));
-        let scheduler =
-            GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_running.clone());
         let executor = if num_threads == 1 {
-            Executor::new_single_threaded(simulation_context, abort_signal.clone(), scheduler)
+            Executor::new_single_threaded(simulation_context.clone(), abort_signal.clone())
         } else {
             Executor::new_multi_threaded(
                 num_threads,
-                simulation_context,
+                simulation_context.clone(),
                 abort_signal.clone(),
-                scheduler,
             )
         };
 
         Self {
             executor,
             scheduler_queue,
+            simulation_context,
             time,
             is_running,
             is_resumed: Arc::new(AtomicBool::new(false)),
@@ -112,17 +119,13 @@ impl SimInit {
         };
         self.observers
             .push((name.clone(), Box::new(mailbox.0.observer())));
-        let scheduler = GlobalScheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_running.clone(),
-        );
+
         add_model(
             model,
             environment,
             mailbox,
             name,
-            scheduler,
+            self.simulation_context.scheduler.clone(),
             &self.executor,
             &self.abort_signal,
             &mut self.registered_models,
@@ -180,12 +183,13 @@ impl SimInit {
 
     fn build(self) -> (Simulation, Scheduler) {
         let scheduler = Scheduler::new(
-            self.scheduler_queue.clone(),
+            self.simulation_context.scheduler.scheduler_queue.clone(),
             self.time.reader(),
             self.is_running.clone(),
         );
         let simulation = Simulation::new(
             self.executor,
+            self.simulation_context.clone(),
             self.scheduler_queue,
             self.time,
             self.clock,

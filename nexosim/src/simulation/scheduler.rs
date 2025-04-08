@@ -31,7 +31,6 @@ use super::scheduler_events::{ActionKey, SerializableEvent};
 
 // -1 as plain usize::MAX is used e.g. to mark a missing ModelId
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
-scoped_thread_local!(pub(crate) static MODEL_SCHEDULER: GlobalScheduler);
 
 /// A global simulation scheduler.
 ///

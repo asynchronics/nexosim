@@ -60,15 +60,11 @@ use slab::Slab;
 
 use crate::channel;
 use crate::executor::task::{self, CancelToken, Promise, Runnable};
-use crate::executor::{
-    ExecutorError, Signal, SimulationContext, NEXT_EXECUTOR_ID, SIMULATION_CONTEXT,
-};
+use crate::executor::{ExecutorError, Signal, SimulationContext, NEXT_EXECUTOR_ID};
 use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::simulation::{CURRENT_MODEL_ID, MODEL_SCHEDULER};
+use crate::simulation::{CURRENT_MODEL_ID, SIMULATION_CONTEXT};
 use crate::util::rng::Rng;
 use pool_manager::PoolManager;
-
-use super::GlobalScheduler;
 
 const BUCKET_SIZE: usize = 128;
 const QUEUE_SIZE: usize = BUCKET_SIZE * 2;
@@ -108,7 +104,6 @@ impl Executor {
         num_threads: usize,
         simulation_context: SimulationContext,
         abort_signal: Signal,
-        scheduler: GlobalScheduler,
     ) -> Self {
         let parker = Parker::new();
         let unparker = parker.unparker().clone();
@@ -157,22 +152,13 @@ impl Executor {
                         let active_tasks = active_tasks.clone();
                         let simulation_context = simulation_context.clone();
                         let abort_signal = abort_signal.clone();
-                        let thread_scheduler = scheduler.clone();
 
                         move || {
                             let worker = Worker::new(local_queue, context);
-                            // TODO simulation context is redundant
                             SIMULATION_CONTEXT.set(&simulation_context, || {
-                                MODEL_SCHEDULER.set(&thread_scheduler, || {
-                                    ACTIVE_TASKS.set(&active_tasks, || {
-                                        LOCAL_WORKER.set(&worker, || {
-                                            run_local_worker(
-                                                &worker,
-                                                id,
-                                                worker_parker,
-                                                abort_signal,
-                                            )
-                                        })
+                                ACTIVE_TASKS.set(&active_tasks, || {
+                                    LOCAL_WORKER.set(&worker, || {
+                                        run_local_worker(&worker, id, worker_parker, abort_signal)
                                     })
                                 })
                             });

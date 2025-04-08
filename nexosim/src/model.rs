@@ -206,7 +206,7 @@ pub use context::BuildContext;
 
 use crate::simulation::{
     ActionKey, Address, ExecutionError, ModelFuture, SchedulingError, Simulation, SourceId,
-    CURRENT_MODEL_ID, MODEL_SCHEDULER,
+    CURRENT_MODEL_ID, SIMULATION_CONTEXT,
 };
 use crate::time::Deadline;
 
@@ -315,7 +315,7 @@ impl<M: Model> ProtoModel for M {
 pub trait Environment {
     fn time(&self) -> crate::time::MonotonicTime {
         // TODO error handling ?
-        MODEL_SCHEDULER.map(|s| s.time()).unwrap()
+        SIMULATION_CONTEXT.map(|cx| cx.scheduler.time()).unwrap()
     }
     fn schedule_event<T: Clone + Send + 'static>(
         &self,
@@ -324,8 +324,11 @@ pub trait Environment {
         arg: T,
     ) -> Result<(), SchedulingError> {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        MODEL_SCHEDULER
-            .map(|s| s.schedule_event_from(deadline, source_id, arg, origin_id))
+        SIMULATION_CONTEXT
+            .map(|cx| {
+                cx.scheduler
+                    .schedule_event_from(deadline, source_id, arg, origin_id)
+            })
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
     fn schedule_periodic_event<T: Clone + Send + 'static>(
@@ -336,8 +339,11 @@ pub trait Environment {
         arg: T,
     ) -> Result<(), SchedulingError> {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        MODEL_SCHEDULER
-            .map(|s| s.schedule_periodic_event_from(deadline, source_id, period, arg, origin_id))
+        SIMULATION_CONTEXT
+            .map(|cx| {
+                cx.scheduler
+                    .schedule_periodic_event_from(deadline, source_id, period, arg, origin_id)
+            })
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
     fn schedule_keyed_event<T: Clone + Send + 'static>(
@@ -347,8 +353,11 @@ pub trait Environment {
         arg: T,
     ) -> Result<ActionKey, SchedulingError> {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        MODEL_SCHEDULER
-            .map(|s| s.schedule_keyed_event_from(deadline, source_id, arg, origin_id))
+        SIMULATION_CONTEXT
+            .map(|cx| {
+                cx.scheduler
+                    .schedule_keyed_event_from(deadline, source_id, arg, origin_id)
+            })
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
     fn schedule_keyed_periodic_event<T: Clone + Send + 'static>(
@@ -359,9 +368,10 @@ pub trait Environment {
         arg: T,
     ) -> Result<ActionKey, SchedulingError> {
         let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        MODEL_SCHEDULER
-            .map(|s| {
-                s.schedule_keyed_periodic_event_from(deadline, source_id, period, arg, origin_id)
+        SIMULATION_CONTEXT
+            .map(|cx| {
+                cx.scheduler
+                    .schedule_keyed_periodic_event_from(deadline, source_id, period, arg, origin_id)
             })
             .ok_or(SchedulingError::SchedulerNotReady)?
     }
@@ -410,5 +420,5 @@ fn deserialize_model<M: DeserializeOwned>(model: &mut M, state: Vec<u8>) {
     )
     .unwrap()
     .0;
-    std::mem::replace(model, new);
+    let _ = std::mem::replace(model, new);
 }

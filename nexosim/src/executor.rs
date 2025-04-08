@@ -12,8 +12,7 @@ use std::time::Duration;
 
 use crossbeam_utils::CachePadded;
 
-use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::simulation::{GlobalScheduler, ModelId};
+use crate::simulation::{ModelId, SimulationContext, SIMULATION_CONTEXT};
 #[cfg(feature = "tracing")]
 use crate::time::AtomicTimeReader;
 use task::Promise;
@@ -31,16 +30,6 @@ pub(crate) enum ExecutorError {
     Panic(ModelId, Box<dyn Any + Send + 'static>),
 }
 
-/// Context common to all executor types.
-#[derive(Clone)]
-pub(crate) struct SimulationContext {
-    /// Read-only handle to the simulation time.
-    #[cfg(feature = "tracing")]
-    pub(crate) time_reader: AtomicTimeReader,
-}
-
-scoped_thread_local!(pub(crate) static SIMULATION_CONTEXT: SimulationContext);
-
 /// A single-threaded or multi-threaded `async` executor.
 #[derive(Debug)]
 pub(crate) enum Executor {
@@ -53,13 +42,8 @@ impl Executor {
     pub(crate) fn new_single_threaded(
         simulation_context: SimulationContext,
         abort_signal: Signal,
-        scheduler: GlobalScheduler,
     ) -> Self {
-        Self::StExecutor(st_executor::Executor::new(
-            simulation_context,
-            abort_signal,
-            scheduler,
-        ))
+        Self::StExecutor(st_executor::Executor::new(simulation_context, abort_signal))
     }
 
     /// Creates an executor that runs futures on a thread pool.
@@ -74,13 +58,11 @@ impl Executor {
         num_threads: usize,
         simulation_context: SimulationContext,
         abort_signal: Signal,
-        scheduler: GlobalScheduler,
     ) -> Self {
         Self::MtExecutor(mt_executor::Executor::new(
             num_threads,
             simulation_context,
             abort_signal,
-            scheduler,
         ))
     }
 

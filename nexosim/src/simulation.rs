@@ -90,7 +90,7 @@ pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
-pub(crate) use scheduler::MODEL_SCHEDULER;
+pub(crate) use scheduler_events::ActionKeyReg;
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -113,6 +113,7 @@ use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry, SourceIdErased};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
+use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::{BuildContext, Model, ProtoModel, RegisteredModel};
 use crate::ports::{InputFn, ReplierFn};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
@@ -120,6 +121,7 @@ use crate::util::seq_futures::SeqFuture;
 use crate::util::slot;
 
 thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell::new(ModelId::none()) }; }
+scoped_thread_local!(pub(crate) static SIMULATION_CONTEXT: SimulationContext);
 
 /// Simulation environment.
 ///
@@ -160,6 +162,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 /// iterates until the target simulation time has been reached.
 pub struct Simulation {
     executor: Executor,
+    simulation_context: SimulationContext,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     clock: Box<dyn Clock>,
@@ -176,6 +179,7 @@ impl Simulation {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         executor: Executor,
+        simulation_context: SimulationContext,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
@@ -188,6 +192,7 @@ impl Simulation {
         Self {
             executor,
             scheduler_queue,
+            simulation_context,
             time,
             clock,
             clock_tolerance,
@@ -599,13 +604,15 @@ impl Simulation {
         .0
     }
     pub(crate) fn restore_state(&mut self, state: Vec<u8>) {
-        scheduler_events::ACTION_KEY_REG.lock().unwrap().clear();
-
-        let deserialized_state = Simulation::deserialize_state(state);
-        self.time.write(deserialized_state.time);
-        self.restore_models(deserialized_state.models);
-        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
-        scheduler_queue.restore(deserialized_state.scheduler_queue);
+        // TODO avoid cloning ?
+        let context = self.simulation_context.clone();
+        SIMULATION_CONTEXT.set(&context, || {
+            let deserialized_state = Simulation::deserialize_state(state);
+            self.time.write(deserialized_state.time);
+            self.restore_models(deserialized_state.models);
+            let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+            scheduler_queue.restore(deserialized_state.scheduler_queue);
+        });
     }
 }
 
@@ -617,11 +624,23 @@ impl fmt::Debug for Simulation {
     }
 }
 
+/// Serializable simulation state
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SimulationState {
     pub(crate) models: Vec<Vec<u8>>,
     pub(crate) scheduler_queue: Vec<u8>,
     pub(crate) time: MonotonicTime,
+}
+
+/// Context common to the simulation and all executor types.
+#[derive(Clone)]
+pub(crate) struct SimulationContext {
+    /// Read-only handle to the simulation time.
+    // TODO - check if not redundant (as it's present in the scheduler as well)
+    #[cfg(feature = "tracing")]
+    pub(crate) time_reader: AtomicTimeReader,
+    pub(crate) scheduler: GlobalScheduler,
+    pub(crate) action_key_reg: ActionKeyReg,
 }
 
 /// Information regarding a deadlocked model.

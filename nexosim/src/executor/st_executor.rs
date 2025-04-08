@@ -14,9 +14,9 @@ use super::task::{self, CancelToken, Promise, Runnable};
 use super::NEXT_EXECUTOR_ID;
 
 use crate::channel;
-use crate::executor::{ExecutorError, Signal, SimulationContext, SIMULATION_CONTEXT};
+use crate::executor::{ExecutorError, Signal, SimulationContext};
 use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::simulation::{GlobalScheduler, CURRENT_MODEL_ID, MODEL_SCHEDULER};
+use crate::simulation::{CURRENT_MODEL_ID, SIMULATION_CONTEXT};
 
 const QUEUE_MIN_CAPACITY: usize = 32;
 
@@ -29,16 +29,11 @@ pub(crate) struct Executor {
     inner: Option<Box<ExecutorInner>>,
     /// Handle to the forced termination signal.
     abort_signal: Signal,
-    scheduler: GlobalScheduler,
 }
 
 impl Executor {
     /// Creates an executor that runs futures on the current thread.
-    pub(crate) fn new(
-        simulation_context: SimulationContext,
-        abort_signal: Signal,
-        scheduler: GlobalScheduler,
-    ) -> Self {
+    pub(crate) fn new(simulation_context: SimulationContext, abort_signal: Signal) -> Self {
         // Each executor instance has a unique ID inherited by tasks to ensure
         // that tasks are scheduled on their parent executor.
         let executor_id = NEXT_EXECUTOR_ID.fetch_add(1, Ordering::Relaxed);
@@ -58,7 +53,6 @@ impl Executor {
                 abort_signal: abort_signal.clone(),
             })),
             abort_signal,
-            scheduler,
         }
     }
 
@@ -125,7 +119,9 @@ impl Executor {
     /// Execute spawned tasks, blocking until all futures have completed or an
     /// error is encountered.
     pub(crate) fn run(&mut self, timeout: Duration) -> Result<(), ExecutorError> {
-        MODEL_SCHEDULER.set(&self.scheduler, || {
+        // TODO avoid clone
+        let context = self.inner.as_ref().unwrap().simulation_context.clone();
+        SIMULATION_CONTEXT.set(&context, || {
             if timeout.is_zero() {
                 return self.inner.as_mut().unwrap().run();
             }

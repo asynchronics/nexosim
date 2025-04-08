@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bincode;
@@ -15,9 +15,9 @@ use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ports::EventSource;
+use crate::simulation::SIMULATION_CONTEXT;
 
-pub(super) static ACTION_KEY_REG: LazyLock<Mutex<HashMap<usize, Arc<AtomicBool>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+pub(crate) type ActionKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
 // Typed SourceId allows for compile time argument validation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -259,9 +259,13 @@ impl<'de> Deserialize<'de> for ActionKey {
             {
                 let value = seq.next_element()?.unwrap();
                 let addr: usize = seq.next_element()?.unwrap();
-                let mut reg = ACTION_KEY_REG.lock().unwrap();
-                let target = reg.entry(addr).or_insert(Arc::new(value));
-                Ok(ActionKey::restore(target.clone()))
+                SIMULATION_CONTEXT
+                    .map(|cx| {
+                        let mut reg = cx.action_key_reg.lock().unwrap();
+                        let target = reg.entry(addr).or_insert(Arc::new(value));
+                        Ok(ActionKey::restore(target.clone()))
+                    })
+                    .unwrap()
             }
         }
 
