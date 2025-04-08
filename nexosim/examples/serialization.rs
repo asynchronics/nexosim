@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{ActionKey, Mailbox, SimInit, SimulationError, SourceId};
-use nexosim::time::{AutoSystemClock, MonotonicTime};
+use nexosim::time::{MonotonicTime, NoClock};
 
 static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -66,7 +66,7 @@ impl Model for Listener {
 struct ProtoListener;
 impl ProtoModel for ProtoListener {
     type Model = Listener;
-    fn build(self, cx: &mut BuildContext<Self>) -> Self::Model {
+    fn build(self, cx: &mut BuildContext<Self>, _: &mut ListenerEnvironment) -> Self::Model {
         let input_id = cx.register_input(Listener::process);
         Listener {
             input_id,
@@ -86,7 +86,7 @@ fn get_bench() -> (SimInit, EventQueueReader<String>) {
 
     let bench = SimInit::new()
         .add_model(listener, listener_env, listener_mbox, "listener")
-        .set_clock(AutoSystemClock::new());
+        .set_clock(NoClock::new());
     (bench, message.into_reader())
 }
 

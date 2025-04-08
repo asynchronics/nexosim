@@ -109,7 +109,7 @@ use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
 
 use scheduler::SchedulerQueue;
-use scheduler_events::{ScheduledEvent, SchedulerSourceRegistry, SourceIdErased};
+use scheduler_events::SourceIdErased;
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
