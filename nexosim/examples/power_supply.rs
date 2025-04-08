@@ -26,30 +26,30 @@
 //!                       │          ├───────────────────────────────► Total power
 //!                       └──────────┘
 //! ```
-use nexosim::model::Model;
+
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Environment, Model};
 use nexosim::ports::{EventSlot, Output, Requestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
-/// Power supply.
-pub struct PowerSupply {
+#[derive(Default)]
+pub struct PowerSupplyEnv {
     /// Electrical output [V → A] -- requestor port.
     pub pwr_out: Requestor<f64, f64>,
     /// Power consumption [W] -- output port.
     pub power: Output<f64>,
 }
+impl Environment for PowerSupplyEnv {}
+
+/// Power supply.
+#[derive(Serialize, Deserialize)]
+pub struct PowerSupply;
 
 impl PowerSupply {
-    /// Creates a power supply.
-    fn new() -> Self {
-        Self {
-            pwr_out: Default::default(),
-            power: Default::default(),
-        }
-    }
-
     /// Voltage setting [V] -- input port.
-    pub async fn voltage_setting(&mut self, voltage: f64) {
+    pub async fn voltage_setting(&mut self, voltage: f64, env: &mut PowerSupplyEnv) {
         // Ignore negative values.
         if voltage < 0.0 {
             return;
@@ -57,21 +57,28 @@ impl PowerSupply {
 
         // Sum all load currents.
         let mut total_current = 0.0;
-        for current in self.pwr_out.send(voltage).await {
+        for current in env.pwr_out.send(voltage).await {
             total_current += current;
         }
 
-        self.power.send(voltage * total_current).await;
+        env.power.send(voltage * total_current).await;
     }
 }
 
-impl Model for PowerSupply {}
+impl Model for PowerSupply {
+    type Environment = PowerSupplyEnv;
+}
 
-/// Power supply.
-pub struct Load {
+#[derive(Default)]
+pub struct LoadEnv {
     /// Power consumption [W] -- output port.
     pub power: Output<f64>,
+}
+impl Environment for LoadEnv {}
 
+/// Power supply.
+#[derive(Serialize, Deserialize)]
+pub struct Load {
     /// Load conductance [S] -- internal state.
     conductance: f64,
 }
@@ -81,7 +88,6 @@ impl Load {
     fn new(resistance: f64) -> Self {
         assert!(resistance > 0.0);
         Self {
-            power: Default::default(),
             conductance: 1.0 / resistance,
         }
     }
@@ -89,15 +95,17 @@ impl Load {
     /// Electrical input [V → A] -- replier port.
     ///
     /// This port receives the applied voltage and returns the load current.
-    pub async fn pwr_in(&mut self, voltage: f64) -> f64 {
+    pub async fn pwr_in(&mut self, voltage: f64, env: &mut LoadEnv) -> f64 {
         let current = voltage * self.conductance;
-        self.power.send(voltage * current).await;
+        env.power.send(voltage * current).await;
 
         current
     }
 }
 
-impl Model for Load {}
+impl Model for Load {
+    type Environment = LoadEnv;
+}
 
 fn main() -> Result<(), SimulationError> {
     // ---------------
@@ -108,10 +116,16 @@ fn main() -> Result<(), SimulationError> {
     let r1 = 5.0;
     let r2 = 10.0;
     let r3 = 20.0;
-    let mut psu = PowerSupply::new();
+    let mut psu = PowerSupply;
     let mut load1 = Load::new(r1);
     let mut load2 = Load::new(r2);
     let mut load3 = Load::new(r3);
+
+    // Environments
+    let mut psu_env = PowerSupplyEnv::default();
+    let mut load1_env = LoadEnv::default();
+    let mut load2_env = LoadEnv::default();
+    let mut load3_env = LoadEnv::default();
 
     // Mailboxes.
     let psu_mbox = Mailbox::new();
@@ -120,19 +134,19 @@ fn main() -> Result<(), SimulationError> {
     let load3_mbox = Mailbox::new();
 
     // Connections.
-    psu.pwr_out.connect(Load::pwr_in, &load1_mbox);
-    psu.pwr_out.connect(Load::pwr_in, &load2_mbox);
-    psu.pwr_out.connect(Load::pwr_in, &load3_mbox);
+    psu_env.pwr_out.connect(Load::pwr_in, &load1_mbox);
+    psu_env.pwr_out.connect(Load::pwr_in, &load2_mbox);
+    psu_env.pwr_out.connect(Load::pwr_in, &load3_mbox);
 
     // Model handles for simulation.
     let mut psu_power = EventSlot::new();
     let mut load1_power = EventSlot::new();
     let mut load2_power = EventSlot::new();
     let mut load3_power = EventSlot::new();
-    psu.power.connect_sink(&psu_power);
-    load1.power.connect_sink(&load1_power);
-    load2.power.connect_sink(&load2_power);
-    load3.power.connect_sink(&load3_power);
+    psu_env.power.connect_sink(&psu_power);
+    load1_env.power.connect_sink(&load1_power);
+    load2_env.power.connect_sink(&load2_power);
+    load3_env.power.connect_sink(&load3_power);
     let psu_addr = psu_mbox.address();
 
     // Start time (arbitrary since models do not depend on absolute time).
@@ -140,10 +154,10 @@ fn main() -> Result<(), SimulationError> {
 
     // Assembly and initialization.
     let mut simu = SimInit::new()
-        .add_model(psu, psu_mbox, "psu")
-        .add_model(load1, load1_mbox, "load1")
-        .add_model(load2, load2_mbox, "load2")
-        .add_model(load3, load3_mbox, "load3")
+        .add_model(psu, psu_env, psu_mbox, "psu")
+        .add_model(load1, load1_env, load1_mbox, "load1")
+        .add_model(load2, load2_env, load2_mbox, "load2")
+        .add_model(load3, load3_env, load3_mbox, "load3")
         .init(t0)?
         .0;
 
