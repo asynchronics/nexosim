@@ -313,15 +313,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
 
         Ok(Response::new(reply))
     }
-    async fn shutdown(
+    async fn terminate(
         &self,
-        _request: Request<ShutdownRequest>,
-    ) -> Result<Response<ShutdownReply>, Status> {
+        _request: Request<TerminateRequest>,
+    ) -> Result<Response<TerminateReply>, Status> {
         *self.controller_service.lock().unwrap() = ControllerService::NotStarted;
         *self.monitor_service.write().unwrap() = MonitorService::NotStarted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::NotStarted;
-        Ok(Response::new(ShutdownReply {
-            result: Some(shutdown_reply::Result::Empty(())),
+        Ok(Response::new(TerminateReply {
+            result: Some(terminate_reply::Result::Empty(())),
         }))
     }
     async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
