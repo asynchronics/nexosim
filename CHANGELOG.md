@@ -8,10 +8,10 @@
 - Implement `EventSinkReader` trait for `EventSlot`, including blocking read
   ([#88])
 - Add `step_unbounded` and `await_event` methods to gRPC API ([#88])
-- Add server and simulation shutdown to server and gRPC API (#90)
-- Allow simulation restoring after halt (#91)
+- Add server and simulation shutdown to server and gRPC API ([#90])
+- Allow simulation restoring after halt ([#91])
 
-### Deprecated (API-breaking changes)
+### Deprecated
 
 - Deprecate `EventSinkStream` trait ([#88])
 - Deprecate `BlockingEventQueue` and `EventBuffer` sinks ([#88])
@@ -130,8 +130,8 @@ including:
 
 # 0.2.2 (2024-04-04)
 
-- Add `serde` feature and serialization support for `MonotonicTime` ([#19]).
-- Update `multishot` dependency due to soundness issue in older version ([#23]).
+- Add `serde` feature and serialization support for `MonotonicTime` ([#19])
+- Update `multishot` dependency due to soundness issue in older version ([#23])
 
 [#19]: https://github.com/asynchronics/nexosim/pull/19
 [#23]: https://github.com/asynchronics/nexosim/pull/23
@@ -148,20 +148,20 @@ including:
 
 ### Misc
 
-- Update copyright in MIT license to include contributors.
+- Update copyright in MIT license to include contributors
 
 # 0.2.0 (2023-08-15)
 
 ### Added (API-breaking changes)
 
 - Enable cancellation of events up to the very last moment, even if the event is
-  scheduled for the current time ([#5]).
+  scheduled for the current time ([#5])
 - Makes it possible to schedule periodic events from a `Simulation` or a model's
-  `Scheduler` ([#6]).
+  `Scheduler` ([#6])
 - Mitigate the increase in API surface by merging each pair of
   `schedule_*event_in`/`schedule_*event_at` methods into one overloaded
   `schedule_*event` method that accept either a `Duration` or a `MonotonicTime`
-  ([#7]).
+  ([#7])
 
 [#5]: https://github.com/asynchronics/nexosim/pull/5
 [#6]: https://github.com/asynchronics/nexosim/pull/6

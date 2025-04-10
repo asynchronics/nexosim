@@ -211,7 +211,11 @@ impl Simulation {
         self.time.read()
     }
 
-    /// Reinitialize simulation's clock (e.g. after halting).
+    /// Reinitializes the simulation clock.
+    ///
+    /// This can in particular be used to resume a simulation driven by a
+    /// real-time clock after it was halted, using a new clock with an update
+    /// time reference.
     pub fn reset_clock(&mut self, clock: impl Clock + 'static) {
         self.clock = Box::new(clock);
     }
@@ -511,9 +515,6 @@ impl Simulation {
     ) -> Result<(), ExecutionError> {
         self.is_running.store(true, Ordering::Relaxed);
         loop {
-            if !self.is_running.load(Ordering::Relaxed) {
-                return Err(ExecutionError::Halted);
-            }
             match self.step_to_next(target_time) {
                 // The target time was reached exactly.
                 Ok(time) if time == target_time => return Ok(()),
@@ -537,6 +538,9 @@ impl Simulation {
                 Err(e) => return Err(e),
                 // The target time was not reached yet.
                 _ => {}
+            }
+            if !self.is_running.load(Ordering::Relaxed) {
+                return Err(ExecutionError::Halted);
             }
         }
     }

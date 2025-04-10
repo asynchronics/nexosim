@@ -57,7 +57,7 @@ impl MonitorService {
         }
     }
 
-    /// Waits for an event from an event sink and reads it.
+    /// Waits for an event from an event sink.
     pub(crate) fn await_event(&self, request: AwaitEventRequest) -> AwaitEventReply {
         let reply = match self {
             Self::Started {

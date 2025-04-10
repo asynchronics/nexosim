@@ -33,13 +33,14 @@ where
     run_service(GrpcSimulationService::new(sim_gen), addr, None)
 }
 
-/// Runs a simulation from a network server.
+/// Runs a simulation from a network server until a signal is received.
 ///
 /// The first argument is a closure that takes an initialization configuration
 /// and is called every time the simulation is (re)started by the remote client.
 /// It must create a new simulation, complemented by a registry that exposes the
-/// public event and query interface. Shutdowns when the provided signal is
-/// received.
+/// public event and query interface.
+///
+/// The server shuts down cleanly when the shutdown signal is received.
 pub fn run_with_shutdown<F, I, S>(
     sim_gen: F,
     addr: SocketAddr,
@@ -100,12 +101,15 @@ where
     run_local_service(GrpcSimulationService::new(sim_gen), path, None)
 }
 
-/// Runs a simulation locally from a Unix Domain Sockets server.
+/// Runs a simulation locally from a Unix Domain Sockets server until a signal
+/// is received.
 ///
 /// The first argument is a closure that takes an initialization configuration
 /// and is called every time the simulation is (re)started by the remote client.
 /// It must create a new simulation, complemented by a registry that exposes the
 /// public event and query interface.
+///
+/// The server shuts down cleanly when the shutdown signal is received.
 #[cfg(unix)]
 pub fn run_local_with_shutdown<F, I, P, S>(
     sim_gen: F,
@@ -320,6 +324,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         *self.controller_service.lock().unwrap() = ControllerService::NotStarted;
         *self.monitor_service.write().unwrap() = MonitorService::NotStarted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::NotStarted;
+
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
         }))

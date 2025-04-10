@@ -36,7 +36,7 @@ impl<T> BlockingEventQueue<T> {
         self.into_reader_with_timeout(Duration::ZERO)
     }
 
-    /// Returns a consumer handle with a timeout set.
+    /// Returns a consumer handle with an associated timeout.
     pub fn into_reader_with_timeout(self, timeout: Duration) -> BlockingEventQueueReader<T> {
         BlockingEventQueueReader {
             is_open: self.is_open,

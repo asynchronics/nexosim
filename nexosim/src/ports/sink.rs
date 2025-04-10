@@ -74,12 +74,12 @@ pub trait EventSinkReader: Clone + Iterator {
     /// Events that were previously in the stream remain available.
     fn close(&mut self);
 
-    /// Sets `next` mode to be blocking or non-blocking.
+    /// Sets the reader to blocking or non-blocking mode.
     fn set_blocking(&mut self, blocking: bool);
 
     /// Sets a timeout, or cancels it if the duration is zero.
     ///
-    /// Timeout value is used in blocking mode only.
+    /// The timeout is only relevant in blocking mode.
     fn set_timeout(&mut self, timeout: Duration);
 
     /// This is a stop-gap method that serves the exact same purpose as
@@ -93,7 +93,8 @@ pub trait EventSinkReader: Clone + Iterator {
     ///
     /// It is not publicly implementable because it may be removed at any time
     /// once the `Try` trait is stabilized, without regard for backward
-    /// compatibility.
+    /// compatibility. Relevant RFC:
+    /// https://rust-lang.github.io/rfcs/3058-try-trait-v2.html
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn __try_fold<B, F, E>(&mut self, init: B, f: F) -> Result<B, E>

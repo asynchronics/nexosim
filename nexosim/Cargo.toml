@@ -69,7 +69,8 @@ tai-time = "0.3.3"
 # Optional dependencies.
 bytes = { version = "1", default-features = false, optional = true }
 ciborium = { version = "0.2.2", optional = true }
-# half is fixed because of rust 1.77 support.
+# The `half` dependency is explicitly listed and pinned to satisfy the rust 1.77
+# MSRV. To be removed when moving to the 2024 edition.
 half = { version = "=2.4.1", optional = true }
 prost = { version = "0.13", optional = true }
 prost-types = { version = "0.13", optional = true }
