@@ -580,7 +580,11 @@ pub struct DeadlockInfo {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ExecutionError {
-    /// The simulation has been intentionally stopped.
+    /// The simulation has been intentionally stopped before the full completion
+    /// of a multi-step instruction such as [`Simulation::step_until`] or
+    /// [`Simulation::step_unbounded`].
+    ///
+    /// The simulation remains in a well-defined state.
     Halted,
     /// The simulation has been terminated due to an earlier deadlock, message
     /// loss, missing recipient, model panic, timeout or synchronization loss.

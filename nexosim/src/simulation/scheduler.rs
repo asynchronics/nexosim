@@ -182,7 +182,21 @@ impl Scheduler {
         )
     }
 
-    /// Requests the simulation to stop when advancing to the next step.
+    /// Requests the simulation to return immediately after the completion of
+    /// the current discrete time step.
+    ///
+    /// Note that this can only be used to interrupt a concurrent multi-step
+    /// instructions such as
+    /// [`Simulation::step_until`](crate::simulation::Simulation::step_until) or
+    /// [`Simulation::step_unbounded`](crate::simulation::Simulation::step_unbounded).
+    /// Invoking this method before a `Simulation::step_*` call has no effect
+    /// (i.e. the `halt` flag is not latched).
+    ///
+    /// If a multi-step instruction is successfully interrupted, an
+    /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted) is
+    /// returned, leaving the simulation in a well-defined state: the simulation
+    /// can be resumed at any moment with a call to one of the
+    /// `Simulation::step*` methods.
     pub fn halt(&mut self) {
         self.0.halt()
     }
@@ -562,7 +576,8 @@ impl GlobalScheduler {
         Ok(event_key)
     }
 
-    /// Requests the simulation to stop when advancing to the next step.
+    /// Requests the simulation to return as early as possible upon the
+    /// completion of the current time step.
     pub(crate) fn halt(&mut self) {
         self.is_running.store(false, Ordering::Relaxed);
     }
