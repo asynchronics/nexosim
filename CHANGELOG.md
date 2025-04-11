@@ -8,7 +8,8 @@
 - Implement `EventSinkReader` trait for `EventSlot`, including blocking read
   ([#88])
 - Add `step_unbounded` and `await_event` methods to gRPC API ([#88])
-- Add server and simulation shutdown to server and gRPC API ([#90])
+- Add server shutdown functionality ([#90])
+- Add `terminate` simulation method to gRPC API ([#90], [#96])
 - Allow simulation restoring after halt ([#91])
 
 ### Deprecated
@@ -20,6 +21,7 @@
 [#88]: https://github.com/asynchronics/nexosim/pull/88
 [#90]: https://github.com/asynchronics/nexosim/pull/90
 [#91]: https://github.com/asynchronics/nexosim/pull/91
+[#96]: https://github.com/asynchronics/nexosim/pull/96
 
 # 0.3.1 (2025-01-28)
 
