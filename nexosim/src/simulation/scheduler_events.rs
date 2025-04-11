@@ -14,8 +14,10 @@ use serde::de::{DeserializeOwned, Visitor};
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::ports::EventSource;
-use crate::simulation::SIMULATION_CONTEXT;
+
+scoped_thread_local!(pub(crate) static ACTION_KEYS: ActionKeyReg);
 
 pub(crate) type ActionKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
@@ -259,9 +261,9 @@ impl<'de> Deserialize<'de> for ActionKey {
             {
                 let value = seq.next_element()?.unwrap();
                 let addr: usize = seq.next_element()?.unwrap();
-                SIMULATION_CONTEXT
-                    .map(|cx| {
-                        let mut reg = cx.action_key_reg.lock().unwrap();
+                ACTION_KEYS
+                    .map(|keys| {
+                        let mut reg = keys.lock().unwrap();
                         let target = reg.entry(addr).or_insert(Arc::new(value));
                         Ok(ActionKey::restore(target.clone()))
                     })

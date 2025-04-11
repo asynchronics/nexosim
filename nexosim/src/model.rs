@@ -205,8 +205,8 @@ use serde::{de::DeserializeOwned, Serialize};
 pub use context::BuildContext;
 
 use crate::simulation::{
-    ActionKey, Address, ExecutionError, ModelFuture, SchedulingError, Simulation, SourceId,
-    CURRENT_MODEL_ID, SIMULATION_CONTEXT,
+    ActionKey, ActionKeyReg, Address, ExecutionError, ModelFuture, SchedulingError, Simulation,
+    SourceId, ACTION_KEYS, CURRENT_MODEL_ID, SIMULATION_CONTEXT,
 };
 use crate::time::Deadline;
 
@@ -388,7 +388,8 @@ pub trait Environment {
 pub(crate) struct RegisteredModel {
     pub name: String,
     pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError>>,
-    pub deserialize: Box<dyn Fn(&mut Simulation, Vec<u8>) -> Result<(), ExecutionError>>,
+    pub deserialize:
+        Box<dyn Fn(&mut Simulation, (Vec<u8>, ActionKeyReg)) -> Result<(), ExecutionError>>,
 }
 impl RegisteredModel {
     pub fn new<M: Model + Serialize + DeserializeOwned>(name: String, address: Address<M>) -> Self {
@@ -396,9 +397,11 @@ impl RegisteredModel {
         let serialize = Box::new(move |sim: &mut Simulation| {
             sim.process_query(serialize_model, (), serialize_address.clone())
         });
-        let deserialize = Box::new(move |sim: &mut Simulation, state: Vec<u8>| {
-            sim.process_event(deserialize_model, state, address.clone())
-        });
+        let deserialize = Box::new(
+            move |sim: &mut Simulation, state: (Vec<u8>, ActionKeyReg)| {
+                sim.process_event(deserialize_model, state, address.clone())
+            },
+        );
         Self {
             name,
             serialize,
@@ -420,13 +423,15 @@ async fn serialize_model<M: Serialize>(model: &mut M) -> Vec<u8> {
     .unwrap()
 }
 
-fn deserialize_model<M: DeserializeOwned>(model: &mut M, state: Vec<u8>) {
+fn deserialize_model<M: DeserializeOwned>(model: &mut M, state: (Vec<u8>, ActionKeyReg)) {
     // TODO reconsider blocking in async context
-    let new = bincode::serde::decode_from_slice(
-        &state,
-        crate::util::serialization::get_serialization_config(),
-    )
-    .unwrap()
-    .0;
-    let _ = std::mem::replace(model, new);
+    ACTION_KEYS.set(&state.1, || {
+        let new = bincode::serde::decode_from_slice(
+            &state.0,
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap()
+        .0;
+        let _ = std::mem::replace(model, new);
+    });
 }

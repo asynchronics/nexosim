@@ -15,7 +15,7 @@ use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, Tearabl
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ActionKeyReg, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
+    add_model, ExecutionError, GlobalScheduler, Mailbox, RegisteredModel, Scheduler,
     SchedulerQueue, Signal, Simulation, SimulationContext, SourceId,
 };
 
@@ -59,7 +59,6 @@ impl SimInit {
         let is_running = Arc::new(AtomicBool::new(false));
         let time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH));
 
-        let action_key_reg = Arc::new(Mutex::new(HashMap::new()));
         let scheduler =
             GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_running.clone());
 
@@ -67,7 +66,6 @@ impl SimInit {
             #[cfg(feature = "tracing")]
             time_reader: time.reader(),
             scheduler,
-            action_key_reg,
         };
 
         let abort_signal = Signal::new();

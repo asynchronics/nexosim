@@ -90,10 +90,11 @@ pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
-pub(crate) use scheduler_events::ActionKeyReg;
+pub(crate) use scheduler_events::{ActionKeyReg, ACTION_KEYS};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
@@ -570,12 +571,12 @@ impl Simulation {
         }
         values
     }
-    fn restore_models(&mut self, model_state: Vec<Vec<u8>>) {
+    fn restore_models(&mut self, model_state: Vec<Vec<u8>>, action_key_reg: &ActionKeyReg) {
         // move out to avoid double simulation borrow
         let models = self.registered_models.drain(..).collect::<Vec<_>>();
         for (model, model_state) in models.iter().zip(model_state) {
             // TODO handle errors
-            let _ = (model.deserialize)(self, model_state);
+            let _ = (model.deserialize)(self, (model_state, action_key_reg.clone()));
         }
         self.registered_models = models;
     }
@@ -604,12 +605,11 @@ impl Simulation {
         .0
     }
     pub(crate) fn restore_state(&mut self, state: Vec<u8>) {
-        // TODO avoid cloning ?
-        let context = self.simulation_context.clone();
-        SIMULATION_CONTEXT.set(&context, || {
+        let action_key_reg = Arc::new(Mutex::new(HashMap::new()));
+        ACTION_KEYS.set(&action_key_reg, || {
             let deserialized_state = Simulation::deserialize_state(state);
             self.time.write(deserialized_state.time);
-            self.restore_models(deserialized_state.models);
+            self.restore_models(deserialized_state.models, &action_key_reg);
             let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
             scheduler_queue.restore(deserialized_state.scheduler_queue);
         });
@@ -640,7 +640,7 @@ pub(crate) struct SimulationContext {
     #[cfg(feature = "tracing")]
     pub(crate) time_reader: AtomicTimeReader,
     pub(crate) scheduler: GlobalScheduler,
-    pub(crate) action_key_reg: ActionKeyReg,
+    // pub(crate) action_key_reg: ActionKeyReg,
 }
 
 /// Information regarding a deadlocked model.
