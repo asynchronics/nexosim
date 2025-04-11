@@ -163,7 +163,6 @@ scoped_thread_local!(pub(crate) static SIMULATION_CONTEXT: SimulationContext);
 /// iterates until the target simulation time has been reached.
 pub struct Simulation {
     executor: Executor,
-    simulation_context: SimulationContext,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     clock: Box<dyn Clock>,
@@ -180,7 +179,6 @@ impl Simulation {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         executor: Executor,
-        simulation_context: SimulationContext,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
@@ -193,7 +191,6 @@ impl Simulation {
         Self {
             executor,
             scheduler_queue,
-            simulation_context,
             time,
             clock,
             clock_tolerance,

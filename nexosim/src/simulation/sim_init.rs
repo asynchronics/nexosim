@@ -187,7 +187,6 @@ impl SimInit {
         );
         let simulation = Simulation::new(
             self.executor,
-            self.simulation_context.clone(),
             self.scheduler_queue,
             self.time,
             self.clock,
