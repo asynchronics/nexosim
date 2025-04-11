@@ -96,18 +96,18 @@ impl<T: Send> fmt::Debug for EventQueue<T> {
 
 /// A consumer handle of an `EventQueue`.
 ///
-/// Implements [`EventSinkReader`]. Calls to the iterator's `next` method are
-/// blocking or non-blocking depending on its mode.
+/// Implements [`EventSinkReader`]. Calls to the iterator's `next` method may be
+/// blocking, depending on the configured mode.
 ///
-/// `None` is returned
-/// * when all writer handles have been dropped (i.e. the `Simulation` object
-///   has been dropped);
-/// * on timeout if one has been set;
-/// * when there are no events at the moment (in the non-blocking mode).
+/// `None` is returned when:
+///
+/// * all writer handles have been dropped (i.e. the `Simulation` object has
+///   been dropped), or
+/// * a timeout has elapsed before an event was received, or
+/// * no events are currently in the queue (non-blocking mode only).
 ///
 /// Note that even if the iterator returns `None`, it may still produce more
-/// items in the future if `None` was returned due to timeout or in the
-/// non-blocking mode (in other words, it is not a
+/// items in the future if `None` was returned (in other words, it is not a
 /// [`FusedIterator`](std::iter::FusedIterator)).
 pub struct EventQueueReader<T: Send> {
     is_open: Arc<AtomicBool>,
