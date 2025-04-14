@@ -20,7 +20,7 @@ pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
-    is_running: Arc<AtomicBool>,
+    is_halted: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
@@ -65,7 +65,7 @@ impl SimInit {
             executor,
             scheduler_queue: Arc::new(Mutex::new(PriorityQueue::new())),
             time,
-            is_running: Arc::new(AtomicBool::new(false)),
+            is_halted: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,
@@ -96,7 +96,7 @@ impl SimInit {
         let scheduler = GlobalScheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_running.clone(),
+            self.is_halted.clone(),
         );
 
         add_model(
@@ -172,7 +172,7 @@ impl SimInit {
         let scheduler = Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_running.clone(),
+            self.is_halted.clone(),
         );
         let mut simulation = Simulation::new(
             self.executor,
@@ -183,7 +183,7 @@ impl SimInit {
             self.timeout,
             self.observers,
             self.model_names,
-            self.is_running,
+            self.is_halted,
         );
         simulation.run()?;
 

@@ -160,7 +160,7 @@ pub struct Simulation {
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     model_names: Vec<String>,
-    is_running: Arc<AtomicBool>,
+    is_halted: Arc<AtomicBool>,
     is_terminated: bool,
 }
 
@@ -176,7 +176,7 @@ impl Simulation {
         timeout: Duration,
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
         model_names: Vec<String>,
-        is_running: Arc<AtomicBool>,
+        is_halted: Arc<AtomicBool>,
     ) -> Self {
         Self {
             executor,
@@ -187,7 +187,7 @@ impl Simulation {
             timeout,
             observers,
             model_names,
-            is_running,
+            is_halted,
             is_terminated: false,
         }
     }
@@ -260,6 +260,7 @@ impl Simulation {
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
     pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
+        self.check_halt()?;
         action.spawn_and_forget(&self.executor);
         self.run()
     }
@@ -278,6 +279,7 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
+        self.check_halt()?;
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -316,6 +318,7 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
+        self.check_halt()?;
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -406,6 +409,7 @@ impl Simulation {
         &mut self,
         upper_time_bound: Option<MonotonicTime>,
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
+        self.check_halt()?;
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
         }
@@ -513,7 +517,6 @@ impl Simulation {
         &mut self,
         target_time: Option<MonotonicTime>,
     ) -> Result<(), ExecutionError> {
-        self.is_running.store(true, Ordering::Relaxed);
         loop {
             match self.step_to_next(target_time) {
                 // The target time was reached exactly.
@@ -539,10 +542,15 @@ impl Simulation {
                 // The target time was not reached yet.
                 _ => {}
             }
-            if !self.is_running.load(Ordering::Relaxed) {
-                return Err(ExecutionError::Halted);
-            }
         }
+    }
+
+    fn check_halt(&mut self) -> Result<(), ExecutionError> {
+        if self.is_halted.load(Ordering::Relaxed) {
+            self.is_halted.store(false, Ordering::Relaxed);
+            return Err(ExecutionError::Halted);
+        }
+        Ok(())
     }
 
     /// Returns a scheduler handle.
@@ -551,7 +559,7 @@ impl Simulation {
         Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.is_running.clone(),
+            self.is_halted.clone(),
         )
     }
 }
