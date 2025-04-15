@@ -192,7 +192,7 @@ impl SchedulerService {
         }
     }
 
-    /// Requests the simulation to stop when advancing to the next step.
+    /// Requests an interruption of the simulation at the earliest opportunity.
     pub(crate) fn halt(&mut self, _request: HaltRequest) -> HaltReply {
         let reply = match self {
             Self::Started { scheduler, .. } => {

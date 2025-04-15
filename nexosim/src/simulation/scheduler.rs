@@ -182,21 +182,24 @@ impl Scheduler {
         )
     }
 
-    /// Requests the simulation to return immediately after the completion of
-    /// the current discrete time step.
+    /// Requests the simulation to be interrupted at the earliest opportunity.
     ///
-    /// Note that this can only be used to interrupt a concurrent multi-step
-    /// instructions such as
+    /// If a multi-step method such as
     /// [`Simulation::step_until`](crate::simulation::Simulation::step_until) or
-    /// [`Simulation::step_unbounded`](crate::simulation::Simulation::step_unbounded).
-    /// Invoking this method before a `Simulation::step_*` call has no effect
-    /// (i.e. the `halt` flag is not latched).
+    /// [`Simulation::step_unbounded`](crate::simulation::Simulation::step_unbounded)
+    /// is concurrently being executed, this will cause such method to return
+    /// before it steps to next scheduler deadline (if any) with
+    /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted).
     ///
-    /// If a multi-step instruction is successfully interrupted, an
+    /// Otherwise, this will cause the next call to a `Simulation::step*` or
+    /// `Simulation::process*` method to return immediately with
+    /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted).
+    ///
+    /// In all cases, once
     /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted) is
-    /// returned, leaving the simulation in a well-defined state: the simulation
-    /// can be resumed at any moment with a call to one of the
-    /// `Simulation::step*` methods.
+    /// returned, the `halt` flag is cleared and the simulation can be resumed
+    /// at any moment with another call to one of the `Simulation::step*` or
+    /// `Simulation::process*` methods.
     pub fn halt(&mut self) {
         self.0.halt()
     }
