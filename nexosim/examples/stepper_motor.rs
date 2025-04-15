@@ -34,6 +34,21 @@ pub struct MotorEnv {
 }
 impl Environment for MotorEnv {}
 
+#[derive(Default)]
+struct ProtoMotor {
+    pub init_pos: u16,
+    pub env: MotorEnv,
+}
+impl ProtoModel for ProtoMotor {
+    type Model = Motor;
+    fn build(
+        self,
+        _: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        (Motor::new(self.init_pos), self.env)
+    }
+}
+
 /// Stepper motor.
 #[derive(Serialize, Deserialize)]
 pub struct Motor {
@@ -104,27 +119,18 @@ impl Model for Motor {
     }
 }
 
+#[derive(Default)]
 pub struct ProtoDriver {
     current: f64,
-}
-impl ProtoDriver {
-    pub fn new(nominal_current: f64) -> Self {
-        Self {
-            current: nominal_current,
-        }
-    }
+    env: DriverEnv,
 }
 impl ProtoModel for ProtoDriver {
     type Model = Driver;
 
-    fn build(
-        self,
-        cx: &mut nexosim::model::BuildContext<Self>,
-        _: &mut <Self::Model as Model>::Environment,
-    ) -> Self::Model {
-        let mut driver = Driver::new(self.current);
-        driver.pulse_source_id = Some(cx.register_input(Driver::send_pulse));
-        driver
+    fn build(mut self, cx: &mut nexosim::model::BuildContext<Self>) -> (Self::Model, DriverEnv) {
+        let driver = Driver::new(self.current);
+        self.env.pulse_source_id = Some(cx.register_input(Driver::send_pulse));
+        (driver, self.env)
     }
 }
 
@@ -132,6 +138,8 @@ impl ProtoModel for ProtoDriver {
 pub struct DriverEnv {
     /// Coil A and coil B currents [A] -- output port.
     pub current_out: Output<(f64, f64)>,
+    /// SourceId for the send_pulse method.
+    pulse_source_id: Option<SourceId<()>>,
 }
 impl Environment for DriverEnv {}
 
@@ -144,8 +152,6 @@ pub struct Driver {
     next_phase: u8,
     /// Nominal coil current (absolute value) [A] -- constant.
     current: f64,
-    /// SourceId for send_pulse method
-    pulse_source_id: Option<SourceId<()>>,
 }
 
 impl Driver {
@@ -160,7 +166,6 @@ impl Driver {
             pps: 0.0,
             next_phase: 0,
             current: nominal_current,
-            pulse_source_id: None,
         }
     }
 
@@ -209,7 +214,7 @@ impl Driver {
             let pulse_duration = Duration::from_secs_f64(1.0 / self.pps.abs());
 
             // Schedule the next pulse.
-            env.schedule_event(pulse_duration, self.pulse_source_id.unwrap(), ())
+            env.schedule_event(pulse_duration, env.pulse_source_id.unwrap(), ())
                 .unwrap();
         }
     }
@@ -227,25 +232,28 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Models.
     let init_pos = 123;
-    let motor = Motor::new(init_pos);
-    let driver = ProtoDriver::new(1.0);
-
-    // Environments
-    let mut motor_env = MotorEnv::default();
-    let mut driver_env = DriverEnv::default();
+    let mut motor = ProtoMotor {
+        init_pos,
+        ..Default::default()
+    };
+    let mut driver = ProtoDriver {
+        current: 1.0,
+        ..Default::default()
+    };
 
     // Mailboxes.
     let motor_mbox = Mailbox::new();
     let driver_mbox = Mailbox::new();
 
     // Connections.
-    driver_env
+    driver
+        .env
         .current_out
         .connect(Motor::current_in, &motor_mbox);
 
     // Model handles for simulation.
     let position = EventQueue::new();
-    motor_env.position.connect_sink(&position);
+    motor.env.position.connect_sink(&position);
     let mut position = position.into_reader();
     let motor_addr = motor_mbox.address();
     let driver_addr = driver_mbox.address();
@@ -259,8 +267,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Assembly and initialization.
     let bench = SimInit::new()
-        .add_model(driver, driver_env, driver_mbox, "driver")
-        .add_model(motor, motor_env, motor_mbox, "motor");
+        .add_model(driver, driver_mbox, "driver")
+        .add_model(motor, motor_mbox, "motor");
 
     let pulse_rate_source_id = bench.register_event_source(pulse_rate_source);
 

@@ -63,29 +63,34 @@ impl Model for Listener {
     }
 }
 
-struct ProtoListener;
+#[derive(Default)]
+struct ProtoListener {
+    pub env: ListenerEnvironment,
+}
 impl ProtoModel for ProtoListener {
     type Model = Listener;
-    fn build(self, cx: &mut BuildContext<Self>, _: &mut ListenerEnvironment) -> Self::Model {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Listener, ListenerEnvironment) {
         let input_id = cx.register_input(Listener::process);
-        Listener {
-            input_id,
-            value: 0,
-            key: None,
-        }
+        (
+            Listener {
+                input_id,
+                value: 0,
+                key: None,
+            },
+            self.env,
+        )
     }
 }
 
 fn get_bench() -> (SimInit, EventQueueReader<String>) {
-    let listener = ProtoListener;
-    let mut listener_env = ListenerEnvironment::default();
+    let mut listener = ProtoListener::default();
     let listener_mbox = Mailbox::new();
 
     let message = EventQueue::new();
-    listener_env.message.connect_sink(&message);
+    listener.env.message.connect_sink(&message);
 
     let bench = SimInit::new()
-        .add_model(listener, listener_env, listener_mbox, "listener")
+        .add_model(listener, listener_mbox, "listener")
         .set_clock(NoClock::new());
     (bench, message.into_reader())
 }

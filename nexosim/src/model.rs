@@ -303,22 +303,21 @@ pub trait ProtoModel: Sized {
     fn build(
         self,
         cx: &mut BuildContext<Self>,
-        env: &mut <Self::Model as Model>::Environment,
-    ) -> Self::Model;
+    ) -> (Self::Model, <Self::Model as Model>::Environment);
 }
 
 // Every model can be used as a prototype for itself.
-impl<M: Model> ProtoModel for M {
-    type Model = Self;
+// impl<M: Model> ProtoModel for M {
+//     type Model = Self;
 
-    fn build(
-        self,
-        _: &mut BuildContext<Self>,
-        _: &mut <Self::Model as Model>::Environment,
-    ) -> Self::Model {
-        self
-    }
-}
+//     fn build(
+//         self,
+//         _: &mut BuildContext<Self>,
+//         _: &mut <Self::Model as Model>::Environment,
+//     ) -> Self::Model {
+//         self
+//     }
+// }
 
 pub trait Environment {
     fn time(&self) -> crate::time::MonotonicTime {

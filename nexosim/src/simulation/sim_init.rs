@@ -104,7 +104,6 @@ impl SimInit {
     pub fn add_model<P: ProtoModel>(
         mut self,
         model: P,
-        environment: <P::Model as Model>::Environment,
         mailbox: Mailbox<P::Model>,
         name: impl Into<String>,
     ) -> Self
@@ -120,7 +119,6 @@ impl SimInit {
 
         add_model(
             model,
-            environment,
             mailbox,
             name,
             self.simulation_context.scheduler.clone(),
