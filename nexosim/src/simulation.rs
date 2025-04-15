@@ -260,7 +260,7 @@ impl Simulation {
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
     pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
-        self.check_halt()?;
+        self.take_halt_flag()?;
         action.spawn_and_forget(&self.executor);
         self.run()
     }
@@ -279,7 +279,7 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
-        self.check_halt()?;
+        self.take_halt_flag()?;
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -318,7 +318,7 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
-        self.check_halt()?;
+        self.take_halt_flag()?;
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -409,7 +409,7 @@ impl Simulation {
         &mut self,
         upper_time_bound: Option<MonotonicTime>,
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
-        self.check_halt()?;
+        self.take_halt_flag()?;
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
         }
@@ -545,9 +545,13 @@ impl Simulation {
         }
     }
 
-    fn check_halt(&mut self) -> Result<(), ExecutionError> {
+    /// Checks whether the halt flag is set and clears it if necessary.
+    ///
+    /// An `ExecutionError::Halted` error is returned if the flag was set.
+    fn take_halt_flag(&mut self) -> Result<(), ExecutionError> {
         if self.is_halted.load(Ordering::Relaxed) {
             self.is_halted.store(false, Ordering::Relaxed);
+
             return Err(ExecutionError::Halted);
         }
         Ok(())
@@ -588,11 +592,10 @@ pub struct DeadlockInfo {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ExecutionError {
-    /// The simulation has been intentionally stopped before the full completion
-    /// of a multi-step instruction such as [`Simulation::step_until`] or
-    /// [`Simulation::step_unbounded`].
+    /// The simulation has been intentionally interrupted with a call to
+    /// [`Scheduler::halt`].
     ///
-    /// The simulation remains in a well-defined state.
+    /// The simulation remains in a well-defined state and can be resumed.
     Halted,
     /// The simulation has been terminated due to an earlier deadlock, message
     /// loss, missing recipient, model panic, timeout or synchronization loss.
