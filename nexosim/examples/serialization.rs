@@ -10,12 +10,6 @@ use nexosim::time::{MonotonicTime, NoClock};
 
 static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
 
-#[derive(Default)]
-pub struct ListenerEnvironment {
-    pub message: Output<String>,
-}
-impl Environment for ListenerEnvironment {}
-
 #[derive(Serialize, Deserialize)]
 pub struct Listener {
     input_id: SourceId<u32>,
@@ -24,7 +18,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn process(&mut self, msg: u32, env: &mut ListenerEnvironment) {
+    pub async fn process(&mut self, msg: u32, env: &mut ProtoListener) {
         self.value += 1;
         env.message
             .send(format!("{}/{} @{}", msg, self.value, env.time()))
@@ -40,10 +34,10 @@ impl Listener {
 }
 
 impl Model for Listener {
-    type Environment = ListenerEnvironment;
+    type Environment = ProtoListener;
 
     /// Initialize model.
-    async fn init(mut self, env: &mut ListenerEnvironment) -> InitializedModel<Self> {
+    async fn init(mut self, env: &mut ProtoListener) -> InitializedModel<Self> {
         INIT_COUNT.fetch_add(1, Ordering::Relaxed);
         self.value = 2;
         env.schedule_periodic_event(
@@ -64,12 +58,15 @@ impl Model for Listener {
 }
 
 #[derive(Default)]
-struct ProtoListener {
-    pub env: ListenerEnvironment,
+pub struct ProtoListener {
+    pub message: Output<String>,
 }
 impl ProtoModel for ProtoListener {
     type Model = Listener;
-    fn build(self, cx: &mut BuildContext<Self>) -> (Listener, ListenerEnvironment) {
+    fn build(
+        self,
+        cx: &mut BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Environment) {
         let input_id = cx.register_input(Listener::process);
         (
             Listener {
@@ -77,17 +74,18 @@ impl ProtoModel for ProtoListener {
                 value: 0,
                 key: None,
             },
-            self.env,
+            self,
         )
     }
 }
+impl Environment for ProtoListener {}
 
 fn get_bench() -> (SimInit, EventQueueReader<String>) {
     let mut listener = ProtoListener::default();
     let listener_mbox = Mailbox::new();
 
     let message = EventQueue::new();
-    listener.env.message.connect_sink(&message);
+    listener.message.connect_sink(&message);
 
     let bench = SimInit::new()
         .add_model(listener, listener_mbox, "listener")
