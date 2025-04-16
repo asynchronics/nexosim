@@ -45,6 +45,8 @@ fn map_execution_error(error: ExecutionError) -> Error {
         ExecutionError::Halted => ErrorCode::SimulationHalted,
         ExecutionError::Terminated => ErrorCode::SimulationTerminated,
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
+        // TODO
+        _ => ErrorCode::InternalError,
     };
 
     let error_message = error.to_string();
@@ -57,6 +59,8 @@ fn map_scheduling_error(error: SchedulingError) -> Error {
     let error_code = match error {
         SchedulingError::InvalidScheduledTime => ErrorCode::InvalidDeadline,
         SchedulingError::NullRepetitionPeriod => ErrorCode::InvalidPeriod,
+        // TODO
+        _ => ErrorCode::InternalError,
     };
 
     let error_message = error.to_string();

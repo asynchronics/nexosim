@@ -266,7 +266,7 @@ impl Simulation {
     /// Simulation time remains unchanged. The periodicity of the action, if
     /// any, is ignored.
 
-    pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
+    pub fn process(&mut self, fut: Box<dyn Future<Output = ()>>) -> Result<(), ExecutionError> {
         // TODO - this method will be removed
         panic!("Not implemented!");
     }

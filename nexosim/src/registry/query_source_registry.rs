@@ -68,11 +68,10 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
         arg: &[u8],
     ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError>;
 
-    // fn into_future(
-    //     &self,
-    //     arg: &[u8],
-    // ) -> Result<(Box<dyn Future<Output = ()>>, Box<dyn ReplyReceiverAny>),
-    // DeserializationError>;
+    fn into_future(
+        &self,
+        arg: &[u8],
+    ) -> Result<(Box<dyn Future<Output = ()>>, Box<dyn ReplyReceiverAny>), DeserializationError>;
 
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
@@ -100,18 +99,19 @@ where
         })
     }
 
-    // fn into_future(
-    //     &self,
-    //     arg: &[u8],
-    // ) -> Result<(Box<dyn Future<Output = ()>>, Box<dyn ReplyReceiverAny>),
-    // DeserializationError> {
-    //     ciborium::from_reader(arg).map(|arg| {
-    //         let (fut, reply_recv) = self.into_future(arg);
-    //         let reply_recv: Box<dyn ReplyReceiverAny> = Box::new(reply_recv);
+    fn into_future(
+        &self,
+        arg: &[u8],
+    ) -> Result<(Box<dyn Future<Output = ()>>, Box<dyn ReplyReceiverAny>), DeserializationError>
+    {
+        ciborium::from_reader(arg).map(|arg| {
+            let (fut, reply_recv) = self.into_future(arg);
+            let reply_recv: Box<dyn ReplyReceiverAny + 'static> = Box::new(reply_recv);
+            let fut: Box<dyn Future<Output = ()> + 'static> = Box::new(fut);
 
-    //         (Box::new(fut), reply_recv)
-    //     })
-    // }
+            (fut, reply_recv)
+        })
+    }
 
     fn request_type_name(&self) -> &'static str {
         std::any::type_name::<T>()

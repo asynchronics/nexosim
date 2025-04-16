@@ -195,6 +195,7 @@
 //! ```
 use std::borrow::Borrow;
 use std::future::Future;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -387,9 +388,9 @@ pub trait Environment {
 
 pub(crate) struct RegisteredModel {
     pub name: String,
-    pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError>>,
+    pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
     pub deserialize:
-        Box<dyn Fn(&mut Simulation, (Vec<u8>, ActionKeyReg)) -> Result<(), ExecutionError>>,
+        Box<dyn Fn(&mut Simulation, (Vec<u8>, ActionKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
     pub fn new<M: Model + Serialize + DeserializeOwned>(name: String, address: Address<M>) -> Self {
