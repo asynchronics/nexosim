@@ -122,9 +122,8 @@ impl ProtoModel for ProtoDriver {
         cx: &mut nexosim::model::BuildContext<Self>,
         _: &mut <Self::Model as Model>::Environment,
     ) -> Self::Model {
-        let mut driver = Driver::new(self.current);
-        driver.pulse_source_id = Some(cx.register_input(Driver::send_pulse));
-        driver
+        let pulse_source_id = cx.register_input(Driver::send_pulse);
+        Driver::new(self.current, pulse_source_id)
     }
 }
 
@@ -145,7 +144,7 @@ pub struct Driver {
     /// Nominal coil current (absolute value) [A] -- constant.
     current: f64,
     /// SourceId for send_pulse method
-    pulse_source_id: Option<SourceId<()>>,
+    pulse_source_id: SourceId<()>,
 }
 
 impl Driver {
@@ -155,12 +154,12 @@ impl Driver {
     const MAX_PPS: f64 = 1_000.0;
 
     /// Creates a new driver with the specified nominal current.
-    pub fn new(nominal_current: f64) -> Self {
+    pub fn new(nominal_current: f64, pulse_source_id: SourceId<()>) -> Self {
         Self {
             pps: 0.0,
             next_phase: 0,
             current: nominal_current,
-            pulse_source_id: None,
+            pulse_source_id,
         }
     }
 
@@ -209,7 +208,7 @@ impl Driver {
             let pulse_duration = Duration::from_secs_f64(1.0 / self.pps.abs());
 
             // Schedule the next pulse.
-            env.schedule_event(pulse_duration, self.pulse_source_id.unwrap(), ())
+            env.schedule_event(pulse_duration, self.pulse_source_id, ())
                 .unwrap();
         }
     }
