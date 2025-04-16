@@ -1,6 +1,7 @@
 mod broadcaster;
 mod sender;
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
@@ -310,6 +311,17 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
         let action = Action::new(OnceAction::new(fut));
 
         (action, ReplyReceiver::<R>(reader))
+    }
+
+    pub fn into_future(&self, arg: T) -> (impl Future<Output = ()> + 'static, ReplyReceiver<R>) {
+        let (writer, reader) = slot::slot();
+        let fut = self.broadcaster.broadcast(arg);
+        let fut = async move {
+            let replies = fut.await.unwrap_or_throw();
+            let _ = writer.write(replies);
+        };
+
+        (fut, ReplyReceiver::<R>(reader))
     }
 }
 

@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
 
 use ciborium;
 use serde::de::DeserializeOwned;
@@ -67,6 +68,12 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
         arg: &[u8],
     ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError>;
 
+    // fn into_future(
+    //     &self,
+    //     arg: &[u8],
+    // ) -> Result<(Box<dyn Future<Output = ()>>, Box<dyn ReplyReceiverAny>),
+    // DeserializationError>;
+
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
     fn request_type_name(&self) -> &'static str;
@@ -92,6 +99,19 @@ where
             (action, reply_recv)
         })
     }
+
+    // fn into_future(
+    //     &self,
+    //     arg: &[u8],
+    // ) -> Result<(Box<dyn Future<Output = ()>>, Box<dyn ReplyReceiverAny>),
+    // DeserializationError> {
+    //     ciborium::from_reader(arg).map(|arg| {
+    //         let (fut, reply_recv) = self.into_future(arg);
+    //         let reply_recv: Box<dyn ReplyReceiverAny> = Box::new(reply_recv);
+
+    //         (Box::new(fut), reply_recv)
+    //     })
+    // }
 
     fn request_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
