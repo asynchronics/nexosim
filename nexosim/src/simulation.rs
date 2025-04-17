@@ -80,12 +80,10 @@ mod scheduler;
 mod scheduler_events;
 mod sim_init;
 
-pub(crate) use scheduler::{
-    GlobalScheduler, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
-};
+pub(crate) use scheduler::GlobalScheduler;
 
 pub use mailbox::{Address, Mailbox};
-pub use scheduler::{Action, Scheduler, SchedulingError};
+pub use scheduler::{Scheduler, SchedulingError};
 pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
@@ -637,7 +635,7 @@ pub(crate) struct SimulationContext {
     /// Read-only handle to the simulation time.
     // TODO - check if not redundant (as it's present in the scheduler as well)
     #[cfg(feature = "tracing")]
-    pub(crate) time_reader: AtomicTimeReader,
+    pub(crate) time_reader: crate::time::AtomicTimeReader,
     pub(crate) scheduler: GlobalScheduler,
     // pub(crate) action_key_reg: ActionKeyReg,
 }

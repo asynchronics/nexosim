@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::ports::EventSource;
 use crate::simulation::{
-    Action, ActionKey, ScheduledEvent, SchedulerEventSource, Simulation, SourceIdErased,
+    ActionKey, ScheduledEvent, SchedulerEventSource, Simulation, SourceIdErased,
 };
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;

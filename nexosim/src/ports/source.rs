@@ -9,9 +9,7 @@ use std::time::Duration;
 
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::{
-    Action, ActionKey, Address, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
-};
+use crate::simulation::{ActionKey, Address};
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -110,73 +108,74 @@ impl<T: Clone + Send + 'static> EventSource<T> {
 
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
-    pub fn event(&self, arg: T) -> Action {
-        let fut = self.broadcaster.broadcast(arg);
-        let fut = async {
-            fut.await.unwrap_or_throw();
-        };
+    // pub fn event(&self, arg: T) -> Action {
+    //     let fut = self.broadcaster.broadcast(arg);
+    //     let fut = async {
+    //         fut.await.unwrap_or_throw();
+    //     };
 
-        Action::new(OnceAction::new(fut))
-    }
+    //     Action::new(OnceAction::new(fut))
+    // }
 
     /// Returns a cancellable action and a cancellation key; when processed, the
     /// action broadcasts an event to all connected input ports.
-    pub fn keyed_event(&self, arg: T) -> (Action, ActionKey) {
-        let action_key = ActionKey::new();
-        let fut = self.broadcaster.broadcast(arg);
+    // pub fn keyed_event(&self, arg: T) -> (Action, ActionKey) {
+    //     let action_key = ActionKey::new();
+    //     let fut = self.broadcaster.broadcast(arg);
 
-        let action = Action::new(KeyedOnceAction::new(
-            // Cancellation is ignored once the action is already spawned on the
-            // executor. This means the action cannot be cancelled once the
-            // simulation step targeted by the action is running, but since an
-            // event source is meant to be used outside the simulator, this
-            // shouldn't be an issue in practice.
-            |_| async {
-                fut.await.unwrap_or_throw();
-            },
-            action_key.clone(),
-        ));
+    //     let action = Action::new(KeyedOnceAction::new(
+    //         // Cancellation is ignored once the action is already spawned on the
+    //         // executor. This means the action cannot be cancelled once the
+    //         // simulation step targeted by the action is running, but since an
+    //         // event source is meant to be used outside the simulator, this
+    //         // shouldn't be an issue in practice.
+    //         |_| async {
+    //             fut.await.unwrap_or_throw();
+    //         },
+    //         action_key.clone(),
+    //     ));
 
-        (action, action_key)
-    }
+    //     (action, action_key)
+    // }
 
     /// Returns a periodically recurring action which, when processed,
     /// broadcasts an event to all connected input ports.
-    pub fn periodic_event(self: &Arc<Self>, period: Duration, arg: T) -> Action {
-        let source = self.clone();
+    // pub fn periodic_event(self: &Arc<Self>, period: Duration, arg: T) -> Action {
+    //     let source = self.clone();
 
-        Action::new(PeriodicAction::new(
-            || async move {
-                let fut = source.broadcaster.broadcast(arg);
-                fut.await.unwrap_or_throw();
-            },
-            period,
-        ))
-    }
+    //     Action::new(PeriodicAction::new(
+    //         || async move {
+    //             let fut = source.broadcaster.broadcast(arg);
+    //             fut.await.unwrap_or_throw();
+    //         },
+    //         period,
+    //     ))
+    // }
 
     /// Returns a cancellable, periodically recurring action and a cancellation
     /// key; when processed, the action broadcasts an event to all connected
     /// input ports.
-    pub fn keyed_periodic_event(self: &Arc<Self>, period: Duration, arg: T) -> (Action, ActionKey) {
-        let action_key = ActionKey::new();
-        let source = self.clone();
+    fn dummy(self) {}
+    // pub fn keyed_periodic_event(self: &Arc<Self>, period: Duration, arg: T) ->
+    // (Action, ActionKey) {     let action_key = ActionKey::new();
+    //     let source = self.clone();
 
-        let action = Action::new(KeyedPeriodicAction::new(
-            // Cancellation is ignored once the action is already spawned on the
-            // executor. This means the action cannot be cancelled while the
-            // simulation is running, but since an event source is meant to be
-            // used outside the simulator, this shouldn't be an issue in
-            // practice.
-            |_| async move {
-                let fut = source.broadcaster.broadcast(arg);
-                fut.await.unwrap_or_throw();
-            },
-            period,
-            action_key.clone(),
-        ));
+    //     let action = Action::new(KeyedPeriodicAction::new(
+    //         // Cancellation is ignored once the action is already spawned on the
+    //         // executor. This means the action cannot be cancelled while the
+    //         // simulation is running, but since an event source is meant to be
+    //         // used outside the simulator, this shouldn't be an issue in
+    //         // practice.
+    //         |_| async move {
+    //             let fut = source.broadcaster.broadcast(arg);
+    //             fut.await.unwrap_or_throw();
+    //         },
+    //         period,
+    //         action_key.clone(),
+    //     ));
 
-        (action, action_key)
-    }
+    //     (action, action_key)
+    // }
 }
 
 impl<T: Clone + Send + 'static> Default for EventSource<T> {
@@ -300,18 +299,18 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
 
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
-    pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
-        let (writer, reader) = slot::slot();
-        let fut = self.broadcaster.broadcast(arg);
-        let fut = async move {
-            let replies = fut.await.unwrap_or_throw();
-            let _ = writer.write(replies);
-        };
+    // pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
+    //     let (writer, reader) = slot::slot();
+    //     let fut = self.broadcaster.broadcast(arg);
+    //     let fut = async move {
+    //         let replies = fut.await.unwrap_or_throw();
+    //         let _ = writer.write(replies);
+    //     };
 
-        let action = Action::new(OnceAction::new(fut));
+    //     let action = Action::new(OnceAction::new(fut));
 
-        (action, ReplyReceiver::<R>(reader))
-    }
+    //     (action, ReplyReceiver::<R>(reader))
+    // }
 
     pub fn into_future(&self, arg: T) -> (impl Future<Output = ()> + 'static, ReplyReceiver<R>) {
         let (writer, reader) = slot::slot();
