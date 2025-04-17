@@ -32,15 +32,15 @@ impl EndpointRegistry {
 
     /// Adds an event source to the registry.
     ///
-    /// If the specified name is already in use for another event source, the source
-    /// provided as argument is returned in the error.
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
     pub fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.add(source, name)
     }

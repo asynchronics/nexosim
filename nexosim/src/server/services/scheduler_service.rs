@@ -72,7 +72,7 @@ impl SchedulerService {
                     "no event source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let (action, action_key) = match (with_key, period) {
+                let (event, action_key) = match (with_key, period) {
                     (false, None) => source.event(event).map(|action| (action, None)),
                     (false, Some(period)) => source
                         .periodic_event(period, event)
@@ -127,7 +127,7 @@ impl SchedulerService {
                 });
 
                 scheduler
-                    .schedule(deadline, action)
+                    .schedule(deadline, event)
                     .map_err(map_scheduling_error)?;
 
                 Ok(key_id)

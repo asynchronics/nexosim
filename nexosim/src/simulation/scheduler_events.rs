@@ -45,6 +45,11 @@ impl SchedulerSourceRegistry {
         self.0.push(Box::new(source));
         source_id
     }
+    pub(crate) fn add_erased(&mut self, source: Box<dyn SchedulerEventSource>) -> SourceIdErased {
+        let source_id = SourceIdErased(self.0.len());
+        self.0.push(source);
+        source_id
+    }
     pub(crate) fn get(&self, source_id: &SourceIdErased) -> Option<&dyn SchedulerEventSource> {
         self.0.get(source_id.0).map(|s| s.as_ref())
     }
@@ -91,6 +96,21 @@ where
         ))
     }
 }
+impl<T> SchedulerEventSource for Arc<EventSource<T>>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Vec<u8> {
+        self.as_ref().serialize_arg(arg)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Box<dyn Any + Send> {
+        self.as_ref().deserialize_arg(arg)
+    }
+    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let inner: &dyn SchedulerEventSource = self.as_ref();
+        inner.into_future(arg)
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct ScheduledEvent {
@@ -103,6 +123,14 @@ impl ScheduledEvent {
     pub(crate) fn new<T>(source_id: SourceId<T>, arg: Box<dyn Any + Send>) -> Self {
         Self {
             source_id: source_id.into(),
+            arg,
+            period: None,
+            action_key: None,
+        }
+    }
+    pub(crate) fn new_erased(source_id: SourceIdErased, arg: Box<dyn Any + Send>) -> Self {
+        Self {
+            source_id,
             arg,
             period: None,
             action_key: None,

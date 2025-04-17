@@ -291,7 +291,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
 
         let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
-        if let Some((simulation, scheduler, endpoint_registry)) = bench {
+        if let Some((mut simulation, scheduler, mut endpoint_registry)) = bench {
+            endpoint_registry
+                .event_source_registry
+                .register_scheduler_events(&mut simulation);
+
             let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
             let query_source_registry = endpoint_registry.query_source_registry;
             let event_sink_registry = endpoint_registry.event_sink_registry;

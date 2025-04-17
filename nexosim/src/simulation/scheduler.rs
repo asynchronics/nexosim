@@ -73,9 +73,13 @@ impl Scheduler {
     /// If multiple actions send events at the same simulation time to the same
     /// model, these events are guaranteed to be processed according to the
     /// scheduling order of the actions.
-    pub fn schedule(&self, deadline: impl Deadline, action: Action) -> Result<(), SchedulingError> {
-        // TODO - this method will be removed
-        panic!("Not implemented!");
+    pub fn schedule(
+        &self,
+        deadline: impl Deadline,
+        event: ScheduledEvent,
+    ) -> Result<(), SchedulingError> {
+        self.0
+            .schedule_from(deadline, event, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules an event at a future time.
@@ -374,11 +378,10 @@ impl GlobalScheduler {
     }
 
     /// Schedules an action identified by its origin at a future time.
-    // FIXME - this method will be removed
     pub(crate) fn schedule_from(
         &self,
         deadline: impl Deadline,
-        action: Action,
+        event: ScheduledEvent,
         origin_id: usize,
     ) -> Result<(), SchedulingError> {
         // The scheduler queue must always be locked when reading the time,
@@ -396,8 +399,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        // TODO - removed method
-        panic!("Not implemented!");
+        scheduler_queue.insert((time, origin_id), event);
+        Ok(())
     }
 
     /// Schedules an event identified by its origin at a future time.

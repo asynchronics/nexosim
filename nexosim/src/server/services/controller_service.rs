@@ -159,7 +159,17 @@ impl ControllerService {
                     "no source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let event = source.event(event).map_err(|e| {
+                // let event = source.event(event).map_err(|e| {
+                //     to_error(
+                //         ErrorCode::InvalidMessage,
+                //         format!(
+                //             "the event could not be deserialized as type '{}': {}",
+                //             source.event_type_name(),
+                //             e
+                //         ),
+                //     )
+                // })?;
+                let event = source.into_future(event).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -202,16 +212,6 @@ impl ControllerService {
                     "no source is registered with the name '{}'".to_string(),
                 ))?;
 
-                // let (query, mut promise) = source.query(request).map_err(|e| {
-                //     to_error(
-                //         ErrorCode::InvalidMessage,
-                //         format!(
-                //             "the request could not be deserialized as type '{}': {}",
-                //             source.request_type_name(),
-                //             e
-                //         ),
-                //     )
-                // })?;
                 let (query, mut promise) = source.into_future(request).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,

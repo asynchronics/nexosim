@@ -90,7 +90,9 @@ pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
-pub(crate) use scheduler_events::{ActionKeyReg, ACTION_KEYS};
+pub(crate) use scheduler_events::{
+    ActionKeyReg, ScheduledEvent, SchedulerEventSource, SourceIdErased, ACTION_KEYS,
+};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -110,7 +112,6 @@ use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
 
 use scheduler::SchedulerQueue;
-use scheduler_events::SourceIdErased;
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
@@ -163,7 +164,8 @@ scoped_thread_local!(pub(crate) static SIMULATION_CONTEXT: SimulationContext);
 /// iterates until the target simulation time has been reached.
 pub struct Simulation {
     executor: Executor,
-    scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    // TODO remove pub
+    pub(crate) scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
