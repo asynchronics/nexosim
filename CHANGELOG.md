@@ -1,27 +1,32 @@
-# 0.3.2 (TBD)
+# 0.3.2 (2025-04-23)
 
-### gRPC server and simulation control changes (mostly API-breaking)
-
-- Enable gRPC server to handle concurrent requests ([#87], [#88])
-- Add `EventSinkReader` trait (#[88])
-- Add `EventQueue` sink (#[88])
-- Implement `EventSinkReader` trait for `EventSlot`, including blocking read
-  ([#88])
-- Add `step_unbounded` and `await_event` methods to gRPC API ([#88])
+- Enable gRPC server to handle concurrent requests ([#87])
+- Add an `EventSinkReader` trait with the ability to set a blocking mode on sinks ([#88])
+- Add an `EventQueue` sink implementing `EventSinkReader` ([#88])
+- Implement `EventSinkReader` trait for `EventSlot` to enable blocking reads ([#88])
+- Add `step_unbounded` and `await_event` methods to the gRPC API ([#88])
+- Add a `terminate` simulation method to the gRPC API ([#90], [#96])
 - Add server shutdown functionality ([#90])
-- Add `terminate` simulation method to gRPC API ([#90], [#96])
-- Allow simulation restoring after halt ([#91])
+- Make it possible to resume a simulation after it is halted ([#91], [#101])
 
 ### Deprecated
 
-- Deprecate `EventSinkStream` trait ([#88])
-- Deprecate `BlockingEventQueue` and `EventBuffer` sinks ([#88])
+- Deprecate the `EventSinkStream` trait ([#88])
+- Deprecate the `BlockingEventQueue` and `EventBuffer` sinks ([#88])
+
+### API-breaking change!
+
+- Sinks added to the `EndPointRegistry` must now implement `EventSinkReader`
+  instead of `EventSinkStream` (#[88])
+
 
 [#87]: https://github.com/asynchronics/nexosim/pull/87
 [#88]: https://github.com/asynchronics/nexosim/pull/88
 [#90]: https://github.com/asynchronics/nexosim/pull/90
 [#91]: https://github.com/asynchronics/nexosim/pull/91
 [#96]: https://github.com/asynchronics/nexosim/pull/96
+[#101]: https://github.com/asynchronics/nexosim/pull/101
+
 
 # 0.3.1 (2025-01-28)
 
