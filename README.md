@@ -5,21 +5,22 @@ discrete-event simulation framework written in Rust. It is meant to scale from
 small, simple simulations to very large simulation benches with complex
 time-driven state machines.
 
-
-## 🎉🥳 NeXosim 0.3.1 is out! 🚀🛰️
-
-See the [changelog](CHANGELOG.md) for a summary of new features, or head to the extensive [API documentation][API] for the details.
-
 [![Cargo](https://img.shields.io/crates/v/nexosim.svg)](https://crates.io/crates/nexosim)
 [![Documentation](https://docs.rs/nexosim/badge.svg)](https://docs.rs/nexosim)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/asynchronics/nexosim#license)
 
+> Don't forget to check out [NeXosim-py](https://pypi.org/project/NeXosim-py/)!
+>
+> Our new Python front-end for NeXosim provides:
+> 
+> * a simple interface to control and monitor simulations over HTTP/2 or unix domain sockets,
+> * an elegant API for the (de)serialization of Rust types,
+> * `asyncio` support for concurrent simulation control & monitoring.
 
 ## Overview
 
-NeXosim is a simulator that leverages asynchronous programming to
-transparently and efficiently auto-parallelize simulations by means of a custom
-multi-threaded executor.
+NeXosim leverages asynchronous programming to transparently and efficiently
+auto-parallelize simulations by means of a custom multi-threaded executor.
 
 It promotes a component-oriented architecture that is familiar to system
 engineers and closely resembles [flow-based programming][FBP]: a model is
@@ -67,7 +68,7 @@ To use the latest version, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nexosim = "0.3.1"
+nexosim = "0.3.2"
 ```
 
 
