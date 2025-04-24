@@ -11,22 +11,20 @@ use nexosim::time::{MonotonicTime, NoClock};
 static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Default)]
-pub struct ListenerEnvironment {
-    pub message: Output<String>,
-}
+pub struct ListenerEnvironment;
 
 #[derive(Serialize, Deserialize)]
 pub struct Listener {
     input_id: InputId<Self, u32>,
     pub value: u32,
     pub key: Option<ActionKey>,
+    pub message: Output<String>,
 }
 
 impl Listener {
     pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
         self.value += 1;
-        cx.env
-            .message
+        self.message
             .send(format!("{}/{} @{}", msg, self.value, cx.time()))
             .await;
         if self.value > 6 && self.key.is_some() {
@@ -63,7 +61,9 @@ impl Model for Listener {
     }
 }
 
-struct ProtoListener;
+struct ProtoListener {
+    pub message: Output<String>,
+}
 impl ProtoModel for ProtoListener {
     type Model = Listener;
     fn build(self, cx: &mut BuildContext<Self>, _: &mut ListenerEnvironment) -> Self::Model {
@@ -72,17 +72,20 @@ impl ProtoModel for ProtoListener {
             input_id,
             value: 0,
             key: None,
+            message: self.message,
         }
     }
 }
 
 fn get_bench() -> (SimInit, EventQueueReader<String>) {
-    let listener = ProtoListener;
-    let mut listener_env = ListenerEnvironment::default();
+    let mut listener = ProtoListener {
+        message: Output::default(),
+    };
+    let listener_env = ListenerEnvironment::default();
     let listener_mbox = Mailbox::new();
 
     let message = EventQueue::new();
-    listener_env.message.connect_sink(&message);
+    listener.message.connect_sink(&message);
 
     let bench = SimInit::new()
         .add_model(listener, listener_env, listener_mbox, "listener")

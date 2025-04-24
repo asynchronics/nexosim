@@ -263,7 +263,6 @@
 //! instance [`Output::filter_map_connect`]) enable this use-case by accepting a
 //! closure that inspects the messages and determines whether they should be
 //! forwarded, possibly after being mapped to another type.
-//!
 mod input;
 mod output;
 mod sink;
@@ -284,3 +283,5 @@ pub use sink::{
     EventSink, EventSinkReader, EventSinkWriter,
 };
 pub use source::{EventSource, QuerySource, ReplyReceiver};
+
+pub(crate) use output::PORTS_REG;

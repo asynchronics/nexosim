@@ -18,7 +18,6 @@ use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::ports::EventSource;
 
 scoped_thread_local!(pub(crate) static ACTION_KEYS: ActionKeyReg);
-
 pub(crate) type ActionKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
 // Typed SourceId allows for compile time argument validation.

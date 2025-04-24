@@ -194,10 +194,11 @@
 //! impl Model for ChildModel {}
 //! ```
 use std::borrow::Borrow;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bincode;
@@ -205,11 +206,13 @@ use serde::{de::DeserializeOwned, Serialize};
 
 pub use context::{BuildContext, Context, InputId};
 
+use crate::ports::PORTS_REG;
 use crate::simulation::{
     ActionKey, ActionKeyReg, Address, ExecutionError, ModelFuture, SchedulingError, Simulation,
     SourceId, ACTION_KEYS, CURRENT_MODEL_ID, SIMULATION_CONTEXT,
 };
 use crate::time::Deadline;
+use crate::util::serialization::get_serialization_config;
 
 mod context;
 
@@ -349,22 +352,32 @@ impl std::fmt::Debug for RegisteredModel {
 }
 async fn serialize_model<M: Serialize>(model: &mut M) -> Vec<u8> {
     // TODO reconsider blocking in async context
-    bincode::serde::encode_to_vec(
-        model,
-        crate::util::serialization::get_serialization_config(),
-    )
-    .unwrap()
-}
-
-fn deserialize_model<M: DeserializeOwned>(model: &mut M, state: (Vec<u8>, ActionKeyReg)) {
-    // TODO reconsider blocking in async context
-    ACTION_KEYS.set(&state.1, || {
-        let new = bincode::serde::decode_from_slice(
-            &state.0,
+    PORTS_REG.set(&Arc::new(Mutex::new(VecDeque::new())), || {
+        bincode::serde::encode_to_vec(
+            model,
             crate::util::serialization::get_serialization_config(),
         )
         .unwrap()
-        .0;
-        let _ = std::mem::replace(model, new);
+    })
+}
+
+fn deserialize_model<M: Serialize + DeserializeOwned>(
+    model: &mut M,
+    state: (Vec<u8>, ActionKeyReg),
+) {
+    // TODO reconsider blocking in async context
+    PORTS_REG.set(&Arc::new(Mutex::new(VecDeque::new())), || {
+        ACTION_KEYS.set(&state.1, || {
+            // Fake serialize to register outputs in the reg.
+            let _ = bincode::serde::encode_to_vec(&model, get_serialization_config()).unwrap();
+
+            let new = bincode::serde::decode_from_slice(
+                &state.0,
+                crate::util::serialization::get_serialization_config(),
+            )
+            .unwrap()
+            .0;
+            let _ = std::mem::replace(model, new);
+        });
     });
 }
