@@ -22,21 +22,16 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Environment, InitializedModel, Model, ProtoModel};
+use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{Mailbox, SimInit, SourceId};
 use nexosim::time::MonotonicTime;
 
-#[derive(Default)]
-pub struct MotorEnv {
-    /// Position [-] -- output port.
-    pub position: Output<u16>,
-}
-impl Environment for MotorEnv {}
-
 /// Stepper motor.
 #[derive(Serialize, Deserialize)]
 pub struct Motor {
+    /// Position [-] -- output port.
+    pub position: Output<u16>,
     /// Position [-] -- internal state.
     pos: u16,
     /// Torque applied by the load [N·m] -- internal state.
@@ -52,6 +47,7 @@ impl Motor {
     /// Creates a motor with the specified initial position.
     pub fn new(position: u16) -> Self {
         Self {
+            position: Default::default(),
             pos: position % Self::STEPS_PER_REV,
             torque: 0.0,
         }
@@ -62,7 +58,7 @@ impl Motor {
     /// For the sake of simplicity, we do as if the rotor rotates
     /// instantaneously. If the current is too weak to overcome the load or when
     /// attempting to move to an opposite phase, the position remains unchanged.
-    pub async fn current_in(&mut self, current: (f64, f64), env: &mut MotorEnv) {
+    pub async fn current_in(&mut self, current: (f64, f64)) {
         assert!(!current.0.is_nan() && !current.1.is_nan());
 
         let (target_phase, abs_current) = match (current.0 != 0.0, current.1 != 0.0) {
@@ -83,7 +79,7 @@ impl Motor {
         };
 
         self.pos = (self.pos + pos_delta) % Self::STEPS_PER_REV;
-        env.position.send(self.pos).await;
+        self.position.send(self.pos).await;
     }
 
     /// Torque applied by the load [N·m] -- input port.
@@ -95,48 +91,44 @@ impl Motor {
 }
 
 impl Model for Motor {
-    type Environment = MotorEnv;
+    type Environment = ();
 
     /// Broadcasts the initial position of the motor.
-    async fn init(self, env: &mut MotorEnv) -> InitializedModel<Self> {
-        env.position.send(self.pos).await;
+    async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        self.position.send(self.pos).await;
         self.into()
     }
 }
 
 pub struct ProtoDriver {
     current: f64,
+    pub current_out: Output<(f64, f64)>,
 }
 impl ProtoDriver {
     pub fn new(nominal_current: f64) -> Self {
         Self {
             current: nominal_current,
+            current_out: Output::default(),
         }
     }
 }
 impl ProtoModel for ProtoDriver {
     type Model = Driver;
 
-    fn build(
-        self,
-        cx: &mut nexosim::model::BuildContext<Self>,
-        _: &mut <Self::Model as Model>::Environment,
-    ) -> Self::Model {
+    fn build(self, cx: &mut nexosim::model::BuildContext<Self>) -> (Self::Model, ()) {
         let pulse_source_id = cx.register_input(Driver::send_pulse);
-        Driver::new(self.current, pulse_source_id)
+        (
+            Driver::new(self.current_out, self.current, pulse_source_id),
+            (),
+        )
     }
 }
-
-#[derive(Default)]
-pub struct DriverEnv {
-    /// Coil A and coil B currents [A] -- output port.
-    pub current_out: Output<(f64, f64)>,
-}
-impl Environment for DriverEnv {}
 
 /// Stepper motor driver.
 #[derive(Serialize, Deserialize)]
 pub struct Driver {
+    /// Coil A and coil B currents [A] -- output port.
+    current_out: Output<(f64, f64)>,
     /// Requested pulse rate (pulse per second) [Hz] -- internal state.
     pps: f64,
     /// Phase for the next pulse (= 0, 1, 2 or 3) -- internal state.
@@ -144,7 +136,7 @@ pub struct Driver {
     /// Nominal coil current (absolute value) [A] -- constant.
     current: f64,
     /// SourceId for send_pulse method
-    pulse_source_id: SourceId<()>,
+    pulse_source_id: InputId<Self, ()>,
 }
 
 impl Driver {
@@ -154,8 +146,13 @@ impl Driver {
     const MAX_PPS: f64 = 1_000.0;
 
     /// Creates a new driver with the specified nominal current.
-    pub fn new(nominal_current: f64, pulse_source_id: SourceId<()>) -> Self {
+    pub fn new(
+        current_out: Output<(f64, f64)>,
+        nominal_current: f64,
+        pulse_source_id: InputId<Self, ()>,
+    ) -> Self {
         Self {
+            current_out,
             pps: 0.0,
             next_phase: 0,
             current: nominal_current,
@@ -164,7 +161,7 @@ impl Driver {
     }
 
     /// Pulse rate (sign = direction) [Hz] -- input port.
-    pub async fn pulse_rate(&mut self, pps: f64, env: &mut DriverEnv) {
+    pub async fn pulse_rate(&mut self, pps: f64, cx: &mut Context<Self>) {
         let pps = pps.signum() * pps.abs().clamp(Self::MIN_PPS, Self::MAX_PPS);
         if pps == self.pps {
             return;
@@ -176,7 +173,7 @@ impl Driver {
         // Trigger the rotation if the motor is currently idle. Otherwise the
         // new value will be accounted for at the next pulse.
         if is_idle {
-            self.send_pulse((), env).await;
+            self.send_pulse((), cx).await;
         }
     }
 
@@ -187,7 +184,7 @@ impl Driver {
     fn send_pulse<'a>(
         &'a mut self,
         _: (),
-        env: &'a mut DriverEnv,
+        cx: &'a mut Context<Self>,
     ) -> impl Future<Output = ()> + Send + 'a {
         async move {
             let current_out = match self.next_phase {
@@ -197,7 +194,7 @@ impl Driver {
                 3 => (0.0, -self.current),
                 _ => unreachable!(),
             };
-            env.current_out.send(current_out).await;
+            self.current_out.send(current_out).await;
 
             if self.pps == 0.0 {
                 return;
@@ -208,14 +205,14 @@ impl Driver {
             let pulse_duration = Duration::from_secs_f64(1.0 / self.pps.abs());
 
             // Schedule the next pulse.
-            env.schedule_event(pulse_duration, self.pulse_source_id, ())
+            cx.schedule_event(pulse_duration, self.pulse_source_id, ())
                 .unwrap();
         }
     }
 }
 
 impl Model for Driver {
-    type Environment = DriverEnv;
+    type Environment = ();
 }
 
 #[allow(dead_code)]
@@ -226,25 +223,19 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Models.
     let init_pos = 123;
-    let motor = Motor::new(init_pos);
-    let driver = ProtoDriver::new(1.0);
-
-    // Environments
-    let mut motor_env = MotorEnv::default();
-    let mut driver_env = DriverEnv::default();
+    let mut motor = Motor::new(init_pos);
+    let mut driver = ProtoDriver::new(1.0);
 
     // Mailboxes.
     let motor_mbox = Mailbox::new();
     let driver_mbox = Mailbox::new();
 
     // Connections.
-    driver_env
-        .current_out
-        .connect(Motor::current_in, &motor_mbox);
+    driver.current_out.connect(Motor::current_in, &motor_mbox);
 
     // Model handles for simulation.
     let position = EventQueue::new();
-    motor_env.position.connect_sink(&position);
+    motor.position.connect_sink(&position);
     let mut position = position.into_reader();
     let motor_addr = motor_mbox.address();
     let driver_addr = driver_mbox.address();
@@ -258,8 +249,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Assembly and initialization.
     let bench = SimInit::new()
-        .add_model(driver, driver_env, driver_mbox, "driver")
-        .add_model(motor, motor_env, motor_mbox, "motor");
+        .add_model(driver, driver_mbox, "driver")
+        .add_model(motor, motor_mbox, "motor");
 
     let pulse_rate_source_id = bench.register_event_source(pulse_rate_source);
 
