@@ -535,7 +535,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
         simulation::add_model(
             model,
-            environment,
             mailbox,
             submodel_name,
             self.scheduler.clone(),

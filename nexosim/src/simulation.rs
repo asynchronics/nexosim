@@ -855,7 +855,6 @@ impl From<SchedulingError> for SimulationError {
 /// Adds a model and its mailbox to the simulation bench.
 pub(crate) fn add_model<P: ProtoModel>(
     model: P,
-    mut environment: <P::Model as Model>::Environment,
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
@@ -878,7 +877,7 @@ pub(crate) fn add_model<P: ProtoModel>(
         registered_models,
         is_resumed.clone(),
     );
-    let model = model.build(&mut build_cx, &mut environment);
+    let (model, environment) = model.build(&mut build_cx);
 
     let address = mailbox.address();
     let mut receiver = mailbox.0;
