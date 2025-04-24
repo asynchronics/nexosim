@@ -12,7 +12,7 @@ time-driven state machines.
 > Don't forget to check out [NeXosim-py](https://pypi.org/project/NeXosim-py/)!
 >
 > Our new Python front-end for NeXosim provides:
-> 
+>
 > * a simple interface to control and monitor simulations over HTTP/2 or unix domain sockets,
 > * an elegant API for the (de)serialization of Rust types,
 > * `asyncio` support for concurrent simulation control & monitoring.
