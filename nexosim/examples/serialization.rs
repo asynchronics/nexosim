@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
-use nexosim::simulation::{ActionKey, Mailbox, SimInit, SimulationError, SourceId};
+use nexosim::simulation::{ActionKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, NoClock};
 
 static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -14,20 +14,20 @@ static INIT_COUNT: AtomicU32 = AtomicU32::new(0);
 pub struct ListenerEnvironment {
     pub message: Output<String>,
 }
-impl Environment for ListenerEnvironment {}
 
 #[derive(Serialize, Deserialize)]
 pub struct Listener {
-    input_id: SourceId<u32>,
+    input_id: InputId<Self, u32>,
     pub value: u32,
     pub key: Option<ActionKey>,
 }
 
 impl Listener {
-    pub async fn process(&mut self, msg: u32, env: &mut ListenerEnvironment) {
+    pub async fn process(&mut self, msg: u32, cx: &mut Context<Self>) {
         self.value += 1;
-        env.message
-            .send(format!("{}/{} @{}", msg, self.value, env.time()))
+        cx.env
+            .message
+            .send(format!("{}/{} @{}", msg, self.value, cx.time()))
             .await;
         if self.value > 6 && self.key.is_some() {
             println!("Cancelling single event");
@@ -43,10 +43,10 @@ impl Model for Listener {
     type Environment = ListenerEnvironment;
 
     /// Initialize model.
-    async fn init(mut self, env: &mut ListenerEnvironment) -> InitializedModel<Self> {
+    async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         INIT_COUNT.fetch_add(1, Ordering::Relaxed);
         self.value = 2;
-        env.schedule_periodic_event(
+        cx.schedule_periodic_event(
             Duration::from_secs(2),
             self.input_id,
             Duration::from_secs(2),
@@ -55,7 +55,7 @@ impl Model for Listener {
         .unwrap();
 
         self.key = Some(
-            env.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17)
+            cx.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17)
                 .unwrap(),
         );
 

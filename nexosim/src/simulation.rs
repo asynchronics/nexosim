@@ -114,7 +114,7 @@ use scheduler::SchedulerQueue;
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::model::{BuildContext, Model, ProtoModel, RegisteredModel};
+use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
 use crate::ports::{InputFn, ReplierFn};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
@@ -636,7 +636,7 @@ pub(crate) struct SimulationContext {
     // TODO - check if not redundant (as it's present in the scheduler as well)
     #[cfg(feature = "tracing")]
     pub(crate) time_reader: crate::time::AtomicTimeReader,
-    pub(crate) scheduler: GlobalScheduler,
+    // pub(crate) scheduler: GlobalScheduler,
     // pub(crate) action_key_reg: ActionKeyReg,
 }
 
@@ -883,13 +883,14 @@ pub(crate) fn add_model<P: ProtoModel>(
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
+    let mut cx = Context::new(name.clone(), environment, scheduler, address.clone());
 
     let fut = async move {
         let mut model = match is_resumed.load(Ordering::Relaxed) {
-            false => model.init(&mut environment).await.0,
+            false => model.init(&mut cx).await.0,
             true => model,
         };
-        while !abort_signal.is_set() && receiver.recv(&mut model, &mut environment).await.is_ok() {}
+        while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };
 
     let model_id = ModelId::new(registered_models.len());

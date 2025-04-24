@@ -1,14 +1,15 @@
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::executor::{Executor, Signal};
 use crate::ports::{EventSource, InputFn};
 use crate::simulation::{
-    self, ActionKey, Address, GlobalScheduler, Mailbox, SchedulingError, SourceId,
+    self, ActionKey, Address, GlobalScheduler, Mailbox, SchedulingError, SourceId, SourceIdErased,
 };
 use crate::time::{Deadline, MonotonicTime};
 
@@ -82,292 +83,290 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 
-// pub struct Context<M: Model> {
-//     pub environment: M::Environment,
-//     name: String,
-//     scheduler: GlobalScheduler,
-//     address: Address<M>,
-//     origin_id: usize,
-// }
+pub struct Context<M: Model> {
+    pub env: M::Environment,
+    name: String,
+    scheduler: GlobalScheduler,
+    address: Address<M>,
+    origin_id: usize,
+}
 
-// impl<M: Model> Context<M> {
-//     /// Creates a new local context.
-//     pub(crate) fn new(
-//         name: String,
-//         environment: M::Environment,
-//         scheduler: GlobalScheduler,
-//         address: Address<M>,
-//     ) -> Self {
-//         // The only requirement for the origin ID is that it must be (i)
-//         // specific to each model and (ii) different from 0 (which is
-// reserved         // for the global scheduler). The channel ID of the model
-// mailbox         // fulfills this requirement.
-//         let origin_id = address.0.channel_id();
+impl<M: Model> Context<M> {
+    /// Creates a new local context.
+    pub(crate) fn new(
+        name: String,
+        env: M::Environment,
+        scheduler: GlobalScheduler,
+        address: Address<M>,
+    ) -> Self {
+        // The only requirement for the origin ID is that it must be (i)
+        // specific to each model and (ii) different from 0 (which is reserved
+        // for the global scheduler). The channel ID of the model mailbox
+        // fulfills this requirement.
+        let origin_id = address.0.channel_id();
 
-//         Self {
-//             name,
-//             environment,
-//             scheduler,
-//             address,
-//             origin_id,
-//         }
-//     }
+        Self {
+            name,
+            env,
+            scheduler,
+            address,
+            origin_id,
+        }
+    }
 
-//     /// Returns the fully qualified model instance name.
-//     ///
-//     /// The fully qualified name is made of the unqualified model name, if
-//     /// relevant prepended by the dot-separated names of all parent models.
-//     pub fn name(&self) -> &str {
-//         &self.name
-//     }
+    /// Returns the fully qualified model instance name.
+    ///
+    /// The fully qualified name is made of the unqualified model name, if
+    /// relevant prepended by the dot-separated names of all parent models.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 
-//     /// Returns the current simulation time.
-//     pub fn time(&self) -> MonotonicTime {
-//         self.scheduler.time()
-//     }
+    /// Returns the current simulation time.
+    pub fn time(&self) -> MonotonicTime {
+        self.scheduler.time()
+    }
 
-//     /// Schedules an event at a future time on this model.
-//     ///
-//     /// An error is returned if the specified deadline is not in the future
-// of     /// the current simulation time.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::time::Duration;
-//     ///
-//     /// use nexosim::model::{Context, Model};
-//     ///
-//     /// // A timer.
-//     /// pub struct Timer {}
-//     ///
-//     /// impl Timer {
-//     ///     // Sets an alarm [input port].
-//     ///     pub fn set(&mut self, setting: Duration, cx: &mut Context<Self>)
-// {     ///         if cx.schedule_event(setting, Self::ring, ()).is_err() {
-//     ///             println!("The alarm clock can only be set for a future
-// time");     ///         }
-//     ///     }
-//     ///
-//     ///     // Rings [private input port].
-//     ///     fn ring(&mut self) {
-//     ///         println!("Brringggg");
-//     ///     }
-//     /// }
-//     ///
-//     /// impl Model for Timer {}
-//     /// ```
+    /// Schedules an event at a future time on this model.
+    ///
+    /// An error is returned if the specified deadline is not in the future of
+    /// the current simulation time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use nexosim::model::{Context, Model};
+    ///
+    /// // A timer.
+    /// pub struct Timer {}
+    ///
+    /// impl Timer {
+    ///     // Sets an alarm [input port].
+    ///     pub fn set(&mut self, setting: Duration, cx: &mut Context<Self>) {
+    ///         if cx.schedule_event(setting, Self::ring, ()).is_err() {
+    ///             println!("The alarm clock can only be set for a future time");
+    ///         }
+    ///     }
+    ///
+    ///     // Rings [private input port].
+    ///     fn ring(&mut self) {
+    ///         println!("Brringggg");
+    ///     }
+    /// }
+    ///
+    /// impl Model for Timer {}
+    /// ```
 
-//     // TODO update docs
-//     pub fn schedule_event<T: Clone + Send + 'static>(
-//         &self,
-//         deadline: impl Deadline,
-//         source_id: SourceId,
-//         arg: T,
-//     ) -> Result<(), SchedulingError> {
-//         self.scheduler
-//             .schedule_event_from(deadline, source_id, arg, self.origin_id)
-//     }
+    // TODO update docs
+    pub fn schedule_event<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        input_id: InputId<M, T>,
+        arg: T,
+    ) -> Result<(), SchedulingError> {
+        self.scheduler
+            .schedule_event_from(deadline, input_id.into(), arg, self.origin_id)
+    }
 
-//     /// Schedules a cancellable event at a future time on this model and
-// returns     /// an action key.
-//     ///
-//     /// An error is returned if the specified deadline is not in the future
-// of     /// the current simulation time.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use nexosim::model::{Context, Model};
-//     /// use nexosim::simulation::ActionKey;
-//     /// use nexosim::time::MonotonicTime;
-//     ///
-//     /// // An alarm clock that can be cancelled.
-//     /// #[derive(Default)]
-//     /// pub struct CancellableAlarmClock {
-//     ///     event_key: Option<ActionKey>,
-//     /// }
-//     ///
-//     /// impl CancellableAlarmClock {
-//     ///     // Sets an alarm [input port].
-//     ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut
-// Context<Self>) {     ///         self.cancel();
-//     ///         match cx.schedule_keyed_event(setting, Self::ring, ()) {
-//     ///             Ok(event_key) => self.event_key = Some(event_key),
-//     ///             Err(_) => println!("The alarm clock can only be set for a
-// future time"),     ///         };
-//     ///     }
-//     ///
-//     ///     // Cancels the current alarm, if any [input port].
-//     ///     pub fn cancel(&mut self) {
-//     ///         self.event_key.take().map(|k| k.cancel());
-//     ///     }
-//     ///
-//     ///     // Rings the alarm [private input port].
-//     ///     fn ring(&mut self) {
-//     ///         println!("Brringggg!");
-//     ///     }
-//     /// }
-//     ///
-//     /// impl Model for CancellableAlarmClock {}
-//     /// ```
-//     pub fn schedule_keyed_event<F, T, S>(
-//         &self,
-//         deadline: impl Deadline,
-//         source_id: SourceId,
-//         arg: T,
-//     ) -> Result<ActionKey, SchedulingError>
-//     where
-//         F: for<'a> InputFn<'a, M, T, S>,
-//         T: Send + Clone + 'static,
-//         S: Send + 'static,
-//     {
-//         let event_key =
-//             self.scheduler
-//                 .schedule_keyed_event_from(deadline, source_id, arg,
-// self.origin_id)?;
+    /// Schedules a cancellable event at a future time on this model and returns
+    /// an action key.
+    ///
+    /// An error is returned if the specified deadline is not in the future of
+    /// the current simulation time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use nexosim::model::{Context, Model};
+    /// use nexosim::simulation::ActionKey;
+    /// use nexosim::time::MonotonicTime;
+    ///
+    /// // An alarm clock that can be cancelled.
+    /// #[derive(Default)]
+    /// pub struct CancellableAlarmClock {
+    ///     event_key: Option<ActionKey>,
+    /// }
+    ///
+    /// impl CancellableAlarmClock {
+    ///     // Sets an alarm [input port].
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///         self.cancel();
+    ///         match cx.schedule_keyed_event(setting, Self::ring, ()) {
+    ///             Ok(event_key) => self.event_key = Some(event_key),
+    ///             Err(_) => println!("The alarm clock can only be set for a future time"),
+    ///         };
+    ///     }
+    ///
+    ///     // Cancels the current alarm, if any [input port].
+    ///     pub fn cancel(&mut self) {
+    ///         self.event_key.take().map(|k| k.cancel());
+    ///     }
+    ///
+    ///     // Rings the alarm [private input port].
+    ///     fn ring(&mut self) {
+    ///         println!("Brringggg!");
+    ///     }
+    /// }
+    ///
+    /// impl Model for CancellableAlarmClock {}
+    /// ```
+    pub fn schedule_keyed_event<T>(
+        &self,
+        deadline: impl Deadline,
+        input_id: InputId<M, T>,
+        arg: T,
+    ) -> Result<ActionKey, SchedulingError>
+    where
+        T: Send + Clone + 'static,
+    {
+        let event_key = self.scheduler.schedule_keyed_event_from(
+            deadline,
+            input_id.into(),
+            arg,
+            self.origin_id,
+        )?;
 
-//         Ok(event_key)
-//     }
+        Ok(event_key)
+    }
 
-//     /// Schedules a periodically recurring event on this model at a future
-// time.     ///
-//     /// An error is returned if the specified deadline is not in the future
-// of     /// the current simulation time or if the specified period is null.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::time::Duration;
-//     ///
-//     /// use nexosim::model::{Context, Model};
-//     /// use nexosim::time::MonotonicTime;
-//     ///
-//     /// // An alarm clock beeping at 1Hz.
-//     /// pub struct BeepingAlarmClock {}
-//     ///
-//     /// impl BeepingAlarmClock {
-//     ///     // Sets an alarm [input port].
-//     ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut
-// Context<Self>) {     ///         if cx.schedule_periodic_event(
-//     ///             setting,
-//     ///             Duration::from_secs(1), // 1Hz = 1/1s
-//     ///             Self::beep,
-//     ///             ()
-//     ///         ).is_err() {
-//     ///             println!("The alarm clock can only be set for a future
-// time");     ///         }
-//     ///     }
-//     ///
-//     ///     // Emits a single beep [private input port].
-//     ///     fn beep(&mut self) {
-//     ///         println!("Beep!");
-//     ///     }
-//     /// }
-//     ///
-//     /// impl Model for BeepingAlarmClock {}
-//     /// ```
-//     // TODO update the docs
-//     pub fn schedule_periodic_event<T: Clone + Send + 'static>(
-//         &self,
-//         deadline: impl Deadline,
-//         source_id: SourceId,
-//         period: Duration,
-//         arg: T,
-//     ) -> Result<(), SchedulingError> {
-//         self.scheduler.schedule_periodic_event_from(
-//             deadline,
-//             source_id,
-//             period,
-//             arg,
-//             self.origin_id,
-//         )
-//     }
+    /// Schedules a periodically recurring event on this model at a future time.
+    ///
+    /// An error is returned if the specified deadline is not in the future of
+    /// the current simulation time or if the specified period is null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use nexosim::model::{Context, Model};
+    /// use nexosim::time::MonotonicTime;
+    ///
+    /// // An alarm clock beeping at 1Hz.
+    /// pub struct BeepingAlarmClock {}
+    ///
+    /// impl BeepingAlarmClock {
+    ///     // Sets an alarm [input port].
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///         if cx.schedule_periodic_event(
+    ///             setting,
+    ///             Duration::from_secs(1), // 1Hz = 1/1s
+    ///             Self::beep,
+    ///             ()
+    ///         ).is_err() {
+    ///             println!("The alarm clock can only be set for a future time");
+    ///         }
+    ///     }
+    ///
+    ///     // Emits a single beep [private input port].
+    ///     fn beep(&mut self) {
+    ///         println!("Beep!");
+    ///     }
+    /// }
+    ///
+    /// impl Model for BeepingAlarmClock {}
+    /// ```
+    // TODO update the docs
+    pub fn schedule_periodic_event<T: Clone + Send + 'static>(
+        &self,
+        deadline: impl Deadline,
+        input_id: InputId<M, T>,
+        period: Duration,
+        arg: T,
+    ) -> Result<(), SchedulingError> {
+        self.scheduler.schedule_periodic_event_from(
+            deadline,
+            input_id.into(),
+            period,
+            arg,
+            self.origin_id,
+        )
+    }
 
-//     /// Schedules a cancellable, periodically recurring event on this model
-// at a     /// future time and returns an action key.
-//     ///
-//     /// An error is returned if the specified deadline is not in the future
-// of     /// the current simulation time or if the specified period is null.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::time::Duration;
-//     ///
-//     /// use nexosim::model::{Context, Model};
-//     /// use nexosim::simulation::ActionKey;
-//     /// use nexosim::time::MonotonicTime;
-//     ///
-//     /// // An alarm clock beeping at 1Hz that can be cancelled before it sets
-// off, or     /// // stopped after it sets off.
-//     /// #[derive(Default)]
-//     /// pub struct CancellableBeepingAlarmClock {
-//     ///     event_key: Option<ActionKey>,
-//     /// }
-//     ///
-//     /// impl CancellableBeepingAlarmClock {
-//     ///     // Sets an alarm [input port].
-//     ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut
-// Context<Self>) {     ///         self.cancel();
-//     ///         match cx.schedule_keyed_periodic_event(
-//     ///             setting,
-//     ///             Duration::from_secs(1), // 1Hz = 1/1s
-//     ///             Self::beep,
-//     ///             ()
-//     ///         ) {
-//     ///             Ok(event_key) => self.event_key = Some(event_key),
-//     ///             Err(_) => println!("The alarm clock can only be set for a
-// future time"),     ///         };
-//     ///     }
-//     ///
-//     ///     // Cancels or stops the alarm [input port].
-//     ///     pub fn cancel(&mut self) {
-//     ///         self.event_key.take().map(|k| k.cancel());
-//     ///     }
-//     ///
-//     ///     // Emits a single beep [private input port].
-//     ///     fn beep(&mut self) {
-//     ///         println!("Beep!");
-//     ///     }
-//     /// }
-//     ///
-//     /// impl Model for CancellableBeepingAlarmClock {}
-//     /// ```
-//     pub fn schedule_keyed_periodic_event<F, T, S>(
-//         &self,
-//         deadline: impl Deadline,
-//         source_id: SourceId,
-//         period: Duration,
-//         arg: T,
-//     ) -> Result<ActionKey, SchedulingError>
-//     where
-//         F: for<'a> InputFn<'a, M, T, S> + Clone,
-//         T: Send + Clone + 'static,
-//         S: Send + 'static,
-//     {
-//         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
-//             deadline,
-//             source_id,
-//             period,
-//             arg,
-//             self.origin_id,
-//         )?;
+    /// Schedules a cancellable, periodically recurring event on this model at a
+    /// future time and returns an action key.
+    ///
+    /// An error is returned if the specified deadline is not in the future of
+    /// the current simulation time or if the specified period is null.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use nexosim::model::{Context, Model};
+    /// use nexosim::simulation::ActionKey;
+    /// use nexosim::time::MonotonicTime;
+    ///
+    /// // An alarm clock beeping at 1Hz that can be cancelled before it sets off, or
+    /// // stopped after it sets off.
+    /// #[derive(Default)]
+    /// pub struct CancellableBeepingAlarmClock {
+    ///     event_key: Option<ActionKey>,
+    /// }
+    ///
+    /// impl CancellableBeepingAlarmClock {
+    ///     // Sets an alarm [input port].
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///         self.cancel();
+    ///         match cx.schedule_keyed_periodic_event(
+    ///             setting,
+    ///             Duration::from_secs(1), // 1Hz = 1/1s
+    ///             Self::beep,
+    ///             ()
+    ///         ) {
+    ///             Ok(event_key) => self.event_key = Some(event_key),
+    ///             Err(_) => println!("The alarm clock can only be set for a future time"),
+    ///         };
+    ///     }
+    ///
+    ///     // Cancels or stops the alarm [input port].
+    ///     pub fn cancel(&mut self) {
+    ///         self.event_key.take().map(|k| k.cancel());
+    ///     }
+    ///
+    ///     // Emits a single beep [private input port].
+    ///     fn beep(&mut self) {
+    ///         println!("Beep!");
+    ///     }
+    /// }
+    ///
+    /// impl Model for CancellableBeepingAlarmClock {}
+    /// ```
+    pub fn schedule_keyed_periodic_event<T>(
+        &self,
+        deadline: impl Deadline,
+        input_id: InputId<M, T>,
+        period: Duration,
+        arg: T,
+    ) -> Result<ActionKey, SchedulingError>
+    where
+        T: Send + Clone + 'static,
+    {
+        let event_key = self.scheduler.schedule_keyed_periodic_event_from(
+            deadline,
+            input_id.into(),
+            period,
+            arg,
+            self.origin_id,
+        )?;
 
-//         Ok(event_key)
-//     }
-// }
+        Ok(event_key)
+    }
+}
 
-// impl<M: Model> fmt::Debug for Context<M> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         f.debug_struct("Context")
-//             .field("name", &self.name())
-//             .field("time", &self.time())
-//             .field("address", &self.address)
-//             .field("origin_id", &self.origin_id)
-//             .finish_non_exhaustive()
-//     }
-// }
+impl<M: Model> fmt::Debug for Context<M> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Context")
+            .field("name", &self.name())
+            .field("time", &self.time())
+            .field("address", &self.address)
+            .field("origin_id", &self.origin_id)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Context available when building a model from a model prototype.
 ///
@@ -497,15 +496,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
-    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send,
-    {
-        let mut queue = self.scheduler.scheduler_queue.lock().unwrap();
-        queue.registry.add(source)
-    }
-
-    pub fn register_input<F, T, S>(&self, func: F) -> SourceId<T>
+    pub fn register_input<F, T, S>(&self, func: F) -> InputId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -513,7 +504,10 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     {
         let mut source = EventSource::new();
         source.connect(func, self.address().clone());
-        self.register_event_source(source)
+
+        let mut queue = self.scheduler.scheduler_queue.lock().unwrap();
+        let source_id = queue.registry.add(source);
+        InputId(source_id.0, PhantomData, PhantomData)
     }
 
     /// Adds a sub-model to the simulation bench.
@@ -564,5 +558,27 @@ impl<M: Model<Environment = usize>> Context<M> {
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
         )
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InputId<M, T>(usize, PhantomData<M>, PhantomData<T>);
+
+// Manual impl. to solve situations where M is not Clone, Copy
+impl<M, T> Clone for InputId<M, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<M, T> Copy for InputId<M, T> {}
+
+impl<M, T> From<InputId<M, T>> for SourceIdErased {
+    fn from(value: InputId<M, T>) -> Self {
+        Self(value.0)
+    }
+}
+impl<M, T> From<InputId<M, T>> for SourceId<T> {
+    fn from(value: InputId<M, T>) -> Self {
+        Self(value.0, PhantomData)
     }
 }

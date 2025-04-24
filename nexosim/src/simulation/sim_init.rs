@@ -59,13 +59,9 @@ impl SimInit {
         let is_running = Arc::new(AtomicBool::new(false));
         let time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH));
 
-        let scheduler =
-            GlobalScheduler::new(scheduler_queue.clone(), time.reader(), is_running.clone());
-
         let simulation_context = SimulationContext {
             #[cfg(feature = "tracing")]
             time_reader: time.reader(),
-            scheduler,
         };
 
         let abort_signal = Signal::new();
@@ -118,12 +114,18 @@ impl SimInit {
         self.observers
             .push((name.clone(), Box::new(mailbox.0.observer())));
 
+        let scheduler = GlobalScheduler::new(
+            self.scheduler_queue.clone(),
+            self.time.reader(),
+            self.is_running.clone(),
+        );
+
         add_model(
             model,
             environment,
             mailbox,
             name,
-            self.simulation_context.scheduler.clone(),
+            scheduler,
             &self.executor,
             &self.abort_signal,
             &mut self.registered_models,
@@ -181,7 +183,7 @@ impl SimInit {
 
     fn build(self) -> (Simulation, Scheduler) {
         let scheduler = Scheduler::new(
-            self.simulation_context.scheduler.scheduler_queue.clone(),
+            self.scheduler_queue.clone(),
             self.time.reader(),
             self.is_running.clone(),
         );

@@ -203,7 +203,7 @@ use std::time::Duration;
 use bincode;
 use serde::{de::DeserializeOwned, Serialize};
 
-pub use context::BuildContext;
+pub use context::{BuildContext, Context, InputId};
 
 use crate::simulation::{
     ActionKey, ActionKeyReg, Address, ExecutionError, ModelFuture, SchedulingError, Simulation,
@@ -257,12 +257,9 @@ pub trait Model: Sized + Send + 'static {
     ///     }
     /// }
     /// ```
-    type Environment: Environment + Send + 'static;
+    type Environment: Send + 'static;
 
-    fn init(
-        self,
-        _: &mut Self::Environment,
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
+    fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
 }
@@ -318,71 +315,6 @@ impl<M: Model> ProtoModel for M {
         _: &mut <Self::Model as Model>::Environment,
     ) -> Self::Model {
         self
-    }
-}
-
-pub trait Environment {
-    fn time(&self) -> crate::time::MonotonicTime {
-        // TODO error handling ?
-        SIMULATION_CONTEXT.map(|cx| cx.scheduler.time()).unwrap()
-    }
-    fn schedule_event<T: Clone + Send + 'static>(
-        &self,
-        deadline: impl Deadline,
-        source_id: SourceId<T>,
-        arg: T,
-    ) -> Result<(), SchedulingError> {
-        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        SIMULATION_CONTEXT
-            .map(|cx| {
-                cx.scheduler
-                    .schedule_event_from(deadline, source_id, arg, origin_id)
-            })
-            .ok_or(SchedulingError::SchedulerNotReady)?
-    }
-    fn schedule_periodic_event<T: Clone + Send + 'static>(
-        &self,
-        deadline: impl Deadline,
-        source_id: SourceId<T>,
-        period: Duration,
-        arg: T,
-    ) -> Result<(), SchedulingError> {
-        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        SIMULATION_CONTEXT
-            .map(|cx| {
-                cx.scheduler
-                    .schedule_periodic_event_from(deadline, source_id, period, arg, origin_id)
-            })
-            .ok_or(SchedulingError::SchedulerNotReady)?
-    }
-    fn schedule_keyed_event<T: Clone + Send + 'static>(
-        &self,
-        deadline: impl Deadline,
-        source_id: SourceId<T>,
-        arg: T,
-    ) -> Result<ActionKey, SchedulingError> {
-        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        SIMULATION_CONTEXT
-            .map(|cx| {
-                cx.scheduler
-                    .schedule_keyed_event_from(deadline, source_id, arg, origin_id)
-            })
-            .ok_or(SchedulingError::SchedulerNotReady)?
-    }
-    fn schedule_keyed_periodic_event<T: Clone + Send + 'static>(
-        &self,
-        deadline: impl Deadline,
-        source_id: SourceId<T>,
-        period: Duration,
-        arg: T,
-    ) -> Result<ActionKey, SchedulingError> {
-        let origin_id = CURRENT_MODEL_ID.get().get_unchecked();
-        SIMULATION_CONTEXT
-            .map(|cx| {
-                cx.scheduler
-                    .schedule_keyed_periodic_event_from(deadline, source_id, period, arg, origin_id)
-            })
-            .ok_or(SchedulingError::SchedulerNotReady)?
     }
 }
 

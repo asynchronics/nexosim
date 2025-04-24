@@ -23,10 +23,10 @@ pub(crate) type ActionKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
 // Typed SourceId allows for compile time argument validation.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct SourceId<T>(usize, PhantomData<T>);
+pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<T>);
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) struct SourceIdErased(usize);
+pub(crate) struct SourceIdErased(pub(crate) usize);
 
 impl<T> From<SourceId<T>> for SourceIdErased {
     fn from(value: SourceId<T>) -> Self {
