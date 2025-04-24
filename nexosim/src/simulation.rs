@@ -887,7 +887,7 @@ pub(crate) fn add_model<P: ProtoModel>(
     let fut = async move {
         let mut model = match is_resumed.load(Ordering::Relaxed) {
             false => model.init(&mut cx).await.0,
-            true => model,
+            true => model.restore(&mut cx).await.0,
         };
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };

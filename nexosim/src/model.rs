@@ -265,6 +265,10 @@ pub trait Model: Sized + Send + 'static {
     fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
+
+    fn restore(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
+        async { self.into() }
+    }
 }
 
 /// Opaque type containing an initialized model.
