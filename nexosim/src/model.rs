@@ -370,14 +370,13 @@ async fn deserialize_model<M: Model + Serialize + DeserializeOwned>(
         ACTION_KEYS.set(&state.1, || {
             // Fake serialize to register outputs in the reg.
             let _ = bincode::serde::encode_to_vec(&model, get_serialization_config()).unwrap();
-
-            let new: M = bincode::serde::decode_from_slice(
+            // Now proper deserialization of the state.
+            bincode::serde::decode_from_slice::<M, _>(
                 &state.0,
                 crate::util::serialization::get_serialization_config(),
             )
             .unwrap()
-            .0;
-            new
+            .0
         })
     });
     // Nested async clousures would cause InputFn incompatibilities.

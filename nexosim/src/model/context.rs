@@ -521,7 +521,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn add_submodel<S: ProtoModel>(
         &mut self,
         model: S,
-        environment: <S::Model as Model>::Environment,
         mailbox: Mailbox<S::Model>,
         name: impl Into<String>,
     ) where
