@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError, SourceId};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
@@ -60,51 +60,42 @@ impl ProtoModel for ProtoListener {
     type Model = Listener;
 
     /// Start the UDP Server immediately upon model construction.
-    fn build(self, cx: &mut BuildContext<Self>, env: &mut ListenerEnv) -> Listener {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Listener, ListenerEnv) {
         let (tx, rx) = channel();
 
         let external_handle = thread::spawn(move || {
             Listener::listen(tx, self.start);
         });
-        let process_source_id = cx.register_input(Listener::process);
+        let process_input_id = cx.register_input(Listener::process);
 
-        env.message = self.message;
-        env.rx = Some(rx);
-        env.server_handle = Some(external_handle);
-        Listener { process_source_id }
+        (
+            Listener::new(self.message, process_input_id),
+            ListenerEnv::new(rx, external_handle),
+        )
     }
 }
-
-#[derive(Default)]
-pub struct ListenerEnv {
-    /// Received message.
-    message: Output<String>,
-    /// Receiver of external messages.
-    rx: Option<Receiver<String>>,
-    /// Handle to UDP Server.
-    server_handle: Option<JoinHandle<()>>,
-}
-impl Drop for ListenerEnv {
-    /// Wait for UDP Server shutdown.
-    fn drop(&mut self) {
-        if let Some(handle) = self.server_handle.take() {
-            let _ = handle.join();
-        };
-    }
-}
-impl Environment for ListenerEnv {}
 
 /// Model that asynchronously receives messages external to the simulation.
 #[derive(Serialize, Deserialize)]
 pub struct Listener {
-    process_source_id: SourceId<()>,
+    /// Received message.
+    message: Output<String>,
+    process_input_id: InputId<Self, ()>,
 }
 
 impl Listener {
+    /// Creates a Listener.
+    pub fn new(message: Output<String>, process_input_id: InputId<Self, ()>) -> Self {
+        Self {
+            message,
+            process_input_id,
+        }
+    }
+
     /// Periodically scheduled function that processes external events.
-    async fn process(&mut self, _: (), env: &mut ListenerEnv) {
-        while let Ok(message) = env.rx.as_ref().unwrap().try_recv() {
-            env.message.send(message).await;
+    async fn process(&mut self, _: (), cx: &mut Context<Self>) {
+        while let Ok(message) = cx.env.rx.try_recv() {
+            self.message.send(message).await;
         }
     }
 
@@ -143,12 +134,35 @@ impl Listener {
 impl Model for Listener {
     type Environment = ListenerEnv;
     /// Initialize model.
-    async fn init(self, env: &mut ListenerEnv) -> InitializedModel<Self> {
+    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         // Schedule periodic function that processes external events.
-        env.schedule_periodic_event(DELTA, self.process_source_id, PERIOD, ())
+        cx.schedule_periodic_event(DELTA, self.process_input_id, PERIOD, ())
             .unwrap();
 
         self.into()
+    }
+}
+
+pub struct ListenerEnv {
+    /// Receiver of external messages.
+    rx: Receiver<String>,
+    /// Handle to UDP Server.
+    server_handle: Option<JoinHandle<()>>,
+}
+impl ListenerEnv {
+    pub fn new(rx: Receiver<String>, server_handle: JoinHandle<()>) -> Self {
+        Self {
+            rx,
+            server_handle: Some(server_handle),
+        }
+    }
+}
+impl Drop for ListenerEnv {
+    /// Wait for UDP Server shutdown.
+    fn drop(&mut self) {
+        if let Some(handle) = self.server_handle.take() {
+            let _ = handle.join();
+        };
     }
 }
 
@@ -194,9 +208,6 @@ fn main() -> Result<(), SimulationError> {
     // Prototype of the listener model.
     let mut listener = ProtoListener::new(start.notifier());
 
-    // Environment
-    let listener_env = ListenerEnv::default();
-
     // Mailboxes.
     let listener_mbox = Mailbox::new();
 
@@ -210,7 +221,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Assembly and initialization.
     let mut simu = SimInit::new()
-        .add_model(listener, listener_env, listener_mbox, "listener")
+        .add_model(listener, listener_mbox, "listener")
         .set_clock(AutoSystemClock::new())
         .init(t0)?
         .0;

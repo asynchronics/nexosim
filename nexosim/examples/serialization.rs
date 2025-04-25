@@ -38,7 +38,7 @@ impl Listener {
 
         let temp = self.temp.send(()).await.unwrap();
         self.observable.set(temp).await;
-        println!("T: {}", temp);
+        println!("Temp: {} @ {}", temp, cx.time());
     }
 }
 

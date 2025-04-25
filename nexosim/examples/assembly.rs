@@ -27,14 +27,14 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Environment, Model, ProtoModel};
+use nexosim::model::{BuildContext, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 mod stepper_motor;
 
-pub use stepper_motor::{Driver, DriverEnv, Motor, MotorEnv, ProtoDriver};
+pub use stepper_motor::{Driver, Motor, ProtoDriver};
 
 /// A prototype for `MotorAssembly`.
 pub struct ProtoMotorAssembly {
@@ -54,68 +54,66 @@ impl ProtoMotorAssembly {
     // Input methods are in the model itself.
 }
 
-#[derive(Default)]
-pub struct MotorAssemblyEnv {
+/// The parent model which submodels are the driver and the motor.
+#[derive(Serialize, Deserialize)]
+pub struct MotorAssembly {
     /// Private output for submodel connection.
     pps: Output<f64>,
     /// Private output for submodel connection.
     load: Output<f64>,
 }
-impl Environment for MotorAssemblyEnv {}
-
-/// The parent model which submodels are the driver and the motor.
-#[derive(Serialize, Deserialize)]
-pub struct MotorAssembly;
 
 impl MotorAssembly {
+    /// The model now has a module-private constructor.
+    fn new() -> Self {
+        Self {
+            pps: Default::default(),
+            load: Default::default(),
+        }
+    }
+
     /// Pulse rate (sign = direction) [Hz] -- input port.
-    pub async fn pulse_rate(&mut self, pps: f64, env: &mut MotorAssemblyEnv) {
-        env.pps.send(pps).await
+    pub async fn pulse_rate(&mut self, pps: f64) {
+        self.pps.send(pps).await
     }
 
     /// Torque applied by the load [N·m] -- input port.
-    pub async fn load(&mut self, torque: f64, env: &mut MotorAssemblyEnv) {
-        env.load.send(torque).await
+    pub async fn load(&mut self, torque: f64) {
+        self.load.send(torque).await
     }
 }
 
 impl Model for MotorAssembly {
-    type Environment = MotorAssemblyEnv;
+    type Environment = ();
 }
 
 impl ProtoModel for ProtoMotorAssembly {
     type Model = MotorAssembly;
 
-    fn build(self, cx: &mut BuildContext<Self>, env: &mut MotorAssemblyEnv) -> MotorAssembly {
-        let assembly = MotorAssembly;
-        let motor = Motor::new(self.init_pos);
-        let driver = ProtoDriver::new(1.0);
-
-        // Environments
-        let mut motor_env = MotorEnv::default();
-        let mut driver_env = DriverEnv::default();
+    fn build(self, cx: &mut BuildContext<Self>) -> (MotorAssembly, ()) {
+        let mut assembly = MotorAssembly::new();
+        let mut motor = Motor::new(self.init_pos);
+        let mut driver = ProtoDriver::new(1.0);
 
         // Mailboxes.
         let motor_mbox = Mailbox::new();
         let driver_mbox = Mailbox::new();
 
         // Connections.
-        env.pps.connect(Driver::pulse_rate, &driver_mbox);
-        env.load.connect(Motor::load, &motor_mbox);
-        driver_env
-            .current_out
-            .connect(Motor::current_in, &motor_mbox);
+        assembly.pps.connect(Driver::pulse_rate, &driver_mbox);
+        assembly.load.connect(Motor::load, &motor_mbox);
+        driver.current_out.connect(Motor::current_in, &motor_mbox);
 
         // Move the prototype's output to the submodel. The `self.position`
         // output can be cloned if necessary if several submodels need access to
         // it.
-        motor_env.position = self.position;
+        motor.position = self.position;
 
         // Add the submodels to the simulation.
-        cx.add_submodel(driver, driver_env, driver_mbox, "driver");
-        cx.add_submodel(motor, motor_env, motor_mbox, "motor");
+        cx.add_submodel(driver, driver_mbox, "driver");
+        cx.add_submodel(motor, motor_mbox, "motor");
 
-        assembly
+        (assembly, ())
     }
 }
 
@@ -127,9 +125,6 @@ fn main() -> Result<(), SimulationError> {
     // Models.
     let init_pos = 123;
     let mut assembly = ProtoMotorAssembly::new(init_pos);
-
-    // Environments
-    let assembly_env = MotorAssemblyEnv::default();
 
     // Mailboxes.
     let assembly_mbox = Mailbox::new();
@@ -148,7 +143,7 @@ fn main() -> Result<(), SimulationError> {
     pulse_rate_source.connect(MotorAssembly::pulse_rate, &assembly_addr);
 
     // Assembly and initialization.
-    let bench = SimInit::new().add_model(assembly, assembly_env, assembly_mbox, "assembly");
+    let bench = SimInit::new().add_model(assembly, assembly_mbox, "assembly");
     let pulse_rate_source_id = bench.register_event_source(pulse_rate_source);
 
     let (mut simu, scheduler) = bench.init(t0)?;
