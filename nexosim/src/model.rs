@@ -360,23 +360,27 @@ async fn serialize_model<M: Serialize>(model: &mut M) -> Vec<u8> {
     })
 }
 
-fn deserialize_model<M: Serialize + DeserializeOwned>(
+async fn deserialize_model<M: Model + Serialize + DeserializeOwned>(
     model: &mut M,
     state: (Vec<u8>, ActionKeyReg),
+    cx: &mut Context<M>,
 ) {
     // TODO reconsider blocking in async context
-    PORTS_REG.set(&Arc::new(Mutex::new(VecDeque::new())), || {
+    let new = PORTS_REG.set(&Arc::new(Mutex::new(VecDeque::new())), || {
         ACTION_KEYS.set(&state.1, || {
             // Fake serialize to register outputs in the reg.
             let _ = bincode::serde::encode_to_vec(&model, get_serialization_config()).unwrap();
 
-            let new = bincode::serde::decode_from_slice(
+            let new: M = bincode::serde::decode_from_slice(
                 &state.0,
                 crate::util::serialization::get_serialization_config(),
             )
             .unwrap()
             .0;
-            let _ = std::mem::replace(model, new);
-        });
+            new
+        })
     });
+    // Nested async clousures would cause InputFn incompatibilities.
+    let new = new.restore(cx).await.0;
+    let _ = std::mem::replace(model, new);
 }
