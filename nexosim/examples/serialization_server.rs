@@ -1,4 +1,4 @@
-use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventBuffer, EventSource, Output, QuerySource};
 use nexosim::registry::EndpointRegistry;
 use nexosim::server;
@@ -7,22 +7,22 @@ use nexosim::time::{AutoSystemClock, MonotonicTime};
 
 use serde::{Deserialize, Serialize};
 
-fn bench(_: ()) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+fn bench(id: String) -> Result<(Simulation, EndpointRegistry), SimulationError> {
     let mut registry = EndpointRegistry::new();
 
-    let model = MyModel;
-    let mbox = Mailbox::new();
-    let addr = mbox.address();
-    let mut env = MyEnv {
+    let model = MyModel {
+        id,
         output: Output::default(),
     };
+    let mbox = Mailbox::new();
+    let addr = mbox.address();
 
     let mut input = EventSource::new();
     input.connect(MyModel::input, &addr);
     registry.add_event_source(input, "input").unwrap();
 
     let (sim, _) = SimInit::new()
-        .add_model(model, env, mbox, "model")
+        .add_model(model, mbox, "model")
         .set_clock(AutoSystemClock::new())
         .init(MonotonicTime::EPOCH)
         .unwrap();
@@ -35,21 +35,19 @@ fn main() {
 }
 
 #[derive(Serialize, Deserialize)]
-struct MyModel;
+struct MyModel {
+    id: String,
+    output: Output<String>,
+}
 impl MyModel {
     pub async fn repl(&mut self) -> u16 {
         14
     }
-    pub async fn input(&mut self, value: u16, env: &mut MyEnv) {
-        println!("@@@@@@@@@@@@@@@ {}", value);
-        env.output.send(value);
+    pub async fn input(&mut self, value: String) {
+        println!("{} {}", self.id, value);
+        self.output.send(value);
     }
 }
 impl Model for MyModel {
-    type Environment = MyEnv;
+    type Environment = ();
 }
-
-struct MyEnv {
-    output: Output<u16>,
-}
-impl Environment for MyEnv {}
