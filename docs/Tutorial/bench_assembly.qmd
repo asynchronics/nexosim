@@ -1,0 +1,743 @@
+---
+title: "Bench Assembly"
+filters:
+  - line-highlight
+---
+We've created our models, but up to the end of the previous section we
+controlled each model individually. In this section we'll connect the models'
+ports to allow them to communicate with each other and learn about the different
+types of connections we can use in NeXosim simulations. We'll also cover the use
+of simulation endpoints and how to create a gRPC server with our simulation
+allowing us to control the simulation with the python client –
+[NeXosim-py](https://github.com/asynchronics/nexosim-py/)
+
+## Connections
+
+The NeXosim API supports three kinds of connections:
+
+- regular connections
+- mapped connections
+- filtered mapped connections
+
+The different types of connections give us enough flexibility to tackle
+issues we might encounter when making models work with each other.
+
+### Regular connections
+
+Regular connections transfer events as they are without any modification or
+filtering. They are created using the the `Output::connect`,
+`Requestor::connect` and `UniRequestor::new` methods.
+
+We've already used a regular connection at the end of the previous section when
+we created the unirequestor for the sun sensor model and when connecting
+model outputs to event slots during testing.
+
+When creating any connections we need to provide the input or replier method
+and the address of the model we are connecting.
+
+```rust
+let requestor = UniRequestor::new(Dynamics::sun_position, &dynamics_mbox);
+```
+
+::: {.callout-note}
+Before moving the mailbox when adding a model to the simulation, we can use a
+reference to the mailbox in place of its address, therefore the
+following are equivalent:
+
+```rust
+let dynamics = Dynamics;
+let dynamics_mbox = Mailbox::new();
+let dynamics_addr = dynamics_mbox.address();
+
+let requestor = UniRequestor::new(Dynamics::sun_position, dynamics_addr);
+
+// and
+
+let dynamics = Dynamics;
+let dynamics_mbox = Mailbox::new();
+
+let requestor = UniRequestor::new(Dynamics::sun_position, &dynamics_mbox);
+```
+:::
+
+### Mapped connections
+
+We don't always have control over what exactly the models we use send or
+accept in their ports. Sometimes ports will have incompatible types or the
+values broadcast by a model describe a phenomena differently than the connected
+input expects. In such cases we should use a mapped connection, which can be
+created using the `Output::map_connect`, `Requestor::map_connect` or
+`UniRequestor::with_map` methods.
+
+When creating a mapped connection we provide a map – a closure that transforms
+and returns events sent over the connection.
+
+Requestor and unirequestor mapped connections can map both the query and the
+reply.
+
+In the case of our simulation, we have a dynamics model that sends the current
+sun position, but the dynamics model's coordinate frame might not be the
+same as the sun sensor model's frame.
+
+Let's say that the dynamics model's sun position replier describes the current
+position of the sun in the coordinate frame of the spacecraft the sun sensor
+is mounted on. The sun sensor's coordinate frame is rotated 90° around the Z
+axis in respect to the spacecraft's coordinate frame. We'll need to rotate the
+sun position vector -90° for it to express the same point in space in the
+sensor's frame.
+
+Replace the UniRequestor::new() call with the following UniRequestor::with_map
+statement:
+
+```{.rust}
+let requestor = UniRequestor::with_map(
+        |_| _,
+        |r| [r[1], -r[0], r[2]],
+        Dynamics::sun_position,
+        &dynamics_mbox,
+    );
+```
+
+The first argument is the query map. The sun position query argument is `()`
+so we just pass it along. The second argument is the reply map for which we
+create a closure that returns the vector returned by connected replier rotated
+-90° around the Z axis.
+
+### Filtered mapped connections
+
+Often times outputs will send values that a connected model has no use for.
+A common example is a controller sending addressed messages over a serial
+connection with multiple devices connected.
+We can make the connection pass only the events we are interested in by using
+filtered connections. Such connections are created using the
+`Output::filter_map_connect`, `Requestor::filter_map_connect` or
+`UniRequestor::with_filter_map` functions.
+
+Similarly to mapped connections when creating filtered mapped connections we
+provide mapping closures, but the filtering maps must return the events wrapped
+in `Option`. If the closure returns `None`, the event is not passed along to the
+receiving model.
+
+Requestor and unirequestor filtered mapped connections can map both the query
+and the reply, but only the query is filtered.
+
+The Obc model sends out sequences of bytes which represent the addressed
+messages, but the `SunSensor` model does not have a way to interpret these
+messages. We need to create a function that will cast the bytes into the
+`SampleCommand` type if the sequence is interpretable as one, and ignore the
+messages that are not addressed to the sun sensor. We also have to translate the
+`SampleReply` events into bytes for the `Obc` model to be able to interpret
+them.
+
+Let's go to `src/sensor.rs` and add an associated function to `SampleCommand`
+that will construct instances from byte slices:
+
+```rust
+impl SampleCommand {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() != 3 {
+            return Err("Incorrect message size".into());
+        }
+        if bytes[2] != SAMPLE_CMD_CODE {
+            return Err("Unknown command".into());
+        }
+        Ok(Self {
+            src_address: bytes[1],
+            dest_address: bytes[0],
+        })
+    }
+}
+```
+
+and also create the `SampleReply::into_bytes` method that turns `SampleReply`
+instances into byte vectors:
+
+ ```rust
+impl SampleReply {
+    pub fn into_bytes(&self) -> Vec<u8> {
+        let Self {
+            src_address,
+            dest_address,
+            x,
+            y,
+            z,
+        } = self;
+
+        [
+            &[*dest_address],
+            &[*src_address],
+            x.to_le_bytes().as_slice(),
+            y.to_le_bytes().as_slice(),
+            z.to_le_bytes().as_slice(),
+        ]
+        .concat()
+    }
+}
+ ```
+
+Let's also add the SAMPLE_CMD_CODE constant at the top of sensor.rs:
+
+```{.rust source-line-numbers="5"}
+use nexosim::model::Model;
+use nexosim::ports::{Output, UniRequestor};
+
+const POWER_ON_VOLTAGE: f32 = 4.95;
+const SAMPLE_CMD_CODE: u8 = 0;
+
+// ...
+```
+
+Finally, let's connect the two models in `main.rs`:
+
+```{.rust filename="src/main.rs" source-line-numbers="34-56"}
+use nexosim::ports::{EventSlot, UniRequestor};
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+use sun_sensor::dynamics::Dynamics;
+use sun_sensor::obc::Obc;
+use sun_sensor::sensor;
+
+const OBC_ADDR: u8 = 0x10;
+const SENSOR_ADDR: u8 = 0x11;
+
+fn main() {
+    let dynamics = Dynamics;
+    let dynamics_mbox = Mailbox::new();
+
+    let requestor = UniRequestor::with_map(
+        |_| (),
+        |r| [r[1], -r[0], r[2]],
+        Dynamics::sun_position,
+        &dynamics_mbox,
+    );
+
+    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR, requestor);
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let mut sensor_sink = EventSlot::new();
+    sensor.tm.connect_sink(&sensor_sink);
+
+    let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+    let obc_mbox = Mailbox::new();
+    let obc_addr = obc_mbox.address();
+
+    obc.tc.filter_map_connect(
+        |bytes| {
+            if bytes[0] != SENSOR_ADDR {
+                return None;
+            }
+            sensor::SampleCommand::from_bytes(bytes).ok()
+        },
+        sensor::SunSensor::tc,
+        &sensor_mbox,
+    );
+
+    sensor.tm.filter_map_connect(
+        |e| match e {
+            sensor::SampleReply { dest_address, .. } => {
+                if *dest_address != OBC_ADDR {
+                    return None;
+                }
+                Some(e.into_bytes())
+            }
+        },
+        Obc::tm:,
+        &obc_mbox,
+    );
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .add_model(obc, obc_mbox, "OBC")
+        .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+        .init(t0)
+        .unwrap();
+
+    // Power up the sensor.
+    sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+        .unwrap();
+
+    // Power up the obc.
+    sim.process_event(Obc::voltage_in, 5.0, &obc_addr).unwrap();
+
+    sim.step_until(MonotonicTime::new(42, 0).unwrap()).unwrap();
+
+    // Make the OBC send the command packet.
+    sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
+        .unwrap();
+}
+```
+
+We've connected `Obc::tc` output to the `SunSensor::tc` input using
+the `Output::filter_map_connect`. As the filter map we've provided a closure
+that checks if the first byte of the packet (the destination address) matches
+the sensor's address. We also use the `Result::ok` method to turn the value
+returned by `SampleCommand::from_bytes` to an `Option`. If `SampleCommand`
+could not be constructed from the given byte sequence the function returns an
+`Result::Err` which is turned into `Option::None` and therefore not passed
+to the input.
+
+```rust
+obc.tc.filter_map_connect(
+    |bytes| {
+        if bytes[0] != SENSOR_ADDR {
+            return None;
+        }
+        sensor::SampleCommand::from_bytes(bytes).ok()
+    },
+    sensor::SunSensor::tc,
+    &sensor_mbox,
+);
+```
+
+In the other direction, we have a filtered connection from the `SunSensor::tm`
+output to the `OBC::tm:` input. Here we only check if the
+`SampleReply::dest_address` field matches the OBC's address.
+
+```rust
+sensor.tm.filter_map_connect(
+        |e| match e {
+        sensor::SampleReply { dest_address, .. } => {
+            if *dest_address != OBC_ADDR {
+                return None;
+            }
+            Some(e.into_bytes())
+        }
+    },
+    Obc::tm:,
+    &obc_mbox,
+);
+```
+
+To tidy things up we've removed the `Simulation::process_event` call to the
+`SunSensor::tc` input, since the OBC sends the command when we send an
+event to the `Obc::send_sample_cmd` input. We also removed the event slot that
+was connected to the `Obc::tc` output and the print statement reading from
+`sensor_sink`.
+
+## Endpoints
+
+Our models finally communicate with each other the way we want them to, but we
+would also like to interact with the models from outside the simulation.
+To be able to do that we need to set up the simulation's endpoints.
+
+### Event sinks
+
+Event sinks are used to gather events sent from connected outputs.
+We've already used one type of event sink to test model outputs – the
+`EventSlot`. Event slots keep only a single event. Any incoming event will
+overwrite the old one.
+
+Often we would like to gather many events from the simulation and read them all
+at once. For such cases we can use an `EventQueue` which gather received events
+into a buffer that we can iterate over. We'll change the sensor_sink to an event
+queue, so it'll be easier to see how the sun vector changes over time.
+
+```{.rust source-line-numbers="1,9-11"}
+use nexosim::ports::{EventQueue, UniRequestor};
+
+// ...
+
+let mut sensor = sensor::SunSensor::new(SENSOR_ADDR, requestor);
+let sensor_mbox = Mailbox::new();
+let sensor_addr = sensor_mbox.address();
+
+let sensor_sink = EventQueue::new();
+sensor.tm.connect_sink(&sensor_sink);
+let sensor_reader = sensor_sink.into_reader();
+
+let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+let obc_mbox = Mailbox::new();
+let obc_addr = obc_mbox.address();
+
+// ...
+```
+
+Before we can read from an event queue we need to turn it to a reader. Readers
+can be either non-blocking or blocking. Here we use the
+`EventQueue::into_reader` method to create a non-blocking one.
+
+Blocking readers can be without timeout, created with the
+`EventQueue::into_blocking_reader` or with timeout, created with the
+`EventQueue::into_reader_with_timeout`.
+
+Calling `Iterator::next` on a blocking reader will block the thread and await
+events. If the reader has a timeout, after the set time is reached without
+receiving any events, the method will return `Option::None`.
+
+Event sinks can be closed to pause event collection with the  `EventSink::close`
+method and opened to resume it with the `EventSink::open` method.
+
+### Event and query sources
+
+NeXosim also has endpoints for sending events to model inputs. These are called
+event sources. We can connect an `EventSource` to multiple models and send an
+event to all of them, for example to simulate multiple devices connected to
+the same power rail.
+
+We'll create an event source and connect it to the voltage inputs of both
+the `Obc` and `SunSensor` models. We'll also add a source that we'll use to
+make the OBC send sample commands.
+
+
+```{.rust source-line-numbers="3-8,18,19"}
+// ...
+
+let mut voltage_source = EventSource::new();
+voltage_source.connect(sensor::SunSensor::voltage_in, &sensor_mbox);
+voltage_source.connect(Obc::voltage_in, &obc_mbox);
+
+let mut send_cmd = EventSource::new();
+send_cmd.connect(Obc::send_sample_cmd, &obc_mbox);
+
+let t0 = MonotonicTime::EPOCH;
+let (mut sim, _) = SimInit::new()
+    .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+    .add_model(obc, obc_mbox, "OBC")
+    .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+    .init(t0)
+    .unwrap();
+
+// Power up the devices.
+sim.process(voltage_source.event(5.0)).unwrap();
+
+sim.step_until(MonotonicTime::new(42, 0).unwrap()).unwrap();
+
+// Make the OBC send the command packet.
+sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
+    .unwrap();
+```
+<!-- TODO -->
+Note that we've replaced the two `Simulation::process_event` calls to the
+voltage inputs with:
+
+```rust
+sim.process(voltage_source.event(5.0)).unwrap();
+```
+
+There are also query sources. A `QuerySource` can be used the same way as an
+an `EventSource`, but can be used to retrieve replies from all connected
+replier ports.
+
+## Server
+
+NeXosim includes a gRPC server that allows you to control the simulation using
+[`NeXosim-py`](https://github.com/asynchronics/nexosim-py) - the Python client
+for NeXosim. Let's take a look at how to set it up.
+
+To use the server, first we must make sure NeXosim is installed with the
+`server` feature. We'll also include serde in the dependencies to allow us
+to communicate with the client using non-primitive types.
+
+```toml
+nexosim = { version = "0.3.2", features = ["server"] }
+serde = { version = "1.0", features = ["derive"] }
+```
+
+To start a server we'll use the `run` function from the `server` module.
+The `run` function expects a parameter that is a function with a single argument
+that returns a tuple with the simulation and an endpoint registry. The argument
+must be deserializable (implement the `serde::de::DeserializeOwned` trait).
+
+The argument is used to send configuration data from the client that can be used
+during the simulation setup. We'll create a new type for that purpose. Let's
+add the following to `src/main.rs`:
+
+```rust
+use serde::Deserialize;
+
+// ...
+
+#[derive(Deserialize)]
+struct Config {
+    obc_address: u8,
+    sensor_address: u8,
+}
+```
+
+We'll create a new function called `simulation` with a signature matching the
+constraints we went over above. We'll move into it the contents of the `main`
+function with some changes. It should look like this:
+
+```rust
+fn simulation(cfg: Config) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+    let dynamics = Dynamics;
+    let dynamics_mbox = Mailbox::new();
+
+    let requestor = UniRequestor::with_map(
+        |_| (),
+        |r| [r[1], -r[0], r[2]],
+        Dynamics::sun_position,
+        &dynamics_mbox,
+    );
+
+    let mut sensor = sensor::SunSensor::new(cfg.sensor_address, requestor);
+    let sensor_mbox = Mailbox::new();
+
+    let mut obc = Obc::new(cfg.obc_address, cfg.sensor_address);
+    let obc_mbox = Mailbox::new();
+
+    obc.tc.filter_map_connect(
+        |bytes| {
+            if bytes[0] != SENSOR_ADDR {
+                return None;
+            }
+            sensor::SampleCommand::from_bytes(bytes).ok()
+        },
+        sensor::SunSensor::tc,
+        &sensor_mbox,
+    );
+
+    sensor.tm.filter_map_connect(
+        |e| match e {
+            sensor::SampleReply { dest_address, .. } => {
+                if *dest_address != OBC_ADDR {
+                    return None;
+                }
+                Some(e.into_bytes())
+            }
+        },
+        Obc::tm:,
+        &obc_mbox,
+    );
+
+    let mut send_cmd = EventSource::new();
+    send_cmd.connect(Obc::send_sample_cmd, &obc_mbox);
+
+    let mut voltage_source = EventSource::new();
+    voltage_source.connect(sensor::SunSensor::voltage_in, &sensor_mbox);
+    voltage_source.connect(Obc::voltage_in, &obc_mbox);
+
+    let sensor_sink = EventQueue::new();
+    sensor.tm.connect_sink(&sensor_sink);
+    let sensor_reader = sensor_sink.into_reader();
+
+    // Create an endpoint registry and add endpoints to it.
+    let mut registry = EndpointRegistry::new();
+    registry
+        .add_event_source(send_cmd, "send_sample_cmd")
+        .unwrap();
+    registry
+        .add_event_source(voltage_source, "voltage")
+        .unwrap();
+    registry
+        .add_event_sink(sensor_reader, "sun_vector")
+        .unwrap();
+
+    let t0 = MonotonicTime::EPOCH;
+    let (sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .add_model(obc, obc_mbox, "OBC")
+        .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+        .init(t0)?;
+
+    Ok((sim, registry))
+}
+```
+
+We used the `Config` type we defined above as the function's argument.
+
+```rust
+fn simulation(cfg: Config) -> Result<(Simulation, EndpointRegistry), SimulationError>
+```
+
+and we later use it when instantiating our models:
+
+```rust
+let mut sensor = sensor::SunSensor::new(cfg.sensor_address, requestor);
+let sensor_mbox = Mailbox::new();
+
+let mut obc = Obc::new(cfg.obc_address, cfg.sensor_address);
+let obc_mbox = Mailbox::new();
+```
+
+We've added our endpoints to a registry.
+The endpoint registry keeps track of the simulation's endpoints. Only the
+endpoints that were added to the registry are exposed by the server.
+We'll later use the names we use when adding an endpoint to the registry
+when referring to them from the client.
+
+```{.rust}
+let mut send_cmd = EventSource::new();
+send_cmd.connect(Obc::send_sample_cmd, &obc_mbox);
+
+let mut voltage_source = EventSource::new();
+voltage_source.connect(sensor::SunSensor::voltage_in, &sensor_mbox);
+voltage_source.connect(Obc::voltage_in, &obc_mbox);
+
+let sensor_sink = EventQueue::new();
+sensor.tm.connect_sink(&sensor_sink);
+let sensor_reader = sensor_sink.into_reader();
+
+// Create an endpoint registry and add endpoints to it.
+let mut registry = EndpointRegistry::new();
+registry
+    .add_event_source(send_cmd, "send_sample_cmd")
+    .unwrap();
+registry
+    .add_event_source(voltage_source, "voltage")
+    .unwrap();
+registry
+    .add_event_sink(sensor_reader, "sun_vector")
+    .unwrap();
+```
+
+Because we added the `sensor_reader`, which uses the `SampleReply` type, to the
+registry we'll need to make sure the `SampleReply` is serializable. We'll modify
+the derive statement in `sensor.rs`:
+
+```{.rust source-line-numbers="1,5"}
+use serde::Serialize;
+
+// ...
+
+#[derive(Clone, Serialize, Debug)]
+pub struct SampleReply {
+    pub src_address: u8,
+    pub dest_address: u8,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+```
+
+We've removed from the function any `Simulation::process*` and
+`Simulation::step*` calls since we'll be controlling the simulation with the
+client. At the end the function returns a `Result::Ok` with the simulation and
+endpoint registry.
+
+```{.rust}
+Ok((sim, registry))
+```
+
+To make our program start the server we'll change the `main` function to include
+a `run` call:
+
+```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    server::run(simulation, "0.0.0.0:41633".parse().unwrap())
+}
+```
+
+The port was selected arbitrarily. On unix systems we can also use `run_local`
+to start a server that listens on a unix socket, which would look like this:
+
+```rust
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    server::run_local(simulation, "/tmp/nexosim")
+}
+```
+
+### Python client
+
+To use the server we need to use a client. Let's create a python virtual
+environment and install NeXosim-py. In a new terminal window type:
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install nexosim-py
+```
+
+We can now write a Python script that runs our simulation:
+
+```python
+from nexosim import Simulation
+from dataclasses import dataclass
+
+@dataclass
+class Config:
+    obc_address: int
+    sensor_address: int
+
+@dataclass
+class SampleReply:
+    src_address: int
+    dest_address: int
+    x: float
+    y: float
+    z: float
+
+with Simulation("0.0.0.0:41633") as sim:
+    cfg = Config(obc_address=16, sensor_address=17)
+    sim.start(cfg)
+
+    sim.process_event("voltage", 5.0)
+
+    sim.process_event("send_sample_cmd")
+
+    print(sim.read_events("sun_vector", SampleReply))
+```
+
+NeXosim-py's `types` API allows us to create Python counterparts to Rust types
+used by the simulation. For structs we can just use dataclasses:
+
+```python
+@dataclass
+class Config:
+    obc_address: int
+    sensor_address: int
+
+@dataclass
+class SampleReply:
+    src_address: int
+    dest_address: int
+    x: float
+    y: float
+    z: float
+```
+
+The connection is created when we instantiate the `Simulation` object with the
+server's address. The configuration data is sent through the `sim.start` call.
+
+```{.python source-line-numbers=1-3}
+with Simulation("0.0.0.0:41633") as sim:
+    cfg = Config(obc_address=16, sensor_address=17)
+    sim.start(cfg)
+
+    sim.process_event("voltage", 5.0)
+
+    sim.process_event("send_sample_cmd")
+
+    print(sim.read_events("sun_vector", SampleReply))
+```
+
+Events are sent through `process_event` calls. As mentioned earlier we use the
+name we provided when adding the endpoints to the registry.
+
+```{.python source-line-numbers="5-7"}
+with Simulation("0.0.0.0:41633") as sim:
+    cfg = Config(obc_address=16, sensor_address=17)
+    sim.start(cfg)
+
+    sim.process_event("voltage", 5.0)
+
+    sim.process_event("send_sample_cmd")
+
+    print(sim.read_events("sun_vector", SampleReply))
+```
+
+Events gathered in event sinks are read with the `read_events` method. The
+method allows us to provide a type that the events will be deserialized into,
+as we did here with the `SampleReply` class.
+
+```python
+print(sim.read_events("sun_vector", SampleReply))
+```
+
+To test out our code start the server by running the rust program and run the
+python script in a separate terminal window.
+
+In the python window we should see:
+
+```
+[SampleReply(src_address=17, dest_address=16, x=0.0, y=-1.0, z=0.0)]
+```
+
+For more information about controlling NeXosim simulations using a Python client
+refer to the
+[nexosim-py documentation][nexosim-py].
+
+[nexosim-py]: https://nexosim-py.readthedocs.io/en/latest/

@@ -1,0 +1,1192 @@
+---
+title: "Hardware in the Loop Simulation"
+filters:
+  - line-highlight
+toc-depth: 4
+---
+
+A common use case for NeXosim involves connecting simulation models to physical
+hardware. Here we will show how to construct a bench that will communicate
+via a simulated serial connection.
+
+The simulation in this tutorial will consist of two models.
+
+First is a simple `Counter` model, that counts the number of received bytes and
+broadcasts the value through its output.
+
+The other model, that will be the focus of this  demonstration, is the
+`SerialPort` model responsible for injecting the bytes received from an external
+device through a serial connection into the simulation, as well as sending bytes
+received from the simulation back to the device.
+
+Since we can't really demonstrate a connection with a physical device, the
+serial connection will be simulated using a pseudo TTY pair. The program will
+construct the simulation and move it to it's own thread. Then, two new threads
+will be spawned with loops sending and receiving data respectively.
+
+### Prerequisites
+
+This tutorial uses the `mio` crate, and some familiarity with its API will
+make understanding the included code easier.
+
+### Dependencies
+
+In this tutorial in addition to NeXosim, we'll be using a number of other
+crates. The `SerialPort` model, for the purposes of serial communication,
+will use [mio] – a popular low-level I/O library for Rust, and [mio-serial] – a
+serial port implementation using mio.
+
+The demonstration also uses [serialport-rs]. The crate similarly to mio-serial
+provides a serial I/O interface, but does not have the async functionality.
+Here we only use it to simulate an external device communicating with our
+simulation by sending bytes over a pseudo TTY connection.
+
+Both serial-rs and mio-serial require the `pkg-config` and `libudev` headers.
+These can be installed by calling:
+
+```bash
+sudo apt install pkg-config
+sudo apt install libudev-dev
+```
+
+The last crate we'll use [thread-guard] – a simple utility crate ensuring a
+spawned thread is always joined, with optional pre- and post-joining actions.
+
+It's worth mentioning that in this demonstration we don't perform any
+decoding of the received data. In real applications we'd suggest
+using a crate such as [bytes] to provide an abstraction for easier and more
+efficient byte operations.
+
+The PTY connection is established using the `socat` package. It can be installed
+with the package manager:
+
+```bash
+sudo apt install socat
+```
+
+### Setup
+
+To start with, let's create our project:
+
+```bash
+cargo new hitl_example
+cd hitl_example
+```
+
+and add the required dependencies:
+
+```bash
+cargo add nexosim mio mio-serial serialport thread-guard
+```
+
+The dependencies table in `Cargo.toml` should look like this:
+
+```toml
+[dependencies]
+mio = "1.0.4"
+mio-serial = "5.0.6"
+nexosim = "0.3.3"
+serialport = "4.7.2"
+thread-guard = "0.1.0"
+```
+
+### Setting up serial communication
+
+We'll implement the `SerialPort` model with the necessary functionality in the
+`port` module. First we need to declare the module in `lib.rs`:
+
+```{.rust filename="src/lib.rs"}
+mod port;
+```
+
+Let's start by defining in `src/port.rs` a type responsible for establishing a
+connection with a serial port.
+
+```{.rust filename="src/port.rs"}
+use mio_serial::SerialPortBuilderExt;
+
+const BAUD_RATE: u32 = 0;
+const BUFFER_SIZE: usize = 256;
+
+struct SerialPortInner {
+    port: mio_serial::SerialStream,
+    buffer: Vec<u8>,
+}
+
+impl SerialPortInner {
+    fn new(port_path: &str) -> Self {
+        Self {
+            port: mio_serial::new(port_path, BAUD_RATE)
+                .open_native_async()
+                .unwrap(),
+            buffer: vec![0; BUFFER_SIZE],
+        }
+    }
+}
+```
+
+The `SerialPortInner` struct has a `Vec<u8>` buffer and a handle for the serial
+I/O stream. When the struct is constructed with `SerialPortInner::new`,
+a connection with the port at the specified path is opened, in a
+platform-specific way. Since we won't be using a physical connection we can set
+the baud rate to zero.
+
+We'll add methods for I/O operations on the stream  and a method for registering
+the stream as an event source.
+
+```rust
+use std::io::{ErrorKind, Read, Result as IoResult, Write};
+
+use mio::{Interest, Registry, Token};
+
+const BAUD_RATE: u32 = 0;
+const BUFFER_SIZE: usize = 256;
+
+const STREAM_TOKEN: Token = Token(0);
+
+// ...
+
+impl SerialPortInner {
+
+  // ...
+
+  /// Registers the port in mio.
+  fn register(&mut self, registry: &Registry) {
+    registry.register(&mut self.port, STREAM_TOKEN, Interest::READABLE)
+        .unwrap();
+  }
+
+  /// Reads data for the corresponding token.
+  fn read(&mut self, token: Token) -> IoResult<Vec<u8>> {
+      if token == STREAM_TOKEN {
+          self.port
+              .read(&mut self.buffer)
+              .map(|len| Vec::from(&self.buffer[..len]))
+      } else {
+          Err(std::io::Error::new(
+              ErrorKind::InvalidInput,
+              "Unknown event.",
+          ))
+      }
+  }
+
+  /// Writes data.
+  fn write(&mut self, data: &[u8]) -> IoResult<()> {
+      self.port.write(data).map(|len| {
+          if len != data.len() {
+              Err(std::io::Error::other(format!(
+                  "Not all bytes written: had to write {}, but wrote {}.",
+                  data.len(),
+                  len
+              )))
+          } else {
+              Ok(())
+          }
+      })?
+  }
+}
+```
+
+The `register` method registers `SerialStream` as an event source in `mio::Poll`
+instances registry and associates it with `STREAM_TOKEN`. When the Poll instance
+is polled, events with this token will indicate data was received and needs to
+be read from the serial stream.
+
+The `read` method ensures that the provided token matches the serial stream's
+token. If it is, the method reads data from the port into the buffer and
+return's the read bytes as a `Vec<u8>` wrapped in a `std::io::Result`.
+
+`write` simply writes bytes to the stream, but returns an error
+if it failed to write all of the provided data.
+
+#### The event loop
+
+To prevent blocking of the simulation with I/O operations, we'll use
+`SerialPortInner` in a separate thread with the mio event loop.
+We'll create the `IoThread` type to serve as an abstraction around that thread
+that will make communication from the model easier.
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread;
+
+use mio::{Events, Poll, Waker};
+use thread_guard::ThreadGuard;
+
+const WAKER_TOKEN: Token = Token(1);
+
+// ...
+
+/// I/O Thread
+struct IoThread {
+    /// I/O thread guard.
+    _io_thread: ThreadGuard<()>,
+    /// Data receiver.
+    receiver: Receiver<Vec<u8>>,
+    /// Data transmitter.
+    transmitter: Sender<Vec<u8>>,
+    /// Thread waker.
+    waker: Arc<Waker>,
+}
+
+impl IoThread {
+    fn new(mut port: SerialPortInner) -> Self {
+        let (tx, receiver) = channel();
+        let (transmitter, rx) = channel::<Vec<u8>>();
+
+        let is_halted = Arc::new(AtomicBool::new(false));
+        let guard_is_halted = is_halted.clone();
+
+        let mut poll = Poll::new().unwrap();
+
+        port.register(poll.registry());
+        let waker = Arc::new(Waker::new(poll.registry(), WAKER_TOKEN).unwrap());
+        let guard_waker = waker.clone();
+
+        let io_thread = thread::spawn(move || {
+            let mut events = Events::with_capacity(256);
+            'poll: loop {
+                poll.poll(&mut events, None).unwrap();
+
+                for event in events.iter() {
+                    let token = event.token();
+
+                    match token {
+                        STREAM_TOKEN => loop {
+                            match port.read(token) {
+                                Ok(message) => {
+                                    if tx.send(message).is_err() {
+                                        break 'poll;
+                                    }
+                                }
+                                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                                    break;
+                                }
+                                Err(_) => {
+                                    break 'poll;
+                                }
+                            }
+                        },
+                        WAKER_TOKEN => {
+                            if is_halted.load(Ordering::Relaxed) {
+                                break 'poll;
+                            }
+                            while let Ok(data) = rx.try_recv() {
+                                if port.write(&data).is_err() {
+                                    break 'poll;
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        });
+
+        Self {
+            _io_thread: ThreadGuard::with_pre_action(io_thread, move |_| {
+                guard_is_halted.store(true, Ordering::Relaxed);
+                let _ = guard_waker.wake();
+                guard_waker
+            }),
+            receiver,
+            transmitter,
+            waker,
+        }
+    }
+}
+```
+
+There's a lot happening here, so let's go over the `new` function step-by-step.
+
+First we instantiate the two channels we'll use to communicate between threads.
+
+```rust
+let (tx, receiver) = channel();
+let (transmitter, rx) = channel::<Vec<u8>>();
+```
+
+We define an atomic boolean representing whether the event loop is being
+stopped. The `guard_is_halted` clone will later be moved to the thread guard's
+pre-action closure, inside of which it is simply set to true, causing the thread
+to exit the event loop. A thread guard's pre-action closure is called before the
+thread is joined.
+
+```rust
+let is_halted = Arc::new(AtomicBool::new(false));
+let guard_is_halted = is_halted.clone();
+```
+
+Next, we construct the `Poll` instance and register with it the
+`SerialPortInner`. We also create a waker and register it with the
+`WAKER_TOKEN`.
+
+Whenever `Waker::wake` is called, a readiness event with the
+associated token is created and will be read with the next `Poll::poll` call.
+We'll use the waker whenever something in our program would demand an action in
+the event loop. Specifically when either we have data that we want to write to
+the stream or when we want to exit the event loop.
+
+
+```rust
+let mut poll = Poll::new().unwrap();
+
+port.register(poll.registry());
+let waker = Arc::new(Waker::new(poll.registry(), WAKER_TOKEN).unwrap());
+let guard_waker = waker.clone();
+```
+
+We clone the waker and keep it as `guard_waker`. The clone will later be moved
+to the thread guard's pre-action to signal the event loop should be exited.
+
+We spawn the thread, instantiate an event collection and start the event loop.
+In each iteration of the loop, first we poll for readiness events, and load the
+events into the event collection. We iterate over each event and check their
+tokens.
+
+```rust
+let io_thread = thread::spawn(move || {
+    let mut events = Events::with_capacity(256);
+    'poll: loop {
+        poll.poll(&mut events, None).unwrap();
+        for event in events.iter() {
+            let token = event.token();
+
+            match token {
+```
+
+When an event has the `STREAM_TOKEN` the `SerialPortInner` reads the data
+from the serial stream and we send the received data to the thread containing
+the `IoThread` instance through one of the channels. The stream is read in a
+loop until an error with `ErrorKind::WouldBlock` is returned, indicating there
+isn't anymore data to read. Other errors cause the event loop to exit.
+
+```rust
+STREAM_TOKEN => loop {
+    match port.read(token) {
+        Ok(message) => {
+            if tx.send(message).is_err() {
+                break 'poll;
+            }
+        }
+        Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+            break;
+        }
+        Err(_) => {
+            break 'poll;
+        }
+    }
+},
+```
+
+When an event's token is the `WAKER_TOKEN`, first we check the value
+of the `is_halted` boolean. If true, the event loop is exited and the thread
+completes. Otherwise, we continue and read the receiver of the second channel
+`rx` and write the received data to the serial stream.
+
+We only expect events with either the `STREAM_TOKEN` and the `WAKER_TOKEN`,
+so any other events are ignored.
+
+```rust
+WAKER_TOKEN => {
+    if is_halted.load(Ordering::Relaxed) {
+        break 'poll;
+    }
+    while let Ok(data) = rx.try_recv() {
+        if port.write(&data).is_err() {
+            break 'poll;
+        }
+    }
+}
+_ => (),
+```
+
+Finally, we construct our `IoThread` instance. We wrap the spawned thread in
+a thread guard with a pre action. The closure simply changes the `is_halted`
+boolean to true and wakes up the Poll causing the event loop to exit.
+The waker clone is returned from the closure to prevent unexpected behavior due
+to the waker being dropped before the waking could be registered.
+
+The receiver, transmitter and waker are used as they were defined.
+
+```rust
+Self {
+    _io_thread: ThreadGuard::with_pre_action(io_thread, move |_| {
+        guard_is_halted.store(true, Ordering::Relaxed);
+        let _ = guard_waker.wake();
+        guard_waker
+    }),
+    receiver,
+    transmitter,
+    waker,
+}
+```
+
+`IoThread` will have public methods for sending messages to and reading received
+messages from the thread. When sending data to the thread we wake the Poll to
+signal to the `SerialPortInner` instance that it needs to pass along the data to
+the serial stream.
+
+```rust
+/// Tries to receives data from I/O thread.
+pub fn try_recv(&self) -> Result<Vec<u8>, String> {
+    self.receiver.try_recv().map_err(|err| err.to_string())
+}
+
+/// Sends data to I/O thread.
+pub fn send(&mut self, data: Vec<u8>) -> Result<(), String> {
+    self.transmitter.send(data).map_err(|err| err.to_string())?;
+    self.waker.wake().map_err(|err| err.to_string())?;
+    Ok(())
+}
+```
+
+### The Serial Port model
+
+We can finally construct the actual `SerialPort` model. It will have a single
+public input port and one output port. The input will write the received bytes
+into the serial stream through the mechanism we've constructed earlier.
+The output will be used to send out bytes read from the stream.
+
+```rust
+use nexosim::ports::Output;
+
+pub struct SerialPort {
+    pub bytes_out: Output<Vec<u8>>,
+    io_thread: IoThread,
+}
+
+impl SerialPort {
+    pub fn new(port_path: &str) -> Self {
+        Self {
+            bytes_out: Output::default(),
+            io_thread: IoThread::new(SerialPortInner::new(port_path)),
+        }
+    }
+
+    /// Sends raw bytes to the serial port -- input port.
+    pub fn bytes_in(&mut self, bytes: Vec<u8>) {
+        self.io_thread.send(bytes).unwrap();
+    }
+}
+```
+
+Reading from the stream occurs by periodically calling `IoThread::try_recv()`.
+In NeXosim we do that by scheduling periodic events. We create the private
+`process` input port that reads from the stream and sends the read data through
+the `bytes_out` output.
+
+To schedule periodic polling we implement the `init` method from the `Model`
+trait. We call `schedule_periodic_event` on the models context specifying the
+`process` method. We arbitrarily select the time of the first event to be at
+5 ms and for it to repeat every 10 ms.
+
+```rust
+use nexosim::model::model;
+
+const DELTA: Duration = Duration::from_millis(5);
+const PERIOD: Duration = Duration::from_millis(10);
+
+// ...
+
+impl SerialPort {
+
+    // ...
+
+    /// Forwards the raw bytes received on the serial port.
+    async fn process(&mut self) {
+        while let Ok(data) = self.io_thread.try_recv() {
+            self.bytes_out.send(data).await;
+        }
+    }
+}
+
+impl Model for SerialPort {
+    async fn init(
+        self,
+        ctx: &mut nexosim::model::Context<Self>,
+    ) -> nexosim::model::InitializedModel<Self> {
+        ctx.schedule_periodic_event(DELTA, PERIOD, Self::process, ())
+            .unwrap();
+
+        self.into()
+    }
+}
+```
+
+::: {.callout-note collapse="true"}
+## The complete `port.rs` should look like this:
+
+```rust
+use std::io::{ErrorKind, Read, Result as IoResult, Write};
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread;
+use std::time::Duration;
+
+use mio::{Events, Interest, Poll, Registry, Token, Waker};
+use mio_serial::SerialPortBuilderExt;
+use nexosim::model::Model;
+use nexosim::ports::Output;
+use thread_guard::ThreadGuard;
+
+const BAUD_RATE: u32 = 0;
+const BUFFER_SIZE: usize = 256;
+
+const STREAM_TOKEN: Token = Token(0);
+const WAKER_TOKEN: Token = Token(1);
+
+const DELTA: Duration = Duration::from_millis(5);
+const PERIOD: Duration = Duration::from_millis(10);
+
+struct SerialPortInner {
+    port: mio_serial::SerialStream,
+    buffer: Vec<u8>,
+}
+
+impl SerialPortInner {
+    fn new(port_path: &str) -> Self {
+        Self {
+            port: mio_serial::new(port_path, BAUD_RATE)
+                .open_native_async()
+                .unwrap(),
+            buffer: vec![0; BUFFER_SIZE],
+        }
+    }
+
+    /// Registers the port in mio.
+    fn register(&mut self, registry: &Registry) {
+        registry
+            .register(&mut self.port, STREAM_TOKEN, Interest::READABLE)
+            .unwrap();
+    }
+
+    /// Reads data for the corresponding token.
+    fn read(&mut self, token: Token) -> IoResult<Vec<u8>> {
+        if token == STREAM_TOKEN {
+            self.port
+                .read(&mut self.buffer)
+                .map(|len| Vec::from(&self.buffer[..len]))
+        } else {
+            Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "Unknown event.",
+            ))
+        }
+    }
+
+    /// Writes data.
+    fn write(&mut self, data: &[u8]) -> IoResult<()> {
+        self.port.write(data).map(|len| {
+            if len != data.len() {
+                Err(std::io::Error::other(format!(
+                    "Not all bytes written: had to write {}, but wrote {}.",
+                    data.len(),
+                    len
+                )))
+            } else {
+                Ok(())
+            }
+        })?
+    }
+}
+
+// I/O thread.
+struct IoThread {
+    /// I/O thread guard.
+    _io_thread: ThreadGuard<()>,
+    /// Data receiver.
+    receiver: Receiver<Vec<u8>>,
+    /// Data transmitter.
+    transmitter: Sender<Vec<u8>>,
+    /// Thread waker.
+    waker: Arc<Waker>,
+}
+
+impl IoThread {
+    fn new(mut port: SerialPortInner) -> Self {
+        let (tx, receiver) = channel();
+        let (transmitter, rx) = channel::<Vec<u8>>();
+
+        let is_halted = Arc::new(AtomicBool::new(false));
+        let guard_is_halted = is_halted.clone();
+
+        let mut poll = Poll::new().unwrap();
+
+        port.register(poll.registry());
+        let waker = Arc::new(Waker::new(poll.registry(), WAKER_TOKEN).unwrap());
+        let guard_waker = waker.clone();
+
+        let io_thread = thread::spawn(move || {
+            let mut events = Events::with_capacity(256);
+            'poll: loop {
+                poll.poll(&mut events, None).unwrap();
+
+                for event in events.iter() {
+                    let token = event.token();
+
+                    match token {
+                        STREAM_TOKEN => loop {
+                            match port.read(token) {
+                                Ok(message) => {
+                                    if tx.send(message).is_err() {
+                                        break 'poll;
+                                    }
+                                }
+                                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                                    break;
+                                }
+                                Err(_) => {
+                                    break 'poll;
+                                }
+                            }
+                        },
+                        WAKER_TOKEN => {
+                            if is_halted.load(Ordering::Relaxed) {
+                                break 'poll;
+                            }
+                            while let Ok(data) = rx.try_recv() {
+                                if port.write(&data).is_err() {
+                                    break 'poll;
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        });
+
+        Self {
+            _io_thread: ThreadGuard::with_pre_action(io_thread, move |_| {
+                guard_is_halted.store(true, Ordering::Relaxed);
+                let _ = guard_waker.wake();
+                guard_waker
+            }),
+            receiver,
+            transmitter,
+            waker,
+        }
+    }
+
+    /// Tries to receives data from I/O thread.
+    pub fn try_recv(&self) -> Result<Vec<u8>, String> {
+        self.receiver.try_recv().map_err(|err| err.to_string())
+    }
+
+    /// Sends data to I/O thread.
+    pub fn send(&mut self, data: Vec<u8>) -> Result<(), String> {
+        self.transmitter.send(data).map_err(|err| err.to_string())?;
+        self.waker.wake().map_err(|err| err.to_string())?;
+        Ok(())
+    }
+}
+
+pub struct SerialPort {
+    pub bytes_out: Output<Vec<u8>>,
+    io_thread: IoThread,
+}
+
+impl SerialPort {
+    pub fn new(port_path: &str) -> Self {
+        Self {
+            bytes_out: Output::default(),
+            io_thread: IoThread::new(SerialPortInner::new(port_path)),
+        }
+    }
+
+    /// Sends raw bytes to the serial port -- input port.
+    pub fn bytes_in(&mut self, bytes: &[u8]) {
+        self.io_thread.send(Vec::from(bytes)).unwrap();
+    }
+
+    /// Forwards the raw bytes received on the serial port.
+    async fn process(&mut self) {
+        while let Ok(data) = self.io_thread.try_recv() {
+            self.bytes_out.send(data).await;
+        }
+    }
+}
+
+impl Model for SerialPort {
+    async fn init(
+        self,
+        ctx: &mut nexosim::model::Context<Self>,
+    ) -> nexosim::model::InitializedModel<Self> {
+        ctx.schedule_periodic_event(DELTA, PERIOD, Self::process, ())
+            .unwrap();
+
+        self.into()
+    }
+}
+```
+
+:::
+
+### Simulation setup
+
+We have the SerialPort model, so we can now test it out by using it in a
+simulation.
+
+We'll start by creating the `Counter` model:
+
+```rust
+use nexosim::model::Model;
+use nexosim::ports::Output;
+
+#[derive(Default)]
+struct Counter {
+    pub count: Output<u32>,
+    _count: u32,
+}
+
+impl Counter {
+    pub async fn bytes_in(&mut self, bytes: Vec<u8>) {
+        self._count += bytes.len() as u32;
+        self.count.send(self._count).await;
+    }
+}
+
+impl Model for Counter {}
+```
+
+When the model receives a sequence of bytes to its `bytes_in` input port, it
+increases the stored count by the number of bytes in the sequence and
+broadcasts the resulting value through `count` output.
+
+In the `main` function we'll instantiate and connect up the two models, and add
+them to the simulation.
+
+```rust
+use nexosim::model::Model;
+use nexosim::ports::Output;
+use nexosim::simulation::{Mailbox, SimInit, SimulationError};
+use nexosim::time::{AutoSystemClock, MonotonicTime};
+
+use hitl_example::SerialPort;
+
+const INTERNAL_PORT_PATH: &str = "/tmp/ttyS20";
+
+// ...
+
+fn main() -> Result<(), SimulationError> {
+    let mut port = SerialPort::new(INTERNAL_PORT_PATH);
+    let port_mbox = Mailbox::new();
+
+    let mut counter = Counter::default();
+    let counter_mbox = Mailbox::new();
+
+    let sink = EventQueue::new();
+    counter.count.connect_sink(&sink);
+
+    counter.count.map_connect(
+        |c| Vec::from(c.to_ne_bytes()),
+        SerialPort::bytes_in,
+        &port_mbox,
+    );
+
+    port.bytes_out.connect(Counter::bytes_in, &counter_mbox);
+
+    let (mut sim, mut scheduler) = SimInit::new()
+        .add_model(port, port_mbox, "SERIAL_PORT")
+        .add_model(counter, counter_mbox, "COUNTER")
+        .set_clock(AutoSystemClock::new())
+        .init(MonotonicTime::EPOCH)
+        .unwrap();
+}
+```
+
+We use `tmp/ttyS20` as the port path for the `SerialPort` model.
+This path will be later used when creating a pseudo TTY through socat.
+
+To connect the `count` output to the `bytes_in` input we use a mapped connection
+that the `u32` value to a native endian byte vector.
+
+```rust
+counter.count.map_connect(
+    |c| Vec::from(c.to_ne_bytes()),
+    SerialPort::bytes_in,
+    &port_mbox,
+);
+```
+
+We've also added an `EventQueue` and connected it to the `count` output so we
+can monitor it.
+
+```rust
+let sink = EventQueue::new();
+counter.count.connect_sink(&sink);
+```
+
+In hardware in the loop simulations we have to synchronize the simulation
+with a real-time clock. In NeXosim we do this with a `SimInit::add_clock` call.
+Here we use the `AutoSystemClock` which synchronizes the simulation with the
+system's clock and is initialized when its first synchronized (usually this will
+be when `SimInit::init` is called).
+
+```{.rust source-line-numbers="4"}
+let (mut sim, mut scheduler) = SimInit::new()
+    .add_model(port, port_mbox, "SERIAL_PORT")
+    .add_model(counter, counter_mbox, "COUNTER")
+    .set_clock(AutoSystemClock::new())
+    .init(MonotonicTime::EPOCH)
+    .unwrap();
+```
+
+Instead of controlling the simulation directly, the program communicate with the
+`SerialPort` model through a simulated serial connection. To be able to do that
+in the same program we'll have to move the simulation and communication
+operations to their own threads.
+
+First we'll create the simulation thread:
+
+```rust
+use std::thread;
+use thread_guard::ThreadGuard;
+
+// ...
+
+let simulation_handle = ThreadGuard::with_actions(
+    thread::spawn(move || sim.step_unbounded()),
+    move |_| scheduler.halt(),
+    |_, result| println!("Simulation thread result: {:?}.", result),
+);
+```
+
+The thread simply calls `Simulation::step_unbounded` to make the
+simulation progress until its halted. The halting occurs in the guard's
+pre-action, with the `Scheduler::halt` call, right before the thread is joined.
+
+We'll also create two threads responsible for the serial communication – one for
+sending and one for receiving bytes.
+
+```rust
+use std::thread::sleep;
+use std::time::Duration;
+
+const EXTERNAL_PORT_PATH: &str = "/tmp/ttyS21";
+const BAUD_RATE: u32 = 0;
+
+/// Number of bytes to send.
+const N: u8 = 10;
+
+// ...
+
+fn main() -> Result<(), SimulationError> {
+
+    // ...
+
+    let mut sender_port = serialport::new(EXTERNAL_PORT_PATH, BAUD_RATE)
+        .open()
+        .unwrap();
+
+    let mut receiver_port = sender_port.try_clone().unwrap();
+
+    let sender_thread = ThreadGuard::new(thread::spawn(move || {
+        for i in 0..N {
+            if i % 3 == 0 {
+                sleep(Duration::from_secs(1));
+            }
+            sender_port.write_all(&[0xAA]).unwrap();
+        }
+    }));
+
+    let receiver_thread = ThreadGuard::new(thread::spawn(move || {
+        let mut buffer = [0; 10];
+        let mut count = 0;
+
+        for _ in 0..N {
+            sleep(Duration::from_secs(1));
+            if let Ok(n) = receiver_port.read(&mut buffer) {
+                if n >= 8 {
+                    count = <usize>::from_ne_bytes(
+                        buffer[0..8].try_into().unwrap(),
+                    );
+                    if count >= N.into() {
+                        break;
+                    }
+                }
+            }
+        }
+        count as u8
+    }));
+}
+```
+The serial communication from the threads is handled by the `serialport` crate.
+We create a port with the path `/tmp/ttyS21` and set its baud rate to 0 like we
+did for the `SerialPort` model's port. The port is cloned so it can be used
+in both of the threads.
+
+The sender thread sends out ten bytes, waiting for a second every third
+byte.
+
+```rust
+let sender_thread = ThreadGuard::new(thread::spawn(move || {
+    for i in 0..N {
+        if i % 3 == 0 {
+            sleep(Duration::from_secs(1));
+        }
+        sender_port.write_all(&[0xAA]).unwrap();
+    }
+}));
+```
+
+The receiver thread every second reads into a buffer the data received on
+the port. If any bytes were received, they are converted into a `u32`
+representing the number of bytes counted by the `Counter` model. This happens
+until the count value reaches ten or up to ten seconds. The final count is
+returned and will later be used to verify the simulation is working correctly.
+
+It's worth noting that the way the incoming data is processed is naive. It
+works on the assumption that between each iteration, at most only one value was
+sent.
+
+```rust
+let receiver_thread = ThreadGuard::new(thread::spawn(move || {
+    let mut buffer = [0; 10];
+    let mut count = 0;
+
+    for _ in 0..N {
+        sleep(Duration::from_secs(1));
+        if let Ok(n) = receiver_port.read(&mut buffer) {
+            if n != 0 {
+                count =
+                    <u32>::from_ne_bytes(buffer[0..4].try_into().unwrap());
+                if count >= N.into() {
+                    break;
+                }
+            }
+        }
+    }
+    count as u8
+}));
+```
+
+All three threads are wrapped in a thread guard to ensure all of the threads are
+joined.
+
+To monitor the simulation we'll set up a loop that awaits events on the
+sink we've set up earlier.
+
+```rust
+const TIMEOUT: Duration = Duration::from_secs(5);
+
+// ...
+
+fn main() -> Result<(), SimulationError> {
+    // ...
+
+    let mut reader = sink.into_reader_with_timeout(TIMEOUT);
+    loop {
+        let count = reader
+            .next()
+            .expect("Unexpected timeout or simulation halt!");
+
+        println!("Counted {count} bytes");
+        if count >= N.into() {
+            break;
+        }
+    }
+```
+
+We create a blocking reader with a timeout using the
+`EventQueue::into_reader_with_timeout` method specifying a timeout deadline
+of five seconds. When `next` is called on the reader, the thread is blocked
+until the sink receives an event or until the timeout deadline is reached.
+
+If the read timed out, the `next` call returns `None`. Here in such cases the
+program panics. If an event was received, the value is printed out.
+
+The loop continues until the expected number of bytes were counted.
+
+Finally we join all of the threads. As mentioned earlier, the final count
+returned by the receiver thread is used to verify that all ten bytes were
+counted and the count value was sent back.
+
+```rust
+use nexosim::simulation::ExecutionError;
+
+// ...
+
+fn main() -> Result<(), SimulationError> {
+    // ...
+
+    match simulation_handle.join().unwrap() {
+        Err(ExecutionError::Halted) => {}
+        Err(e) => return Err(e.into()),
+        _ => {}
+    }
+    sender_thread.join().unwrap();
+
+    assert_eq!(N, receiver_thread.join().unwrap());
+
+    Ok(())
+}
+```
+
+### Testing it out
+
+To test out our setup first we need to create the pseudo TTY pair. In a
+separate terminal run:
+
+```bash
+socat -d3 pty,raw,echo=0,link=/tmp/ttyS21 pty,raw,echo=0,link=/tmp/ttyS20
+```
+
+Now we can run our program:
+
+```bash
+cargo run
+```
+
+and we'll see:
+
+```
+Counted 3 bytes
+Counted 6 bytes
+Counted 9 bytes
+Counted 10 bytes
+```
+
+::: {.callout-note collapse="true"}
+## The complete `main.rs` should look like this:
+
+```rust
+use std::time::Duration;
+
+use std::thread;
+use std::thread::sleep;
+
+use nexosim::model::Model;
+use nexosim::ports::{EventQueue, Output};
+use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
+use nexosim::time::{AutoSystemClock, MonotonicTime};
+
+use hitl_example::SerialPort;
+use thread_guard::ThreadGuard;
+
+const INTERNAL_PORT_PATH: &str = "/tmp/ttyS20";
+const EXTERNAL_PORT_PATH: &str = "/tmp/ttyS21";
+const BAUD_RATE: u32 = 0;
+
+/// Number of bytes to send.
+const N: u8 = 10;
+
+const TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Default)]
+struct Counter {
+    pub count: Output<u32>,
+    _count: u32,
+}
+
+impl Counter {
+    pub async fn bytes_in(&mut self, bytes: Vec<u8>) {
+        self._count += bytes.len() as u32;
+        self.count.send(self._count).await;
+    }
+}
+
+impl Model for Counter {}
+
+fn main() -> Result<(), SimulationError> {
+    let mut port = SerialPort::new(INTERNAL_PORT_PATH);
+    let port_mbox = Mailbox::new();
+
+    let mut counter = Counter::default();
+    let counter_mbox = Mailbox::new();
+
+    counter.count.map_connect(
+        |c| Vec::from(c.to_ne_bytes()),
+        SerialPort::bytes_in,
+        &port_mbox,
+    );
+
+    port.bytes_out.connect(Counter::bytes_in, &counter_mbox);
+
+    let sink = EventQueue::new();
+    counter.count.connect_sink(&sink);
+
+    let (mut sim, mut scheduler) = SimInit::new()
+        .add_model(port, port_mbox, "SERIAL_PORT")
+        .add_model(counter, counter_mbox, "COUNTER")
+        .set_clock(AutoSystemClock::new())
+        .init(MonotonicTime::EPOCH)
+        .unwrap();
+
+    let simulation_handle = ThreadGuard::with_actions(
+        thread::spawn(move || sim.step_unbounded()),
+        move |_| scheduler.halt(),
+        |_, result| println!("Simulation thread result: {:?}.", result),
+    );
+
+    let mut sender_port = serialport::new(EXTERNAL_PORT_PATH, BAUD_RATE)
+        .open()
+        .unwrap();
+
+    let mut receiver_port = sender_port.try_clone().unwrap();
+
+    let sender_thread = ThreadGuard::new(thread::spawn(move || {
+        for i in 0..N {
+            if i % 3 == 0 {
+                sleep(Duration::from_secs(1));
+            }
+            sender_port.write_all(&[0xAA]).unwrap();
+        }
+    }));
+
+    let receiver_thread = ThreadGuard::new(thread::spawn(move || {
+        let mut buffer = [0; 10];
+        let mut count = 0;
+
+        for _ in 0..N {
+            sleep(Duration::from_secs(1));
+            if let Ok(n) = receiver_port.read(&mut buffer) {
+                if n >= 4 {
+                    count =
+                        <u32>::from_ne_bytes(buffer[0..4].try_into().unwrap());
+                    if count >= N.into() {
+                        break;
+                    }
+                }
+            }
+        }
+        count as u8
+    }));
+
+    let mut reader = sink.into_reader_with_timeout(TIMEOUT);
+    loop {
+        let count = reader
+            .next()
+            .expect("Unexpected timeout or simulation halt!");
+
+        println!("Counted {count} bytes");
+        if count >= N.into() {
+            break;
+        }
+    }
+
+    match simulation_handle.join().unwrap() {
+        Err(ExecutionError::Halted) => {}
+        Err(e) => return Err(e.into()),
+        _ => {}
+    }
+    sender_thread.join().unwrap();
+
+    assert_eq!(N, receiver_thread.join().unwrap());
+
+    Ok(())
+}
+
+```
+:::
+
+[mio]: https://github.com/tokio-rs/mio
+[mio-serial]: https://github.com/berkowski/mio-serial
+[serialport-rs]: https://github.com/serialport/serialport-rs
+[thread-guard]: https://github.com/asynchronics/thread-guard
+[bytes]: https://github.com/tokio-rs/bytes

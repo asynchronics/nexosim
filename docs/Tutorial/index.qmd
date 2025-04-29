@@ -1,0 +1,24 @@
+---
+title: "Overview"
+filters:
+  - line-highlight
+toc-depth: 4
+---
+
+The [hello world tutorial](hello_world.qmd) is a good place to start as it
+provides a simple demonstration of the structure and use of NeXosim simulations.
+It also provides an example on how simulations can be controlled with the
+python client through NeXosim's gRPC server.
+
+The rest of the tutorial guides the reader through the process of
+constructing and running a more complex simulation in NeXosim.
+While doing so, it delves deeper into surrounding concepts including
+authoring of models
+
+The topics section includes a collection of pages going over particular uses
+of the simulator.
+
+## Prerequisites
+
+These materials assume familiarity with Rust, including Rust's asynchronous
+features.

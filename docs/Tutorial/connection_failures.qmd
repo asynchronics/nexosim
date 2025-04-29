@@ -1,0 +1,164 @@
+---
+title: "Simulating connection failures"
+filters:
+  - line-highlight
+toc-depth: 4
+---
+
+A useful way filtered, mapped connections can be utilized is for simulating
+connection failures at bench level, without the need to modify existing models.
+We can achieve this with the use of atomic types in the `filter_map` closures.
+
+For demonstration purposes we'll use a pair of simple models. The `Sender`
+model passes along any strings received in its `send` input to the
+`Sender::output`. The `Receiver` model simply prints out any string that it
+receives on the `Receiver::receive` input:
+
+```{.rust}
+use nexosim::model::Model;
+use nexosim::ports::Output;
+
+#[derive(Default)]
+pub struct Sender {
+    pub output: Output<String>,
+}
+
+impl Sender {
+    pub async fn send(&mut self, value: String) {
+        self.output.send(value).await;
+    }
+}
+
+impl Model for Sender {}
+
+#[derive(Default)]
+pub struct Receiver;
+
+impl Receiver {
+    pub async fn receive(&mut self, value: String) {
+        println!("{}", value)
+    }
+}
+
+impl Model for Receiver {}
+```
+
+We'll set up the simulation with the two models connected and send a couple of
+events to the `Sender::send` input.
+
+```{.rust}
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+// ...
+
+fn main() {
+    let mut sender = Sender::default();
+    let sender_mbox = Mailbox::new();
+    let sender_addr = sender_mbox.address();
+
+    let receiver = Receiver::default();
+    let receiver_mbox = Mailbox::new();
+
+    sender.output.connect(Receiver::receive, &receiver_mbox);
+
+    let (mut sim, _) = SimInit::new()
+        .add_model(sender, sender_mbox, "SENDER")
+        .add_model(receiver, receiver_mbox, "RECEIVER")
+        .init(MonotonicTime::EPOCH)
+        .unwrap();
+
+    sim.process_event(Sender::send, "First message".into(), &sender_addr)
+        .unwrap();
+
+    sim.process_event(Sender::send, "Second message".into(), &sender_addr)
+        .unwrap();
+}
+```
+
+-----
+
+With the setup out of the way, we can modify the bench to enable simulating
+connection failures. The `Output::connect` call with need to be replaced with
+an `Output::filter_map_connect` call. We create an `AtomicBool` wrapped in an
+`Arc` called `block_messages`, clone the variable and move the clone to
+the `filter_map` closure. Inside the closure we check the variable's current
+value. If it is `true`, the closure returns `None` resulting in no message being
+sent to the connected input.
+
+```rust
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+// ...
+
+let block_messages = Arc::new(AtomicBool::new(false));
+let bm_clone = Arc::clone(&block_messages);
+
+sender.output.filter_map_connect(
+    move |value| {
+        if bm_clone.load(Ordering::Relaxed) {
+            None
+        } else {
+            Some(value.into())
+        }
+    },
+    Receiver::receive,
+    &receiver_mbox,
+);
+```
+
+After the first event is sent, we can change the `block_messages` bool to
+`true` to stop events from coming through the connection. When we send another
+event, the `Receiver` model does not print it out.
+
+```rust
+sim.process_event(Sender::send, "First message".into(), &sender_addr)
+        .unwrap();
+
+block_messages.store(true, Ordering::Relaxed);
+
+sim.process_event(Sender::send, "Second message".into(), &sender_addr)
+    .unwrap();
+```
+
+As a bonus, this mechanism can be utilized with a greater degree of flexibility
+if, instead of a boolean, we'd use an atomic integer. This way we could match
+the integer to replace the incoming message with a different, predefined one.
+
+```{.rust source-line-numbers="1,3,5-15,23-34"}
+use std::sync::atomic::{AtomicU8, Ordering};
+
+// ...
+
+let filter = Arc::new(AtomicU8::new(0));
+let filter_clone = Arc::clone(&filter);
+sender.output.filter_map_connect(
+    move |value| match filter_clone.load(Ordering::Relaxed) {
+        0 => Some(value.into()),
+        1 => Some("Different message".into()),
+        _ => None,
+    },
+    Receiver::receive,
+    &receiver_mbox,
+);
+
+let (mut sim, _) = SimInit::new()
+    .add_model(sender, sender_mbox, "SENDER")
+    .add_model(receiver, receiver_mbox, "RECEIVER")
+    .init(MonotonicTime::EPOCH)
+    .unwrap();
+
+sim.process_event(Sender::send, "First message".into(), &sender_addr)
+    .unwrap();
+
+filter.store(1, Ordering::Relaxed);
+
+sim.process_event(Sender::send, "Second message".into(), &sender_addr)
+    .unwrap();
+
+filter.store(2, Ordering::Relaxed);
+
+sim.process_event(Sender::send, "Third message".into(), &sender_addr)
+    .unwrap();
+```

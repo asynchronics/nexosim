@@ -1,0 +1,33 @@
+project:
+  type: website
+
+website:
+  title: "Nexosim"
+
+
+  sidebar:
+    style: "docked"
+    search: true
+    contents:
+      - index.qmd
+      - section: "Tutorial"
+        contents:
+        - hello_world.qmd
+        - creating_models.qmd
+        - bench_assembly.qmd
+        - scheduling.qmd
+      - section: "Topics"
+        contents:
+        - hardware_in_the_loop.qmd
+        - connection_failures.qmd
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand
+    css: styles.css
+    toc: true
+
+
+
