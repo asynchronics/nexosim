@@ -582,6 +582,7 @@ impl Simulation {
         self.scheduler_queue.lock().unwrap().serialize()
     }
     pub fn serialize_state(&mut self) -> Vec<u8> {
+        self.scheduler().halt();
         let state = SimulationState {
             models: self.serialize_models(),
             scheduler_queue: self.serialize_scheduler_queue(),
@@ -601,7 +602,7 @@ impl Simulation {
         .unwrap()
         .0
     }
-    pub(crate) fn restore_state(&mut self, state: Vec<u8>) {
+    pub(crate) fn restore_state(&mut self, state: &[u8]) {
         let action_key_reg = Arc::new(Mutex::new(HashMap::new()));
         ACTION_KEYS.set(&action_key_reg, || {
             let deserialized_state = Simulation::deserialize_state(state);

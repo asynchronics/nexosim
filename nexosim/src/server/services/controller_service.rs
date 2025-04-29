@@ -255,6 +255,20 @@ impl ControllerService {
             },
         }
     }
+
+    pub(crate) fn save(&mut self, request: SaveRequest) -> SaveReply {
+        match self {
+            Self::NotStarted => SaveReply {
+                result: Some(save_reply::Result::Error(simulation_not_started_error())),
+            },
+            Self::Started { simulation, .. } => {
+                let state = simulation.serialize_state();
+                SaveReply {
+                    result: Some(save_reply::Result::State(state)),
+                }
+            }
+        }
+    }
 }
 
 impl fmt::Debug for ControllerService {

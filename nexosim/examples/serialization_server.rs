@@ -1,33 +1,42 @@
-use nexosim::model::{BuildContext, Environment, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Context, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventBuffer, EventSource, Output, QuerySource};
 use nexosim::registry::EndpointRegistry;
 use nexosim::server;
 use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
-fn bench(_: ()) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+fn bench(_: ()) -> Result<(SimInit, EndpointRegistry), SimulationError> {
     let mut registry = EndpointRegistry::new();
 
-    let model = MyModel;
-    let mbox = Mailbox::new();
-    let addr = mbox.address();
-    let mut env = MyEnv {
+    let model = MyModel {
         output: Output::default(),
     };
+    let mbox = Mailbox::new();
+    let addr = mbox.address();
 
     let mut input = EventSource::new();
     input.connect(MyModel::input, &addr);
     registry.add_event_source(input, "input").unwrap();
 
-    let (sim, _) = SimInit::new()
-        .add_model(model, env, mbox, "model")
-        .set_clock(AutoSystemClock::new())
-        .init(MonotonicTime::EPOCH)
-        .unwrap();
+    let mut source = EventSource::new();
+    source.connect(MyModel::input, &mbox);
 
-    Ok((sim, registry))
+    let mut sim_init = SimInit::new()
+        .add_model(model, mbox, "model")
+        .set_clock(AutoSystemClock::new());
+
+    let input_id = sim_init.register_event_source(source);
+
+    sim_init = sim_init.with_post_init(move |_, scheduler| {
+        println!("Init");
+        scheduler.schedule_event(Duration::from_secs(5), input_id, 19);
+    });
+
+    Ok((sim_init, registry))
 }
 
 fn main() {
@@ -35,21 +44,15 @@ fn main() {
 }
 
 #[derive(Serialize, Deserialize)]
-struct MyModel;
+struct MyModel {
+    output: Output<u16>,
+}
 impl MyModel {
-    pub async fn repl(&mut self) -> u16 {
-        14
-    }
-    pub async fn input(&mut self, value: u16, env: &mut MyEnv) {
+    pub async fn input(&mut self, value: u16) {
         println!("@@@@@@@@@@@@@@@ {}", value);
-        env.output.send(value);
+        self.output.send(value);
     }
 }
 impl Model for MyModel {
-    type Environment = MyEnv;
+    type Environment = ();
 }
-
-struct MyEnv {
-    output: Output<u16>,
-}
-impl Environment for MyEnv {}
