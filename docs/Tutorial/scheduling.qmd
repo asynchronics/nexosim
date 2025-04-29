@@ -1,0 +1,256 @@
+---
+title: "Scheduling"
+filters:
+  - line-highlight
+---
+
+Until this point we've only used `process_event` and `process_query` methods
+to make our models perform the expected actions. Sometimes we want a specific
+event to happen at a specific time different than the time of the `process_*`
+call. To achieve this we can schedule the desired event.
+
+We can schedule events to send out at a later time using the `schedule_event`
+method. Let's schedule the OBC model to send a sample command after a couple
+seconds from the simulation time.
+
+::: {.panel-tabset}
+
+## Rust
+
+```{.rust source-line-numbers="10-15"}
+let (mut sim, scheduler) = SimInit::new()
+      .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+      .add_model(obc, obc_mbox, "OBC")
+      .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+      .init(t0)
+      .unwrap();
+
+sim.process(voltage_source.event(5.0)).unwrap();
+
+scheduler
+    .schedule_event(Duration::new(1, 0), Obc::send_sample_cmd, (), &obc_address)
+    .unwrap();
+
+sim.step().unwrap();
+
+println!("{:?}", sensor_reader.collect::<Vec<_>>())
+```
+
+## Python
+
+```{.python source-line-numbers="7-9"}
+with Simulation("0.0.0.0:41633") as sim:
+    cfg = Config(obc_address=16, sensor_address=17)
+    sim.start(cfg)
+
+    sim.process_event("voltage", 5.0)
+
+    sim.schedule_event(Duration(1), "send_sample_cmd", None)
+
+    sim.step()
+
+    print(sim.read_events("sun_vector", SampleReply))
+```
+:::
+
+We schedule the `send_sample_cmd` event to one second after the current
+simulation time. We could use `MonotonicTime` instead of `Duration` to schedule
+the event at a specific time, not relative to the current time. We use the
+`Simulation::step` method which  advances the simulation time to the time of
+the nearest scheduled event, processing all events scheduled at that time.
+
+We usually wouldn't want just a single sun vector measurement, instead the
+OBC would poll the sensor repeatedly with a specific frequency to keep track
+of the spacecraft's position. To schedule events that repeat indefinitely
+we can use the `schedule_periodic_event`.
+
+::: {.panel-tabset}
+
+## Rust
+
+```{.rust}
+scheduler
+    .schedule_periodic_event(
+        Duration::new(1, 0),
+        Duration::new(1, 0),
+        Obc::send_sample_cmd,
+        (),
+        &obc_address,
+    )
+    .unwrap();
+
+sim.step_until(MonotonicTime::new(3, 0).unwrap()).unwrap();
+```
+
+## Python
+
+```{.python}
+sim.schedule_event(Duration(1), "send_sample_cmd", None, Duration(1))
+
+sim.step_until(MonotonicTime(3))
+```
+:::
+
+When scheduling periodic events we provide the deadline of the first event and
+the period, which is the time between consecutive events. Here we've introduced
+the `step_until` method which advances the simulation time to a specific time,
+processing all events scheduled up to that time.
+
+The purpose of the OBC model is to simulate the controller for the spacecraft's
+components. We would expect it to decide by itself when the sun sensor is
+polled. We can schedule events from within the model using the `Context` object.
+
+::: {.callout-note}
+Models can only schedule events to their own inputs.
+:::
+
+Let's make the sensor schedule periodic measurements once the OBC is powered on.
+We'll use the `schedule_periodic_keyed_event` method to retrieve an `ActionKey`
+for the event. Action keys can be used to cancel scheduled events. We need this
+to cancel the polling when the OBC is powered off.
+
+Let's modify `obc.rs`:
+
+```{.rust source-line-numbers="1-3,5,9,16,28,31,33-50"}
+use std::time::Duration;
+
+use nexosim::model::{Context, Model};
+use nexosim::ports::Output;
+use nexosim::simulation::ActionKey;
+
+const POWER_ON_VOLTAGE: f32 = 4.95;
+const SAMPLE_CMD_CODE: u8 = 0;
+const SAMPLE_PERIOD: Duration = Duration::new(1, 0);
+
+pub struct Obc {
+    pub tc: Output<Vec<u8>>,
+    voltage: f32,
+    address: u8,
+    sensor_address: u8,
+    sample_event_key: Option<ActionKey>,
+}
+
+impl Model for Obc {}
+
+impl Obc {
+    pub fn new(address: u8, sensor_address: u8) -> Self {
+        Self {
+            tc: Output::default(),
+            voltage: 0.0,
+            address,
+            sensor_address,
+            sample_event_key: None,
+        }
+    }
+    pub fn voltage_in(&mut self, value: f32, ctx: &mut Context<Self>) {
+        self.voltage = value;
+
+        if self.voltage < POWER_ON_VOLTAGE {
+            if let Some(key) = self.sample_event_key.take() {
+                key.cancel()
+            }
+            return;
+        }
+
+        if self.sample_event_key.is_none() {
+            self.sample_event_key = ctx
+                .schedule_keyed_periodic_event(
+                    SAMPLE_PERIOD,
+                    SAMPLE_PERIOD,
+                    Obc::send_sample_cmd,
+                    (),
+                )
+                .ok();
+        }
+    }
+
+    pub fn tm:(&mut self, message: Vec<u8>) {
+        if self.voltage < POWER_ON_VOLTAGE {
+            return;
+        }
+        println!("{:?}", message);
+    }
+
+    pub async fn send_sample_cmd(&mut self) {
+        let packet = vec![self.sensor_address, self.address, SAMPLE_CMD_CODE];
+        self.tc.send(packet).await;
+    }
+}
+```
+
+When the voltage input receives an event, if the value is above the power on
+threshold, the method checks if an action key is stored. If not, the periodic
+event is scheduled and the key is kept. When the voltage drops below the
+threshold, `Option::take` is called to remove the key and use it to cancel the
+event.
+
+```rust
+pub fn voltage_in(&mut self, value: f32, ctx: &mut Context<Self>) {
+    self.voltage = value;
+
+    if self.voltage < POWER_ON_VOLTAGE {
+        if let Some(key) = self.sample_event_key.take() {
+            key.cancel()
+        }
+        return;
+    }
+
+    if self.sample_event_key.is_none() {
+        self.sample_event_key = ctx
+            .schedule_keyed_periodic_event(
+                SAMPLE_PERIOD,
+                SAMPLE_PERIOD,
+                Obc::send_sample_cmd,
+                (),
+            )
+            .ok();
+    }
+}
+```
+
+We can now modify the simulation to just power up the obc and let it schedule
+the events. We'll schedule the simulation to cut off power after a couple of
+seconds.
+
+::: {.panel-tabset}
+
+## Rust
+
+```{.rust source-line-numbers="8-16"}
+let (mut sim, scheduler) = SimInit::new()
+    .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+    .add_model(obc, obc_mbox, "OBC")
+    .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+    .init(t0)
+    .unwrap();
+
+sim.process(voltage_source.event(5.0)).unwrap();
+
+scheduler
+    .schedule(MonotonicTime::new(3, 0).unwrap(), voltage_source.event(0.0))
+    .unwrap();
+
+sim.step_unbounded().unwrap();
+
+println!("{:?}", sensor_reader.collect::<Vec<_>>())
+```
+
+## Python
+
+```{.python}
+with Simulation("0.0.0.0:41633") as sim:
+    cfg = Config(obc_address=16, sensor_address=17)
+    sim.start(cfg)
+
+    sim.process_event("voltage", 5.0)
+
+    sim.schedule_event(Duration(3), "voltage", 0.0)
+
+    sim.step_unbounded()
+
+    print(sim.read_events("sun_vector", SampleReply))
+```
+:::
+
+The `Simulation::step_unbounded` method advances the simulation time until there
+are no more events scheduled.

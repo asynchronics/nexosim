@@ -1,0 +1,1105 @@
+---
+title: "Creating Models"
+filters:
+  - line-highlight
+toc-depth: 4
+---
+
+In this section we will start creating our sun sensor simulation. We'll
+implement the `SunSensor` model, a `Dynamics` model from which the sensor will
+take its measurement, and an `Obc` (Onboard computer) model that will request
+and use measurements from our sensor. While we do that we'll explore in further
+detail concepts surrounding models and ports.
+
+---
+
+### Setting up the project
+
+Let's create a new project `sun-sensor`:
+
+```bash
+$ cargo new sun-sensor
+$ cd sun-sensor
+```
+
+Make sure to add NeXosim to the project's dependencies in `Cargo.toml`:
+
+```{.toml filename="Cargo.toml"}
+[dependencies]
+nexosim = "0.3.2"
+```
+
+### Defining the models
+
+To keep things tidy, we'll keep our model code in a separate module for each
+model. Let's create the files and define the three models we will be creating:
+
+```{.rust filename="src/sensor.rs"}
+use nexosim::model::Model;
+
+pub struct SunSensor {}
+
+impl Model for SunSensor {}
+```
+
+```{.rust filename="src/dynamics.rs"}
+use nexosim::model::Model;
+
+pub struct Dynamics;
+
+impl Model for Dynamics {}
+```
+
+```{.rust filename="src/obc.rs"}
+use nexosim::model::Model;
+
+pub struct SunSensor {}
+
+impl Model for SunSensor {}
+```
+
+```{.rust filename="src/lib.rs"}
+pub mod dynamics;
+pub mod obc;
+pub mod sensor;
+```
+
+### Adding ports
+
+For our models to be able to communicate with other components of our
+simulation, whether it's other models, event sources and sinks or
+`Simulation::process*` calls, need to have defined ports. As we add ports to our
+models we'll delve deeper into the usage of individual types of ports
+in NeXosim simulations.
+
+#### Input ports
+
+We've already seen an input port in the previous section. The ports can accept
+events sent from connected output ports, event sources, and from
+`Simulation::process_event()` calls.
+
+Input ports are functions that implement the [`InputFn`][InputFn] trait.
+The trait is implemented for synchronous or asynchronous model methods
+with a mutable self reference, and optionally, an argument with a type
+implementing `Clone` and `Send` and an argument that is a mutable reference to
+the model's `Context`.
+
+```rust
+fn(&mut M)
+fn(&mut M, T)
+fn(&mut M, T, &mut Context<M>)
+async fn(&mut M)
+async fn(&mut M, T)
+async fn(&mut M, T, &mut Context<M>)
+where
+    M: Model,
+    T: Clone + Send + 'static,
+    R: Send + 'static,
+```
+
+We'll add an input port to the `SunSensor` model that will accept commands, and
+when it receives a `SampleCommand`, it will take a measurement. Add the
+following in `main.rs` after the sun sensor model's definition:
+
+```{.rust filename="src/sensor.rs"}
+use nexosim::model::Model;
+
+const POWER_ON_VOLTAGE: f32 = 4.95;
+
+#[derive(Clone)]
+pub struct SampleCommand {
+    pub src_address: u8,
+    pub dest_address: u8,
+}
+
+#[derive(Default)]
+pub struct SunSensor {
+    voltage: f32,
+}
+
+impl Model for SunSensor {}
+
+impl SunSensor {
+    pub fn tc(&mut self, cmd: SampleCommand) {
+        if self.voltage < POWER_ON_VOLTAGE {
+            return;
+        }
+        let sun_position = [0.0, 0.0, 10.0];
+        println!("{:?}", normalize(sun_position));
+    }
+
+    pub fn voltage_in(&mut self, value: f32) {
+        self.voltage = value;
+    }
+}
+
+/// Normalizes a 3-element array.
+fn normalize(arr: [f32; 3]) -> [f32; 3] {
+    let magnitude = f32::sqrt(arr.iter().map(|x| x.powi(2)).sum());
+
+    if magnitude == 0.0 {
+        return [0.0, 0.0, 0.0];
+    }
+
+    arr.map(|x| x / magnitude)
+}
+```
+
+We've defined the `SampleCommand` struct to use as the event type for our input.
+The `src_address` and `dest_address` fields indicate the address of the device
+that sent the command and the address of the device the command was sent to
+respectively. This will be later used to simulate a situation where there are
+multiple devices connected to the same serial connection.
+
+`SampleCommand` derives the `Clone` trait. The trait is required for
+types we want to send between models as events.
+
+```{.rust}
+#[derive(Clone)]
+pub struct SampleCommand {
+    pub src_address: u8,
+    pub dest_address: u8,
+}
+```
+
+We add the `tc` input port, which checks what command it received and
+performs actions accordingly.
+
+Since the sensor does not know the distance from the the sun,
+we normalize the `sun_position` vector into a unit vector using the `normalize`
+function.
+
+For now we're using a hard-coded sun position. Later we'll modify the code to
+retrieve the value from the `Dynamics` model.
+
+```rust
+pub fn tc(&mut self, _cmd: SampleCommand) {
+    if self.voltage < POWER_ON_THRESHOLD {
+        return;
+    }
+    let sun_position = [0.0, 0.0, 10.0];
+    println!("{:?}", normalize(sun_position));
+}
+```
+
+Additionally, we've added an input port for setting the current input voltage.
+This value is used to discern whether the sensor is powered on and can respond
+to incoming commands.
+
+Before we continue, let's test out the `SunSensor::tc` input.
+Replace the contents of the `src/main.rs` file with:
+
+```{.rust filename="src/main.rs"}
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+use sun_sensor::sensor;
+
+fn main() {
+    let sensor = sensor::SunSensor::default();
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .init(t0)
+        .unwrap();
+
+    // Power up the sensor.
+    sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+        .unwrap();
+
+    // Send a sample command to the sensor.
+    sim.process_event(
+        sensor::SunSensor::tc,
+        sensor::SampleCommand {
+            src_address: 0x10,
+            dest_address: 0x11,
+        },
+        &sensor_addr,
+    )
+    .unwrap();
+}
+```
+
+To construct the simulation, first we instantiate the model and create a Mailbox
+for it. A mailbox is used by the simulation to collect messages sent to its
+associated model. We also keep the mailbox’s address, so we can later use it to
+send events to our model.
+
+```rust
+let sensor = sensor::SunSensor::default();
+let sensor_mbox = Mailbox::new();
+let sensor_addr = sensor_mbox.address();
+```
+
+We instantiate the simulation builder – `SimInit`, and add the sensor model to
+the simulation with its mailbox and a name. The name parameter is used for error
+reporting to point to the model causing the error, and, if the tracing feature
+is enabled, debugging from within the model.
+
+```{.rust source-line-numbers="2,3"}
+let t0 = MonotonicTime::EPOCH;
+let (mut sim, _) = SimInit::new()
+    .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+    .init(t0)
+    .unwrap();
+```
+
+The simulation is built using the SimInit::init() method. We arbitrarily select
+MonotonicTime::EPOCH as the starting time of the simulation which corresponds to
+1970-01-01 00:00:00.
+
+```{.rust source-line-numbers="1,4"}
+let t0 = MonotonicTime::EPOCH;
+let (mut sim, _) = SimInit::new()
+    .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+    .init(t0)
+    .unwrap();
+```
+
+The method returns a tuple with a Simulation and a Scheduler, wrapped in a
+Result. The simulation must be kept in a mutable variable for us to send
+events to our model. We won’t be using the scheduler in this section, so we
+can ignore it for now.
+
+To send events to the model we use the `Simulation::process_event` method to
+which we provide the input port we are targeting, the event (value) we are
+sending and the address of the model's mailbox.
+
+We send out two events – the first one sets the input voltage applied to the
+sensor to 5V, powering on the sensor. The second event is a `SampleCommand` to
+the `tc` input, triggering the sensor to make a measurement.
+
+```{.rust}
+// Power up the sensor.
+sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+    .unwrap();
+
+// Send a sample command to the sensor.
+sim.process_event(
+    sensor::SunSensor::tc,
+    sensor::SampleCommand {
+        src_address: 0x10,
+        dest_address: 0x11,
+    },
+    &sensor_addr,
+)
+.unwrap();
+```
+
+We can run our simulation by typing the following in a terminal from the project
+directory:
+
+```bash
+$ cargo run
+```
+
+Then the program will print out:
+
+```
+[0.0, 0.0, 1.0]
+```
+
+-----
+
+Shifting our focus to the OBC model, let's add an input port for incoming data,
+an input that will make the OBC send out the sample command, and an input port
+for the input voltage the same as the corresponding port we added to the
+`SunSensor` model. Modify `obc.rs`:
+
+```{.rust filename="src/obc.rs"}
+use nexosim::model::Model;
+
+const POWER_ON_VOLTAGE: f32 = 4.95;
+
+#[derive(Default)]
+pub struct Obc {
+    voltage: f32,
+}
+
+impl Model for Obc {}
+
+impl Obc {
+    pub fn voltage_in(&mut self, value: f32) {
+        self.voltage = value;
+    }
+
+    pub fn tm:(&mut self, message: Vec<u8>) {
+        if self.voltage < POWER_ON_VOLTAGE {
+            return;
+        }
+        println!("{:?}", message);
+    }
+
+    pub fn send_sample_cmd(&mut self) {}
+}
+```
+
+Not much is happening here right now. The `Obc::tm:` input will print
+out all vectors it receives as long as the device is powered up.
+The `send_sample_cmd` input currently does nothing, but we'll later use it to
+send out the command to our sensor. Before we can do that we need to
+introduce another port type.
+
+#### Output ports
+
+Instead of just printing out processed values, we'd want the model to be able to
+broadcast the resulting data to other models so they can use
+those values for their own purposes. In the case of our simulation we want the
+`Obc` model to send out the sample command and the `SunSensor` model to send the
+computed sun vector to our `Obc` model. To achieve this we can use output ports.
+
+Output ports are used to broadcast messages from a model to connected input
+ports or event sinks. Outputs are instances of the [`Output`][Output] type.
+
+::: {.callout-note}
+`Output` instances retain connections when cloned.
+:::
+
+Let's start with the `SunSensor` model. We'll define the `SampleReply` type that
+we'll use as events sent from the output port. It will contain  individual
+fields for each sun vector component, and the `src_address` and `dest_address`
+fields, analogous to the fields with the same name in the `SampleCommand` type.
+`SampleReply` must implement the `Clone` trait for it to be used as an event.
+
+Modify the `SunSensor` model to include a public `Output<SampleReply>` field.
+We'll also add a field for the device address.
+
+```{.rust filename="src/sensor.rs" source-line-numbers="2,12-19,23,25"}
+use nexosim::model::Model;
+use nexosim::ports::Output;
+
+const POWER_ON_VOLTAGE: f32 = 4.95;
+
+#[derive(Clone)]
+pub struct SampleCommand {
+    pub src_address: u8,
+    pub dest_address: u8,
+}
+
+#[derive(Clone, Debug)]
+pub struct SampleReply {
+    pub src_address: u8,
+    pub dest_address: u8,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+#[derive(Default)]
+pub struct SunSensor {
+    pub tm: Output<SampleReply>,
+    voltage: f32,
+    address: u8,
+}
+
+// ...
+```
+
+Modify the `Sensor::tc` method to construct a `SampleReply` from the
+received command and the normalized sun vector, and send it using our output.
+Since we want to send events from within an input method we must make
+the method asynchronous.
+
+```{.rust source-line-numbers="1,6-21"}
+pub async fn tc(&mut self, cmd: SampleCommand) {
+    if self.voltage < POWER_ON_VOLTAGE {
+        return;
+    }
+    let sun_position = [0.0, 0.0, 10.0];
+    let [x, y, z] = normalize(sun_position);
+
+    let SampleCommand { src_address, .. } = cmd;
+
+    self.tm
+        .send(SampleReply {
+            src_address: self.address,
+            dest_address: src_address,
+            x,
+            y,
+            z,
+        })
+        .await;
+}
+```
+
+We also need to add a `SunSensor::new` associated function that we will use to
+construct the model with the specified address.
+
+```{.rust}
+pub fn new(address: u8) -> Self {
+    Self {
+        tm: Output::default(),
+        voltage: 0.0,
+        address,
+    }
+}
+```
+
+Let's shift our focus back to the OBC model. Modify `obc.rs`:
+
+```{.rust filename="src/obc.rs" source-line-numbers="2,5,8,10,11,17-24,36-39"}
+use nexosim::model::Model;
+use nexosim::ports::Output;
+
+const POWER_ON_VOLTAGE: f32 = 4.95;
+const SAMPLE_CMD_CODE: u8 = 0;
+
+pub struct Obc {
+    pub tc: Output<Vec<u8>>,
+    voltage: f32,
+    address: u8,
+    sensor_address: u8,
+}
+
+impl Model for Obc {}
+
+impl Obc {
+    pub fn new(address: u8, sensor_address: u8) -> Self {
+        Self {
+            tc: Output::default(),
+            voltage: 0.0,
+            address,
+            sensor_address,
+        }
+    }
+    pub fn voltage_in(&mut self, value: f32) {
+        self.voltage = value;
+    }
+
+    pub fn tm:(&mut self, message: Vec<u8>) {
+        if self.voltage < POWER_ON_VOLTAGE {
+            return;
+        }
+        dbg!(message);
+    }
+
+    pub async fn send_sample_cmd(&mut self) {
+        let packet = vec![self.sensor_address, self.address, SAMPLE_CMD_CODE];
+        self.tc.send(packet).await;
+    }
+}
+
+```
+
+We add a command output a device address and the sensor address to its definition.
+
+```{.rust}
+pub struct Obc {
+    pub tc: Output<Vec<u8>>,
+    voltage: f32,
+    address: u8,
+    sensor_address: u8,
+}
+```
+
+Again, we must add a `new` function to the model – this time allowing us to set
+both the OBC's and sensor's address.
+
+```rust
+pub fn new(address: u8, sensor_address: u8) -> Self {
+    Self {
+        tc: Output::default(),
+        voltage: 0.0,
+        address,
+        sensor_address,
+    }
+}
+```
+
+Because we might want to control other devices than the sun sensor, we don't use
+the `SampleCommand` type as the output type. Instead, we will use a sequence
+of bytes representing a packet sent over a serial connection such as RS-485.
+
+The packet will have the first byte be the address of the target device the
+packet is being sent to, the second byte the address of the device sending the
+packet and any following bytes will be additional data interpretable by the
+target device. In the case of the sun sensor, the sample command data will
+consist of a single byte indicating the code of the sample command. The byte
+form's of `SampleReply` data will consist of 12 bytes – 4 bytes for each
+component of the sun vector.
+
+```rust
+// A sample command from a device at 0x10 to a device at 0x11
+[0x11, 0x10, 0x00]
+
+// A sample reply with a [0, 0, 1] sun vector from a device at 0x11 to a device
+// at 0x10.
+[
+    0x10, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x80, 0x3F
+]
+```
+
+We can now modify the `Obc::send_sample_cmd` input to send out the appropriate
+bytes. We arbitrarily select 0x00 as the command code corresponding to a sample
+command and store it in the `SAMPLE_CMD_CODE` constant.
+
+```rust
+pub async fn send_sample_cmd(&mut self) {
+    let packet = vec![self.sensor_address, self.address, SAMPLE_CMD_CODE];
+    self.tc.send(packet).await;
+}
+```
+
+To see how the outputs are working, let's modify the simulation in `main.rs`:
+
+
+```{.rust}
+use nexosim::ports::EventSlot;
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+use sun_sensor::obc::Obc;
+use sun_sensor::sensor;
+
+const OBC_ADDR: u8 = 0x10;
+const SENSOR_ADDR: u8 = 0x11;
+
+fn main() {
+    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR);
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let mut sensor_sink = EventSlot::new();
+    sensor.tm.connect_sink(&sensor_sink);
+
+    let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+    let obc_mbox = Mailbox::new();
+    let obc_addr = obc_mbox.address();
+
+    let mut obc_sink = EventSlot::new();
+    obc.tc.connect_sink(&obc_sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .add_model(obc, obc_mbox, "OBC")
+        .init(t0)
+        .unwrap();
+
+    // Power up the sensor.
+    sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+        .unwrap();
+
+    // Power up the obc.
+    sim.process_event(Obc::voltage_in, 5.0, &obc_addr).unwrap();
+
+    // Send a sample command to the sensor.
+    sim.process_event(
+        sensor::SunSensor::tc,
+        sensor::SampleCommand {
+            src_address: OBC_ADDR,
+            dest_address: SENSOR_ADDR,
+        },
+        &sensor_addr,
+    )
+    .unwrap();
+
+    println!("{:?}", sensor_sink.next().unwrap());
+
+    // Make the OBC send the command packet.
+    sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
+        .unwrap();
+
+    println!("{:?}", obc_sink.next().unwrap());
+}
+```
+
+To test out if the our models are working as expected we'll connect their
+outputs to event slots. Event slots are one type of event sink
+available in NeXosim. We'll cover  event sinks along with other simulation
+endpoints in more detail in the [bench assembly tutorial](bench_assembly.qmd).
+For now, what you need to know is that we can use the event slot to see what
+events were sent through connected outputs.
+
+```{.rust source-line-numbers="6,7,13,14,16"}
+fn main() {
+    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR);
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let mut sensor_sink = EventSlot::new();
+    sensor.tm.connect_sink(&sensor_sink);
+
+    let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+    let obc_mbox = Mailbox::new();
+    let obc_addr = obc_mbox.address();
+
+    let mut obc_sink = EventSlot::new();
+    obc.tc.connect_sink(&obc_sink);
+
+    // ...
+}
+```
+
+We add our `Obc` model to the simulation. If we want to connect any of a model's
+outputs we must keep it in a mutable variable.
+
+```{.rust source-line-numbers="2,9-11,19"}
+fn main() {
+    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR);
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let mut sensor_sink = EventSlot::new();
+    sensor.tm.connect_sink(&sensor_sink);
+
+    let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+    let obc_mbox = Mailbox::new();
+    let obc_addr = obc_mbox.address();
+
+    let mut obc_sink = EventSlot::new();
+    obc.tc.connect_sink(&obc_sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .add_model(obc, obc_mbox, "OBC")
+        .init(t0)
+        .unwrap();
+
+    // ...
+}
+```
+
+We send events to the models to power them up and make them broadcast events.
+Event slots are iterators, so to retrieve stored events we need to call the
+`next` method:
+
+```rust
+// Power up the sensor.
+sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+    .unwrap();
+
+// Power up the obc.
+sim.process_event(Obc::voltage_in, 5.0, &obc_addr).unwrap();
+
+// Send a sample command to the sensor.
+sim.process_event(
+    sensor::SunSensor::tc,
+    sensor::SampleCommand {
+        src_address: OBC_ADDR,
+        dest_address: SENSOR_ADDR,
+    },
+    &sensor_addr,
+)
+.unwrap();
+
+println!("{:?}", sensor_sink.next().unwrap());
+
+// Make the OBC send the command packet.
+sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
+    .unwrap();
+
+println!("{:?}", obc_sink.next().unwrap());
+```
+
+When we run the program we'll see:
+
+```
+SampleReply { src_address: 17, dest_address: 16, x: 0.0, y: 0.0, z: 1.0 }
+[17, 16, 0]
+```
+
+#### Replier ports
+
+Currently we are using a hard-coded sun position value, but usually we would use
+a separate model from which we would retrieve the required information.
+The `Dynamics` model we defined earlier will serve that purpose. We'll add a
+replier port to the model that, upon request, will send the current position
+of the sun.
+
+Replier ports are similar to input ports, but they also return a value.
+The ports can accept events sent from connected requestor ports, query sources,
+and from `Simulation::process_query()` calls.
+
+Replier ports are functions that implement the
+[`ReplierFn`](https://docs.rs/nexosim/latest/nexosim/ports/trait.ReplierFn.html)
+trait. The trait is implemented for model asynchronous methods with a mutable
+self reference, and optionally, an argument with a type implementing `Clone` and
+`Send` and an argument that is a mutable reference to the model's `Context`.
+The returned future must implement `Send`.
+
+```rust
+async fn(&mut M) -> R
+async fn(&mut M, T) -> R
+async fn(&mut M, T, &mut Context<M>) -> R
+where
+    M: Model,
+    T: Clone + Send + 'static,
+    R: Send + 'static,
+```
+
+Let's go to `dynamics.rs` and create the replier port:
+
+```{.rust source-line-numbers="1,7-18"}
+use nexosim::model::{Context, Model};
+
+pub struct Dynamics;
+
+impl Model for Dynamics {}
+
+impl Dynamics {
+    pub async fn sun_position(
+        &mut self,
+        _: (),
+        ctx: &mut Context<Self>,
+    ) -> [f32; 3] {
+        let t = ctx.time().as_secs() as f32
+            + ctx.time().subsec_nanos() as f32 * 1e-9;
+
+        [2.3 + t * 5.7, 1.1 * t, 1.3 * t]
+    }
+}
+```
+
+We arbitrarily chose the sun position to move in a straight line with time in
+the coordinate frame of the `Dynamics` model.
+
+#### Context objects
+
+We mentioned in passing the `Context` type earlier. The context is available to
+models within input and replier port methods and the `init` method of the Model
+trait. `Context` can be used by a model to find out the current simulation time,
+as we do here, and schedule events on itself. We'll go over scheduling later in
+this tutorial.
+
+----
+
+Let's check how the replier port works. Change the `main.rs` to:
+
+```{.rust source-line-numbers="5,13-15,35,64-71"}
+use nexosim::ports::EventSlot;
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+use sun_sensor::dynamics::Dynamics;
+use sun_sensor::obc::Obc;
+use sun_sensor::sensor;
+
+const OBC_ADDR: u8 = 0x10;
+const SENSOR_ADDR: u8 = 0x11;
+
+fn main() {
+    let dynamics = Dynamics;
+    let dynamics_mbox = Mailbox::new();
+    let dynamics_addr = dynamics_mbox.address();
+
+    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR);
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let mut sensor_sink = EventSlot::new();
+    sensor.tm.connect_sink(&sensor_sink);
+
+    let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+    let obc_mbox = Mailbox::new();
+    let obc_addr = obc_mbox.address();
+
+    let mut obc_sink = EventSlot::new();
+    obc.tc.connect_sink(&obc_sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .add_model(obc, obc_mbox, "OBC")
+        .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+        .init(t0)
+        .unwrap();
+
+    // Power up the sensor.
+    sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+        .unwrap();
+
+    // Power up the obc.
+    sim.process_event(Obc::voltage_in, 5.0, &obc_addr).unwrap();
+
+    // Send a sample command to the sensor.
+    sim.process_event(
+        sensor::SunSensor::tc,
+        sensor::SampleCommand {
+            src_address: OBC_ADDR,
+            dest_address: SENSOR_ADDR,
+        },
+        &sensor_addr,
+    )
+    .unwrap();
+
+    println!("{:?}", sensor_sink.next().unwrap());
+
+    // Make the OBC send the command packet.
+    sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
+        .unwrap();
+
+    println!("{:?}", obc_sink.next().unwrap());
+
+    sim.step_until(MonotonicTime::new(42, 0).unwrap()).unwrap();
+
+    let reply = sim
+        .process_query(Dynamics::sun_position, (), &dynamics_addr)
+        .unwrap();
+
+    println!("{:?}", reply);
+}
+```
+
+We add the dynamics model to the simulation, advance the simulation and send an
+event to the `sun_position` port.
+
+To advance the situation we use the `Simulation::step_until` method, which
+sets the simulation time to either the absolute time if the provided deadline is
+a `MonotonicTime` (as long as it represents a time after the current simulation
+time) or a certain duration after the current simulation time if the deadline is
+a `std::time::Duration`.
+
+```rust
+sim.step_until(MonotonicTime::new(42, 0).unwrap()).unwrap();
+```
+
+To send an event to a replier port and retrieve the reply we use the
+`Simulation::process_query` method.
+
+```rust
+let reply = sim
+    .process_query(Dynamics::sun_position, (), &dynamics_addr)
+    .unwrap();
+```
+
+After running our program we should see:
+
+```
+SampleReply { src_address: 17, dest_address: 16, x: 0.0, y: 0.0, z: 1.0 }
+[17, 16, 0]
+[241.7, 46.2, 54.6]
+```
+
+#### Requestor ports
+
+The last missing piece in our set up is a way for the `SunSensor` model to query
+the `Dynamics` model for the current sun position. Requestors serve that
+purpose.
+
+Requestor ports broadcast messages to and retrieve responses from connected
+replier ports. Requestors are instances of the [`Requestor`][Requestor]
+or [`UniRequestor`][UniRequestor] type.
+
+`UniRequestor` is a requestor port that can only be connected to exactly one
+replier port. Connecting of a `UniRequestor` occurs durning instantiation.
+
+:::{.callout-note}
+`Requestor` and `UniRequestor` instances retain connections when cloned.
+:::
+
+We could use a regular `Requestor`. We'd add a public `Requestor<(), [f32; 3]>`
+field to the sun sensor model. When the model would require information on the
+sun position in the `tc` method, the model would call the `Requestor::send`
+method which returns an iterator with the received replies.
+
+```{.rust source-line-numbers="1,3,7,18,28,43"}
+use nexosim::ports::{Output, Requestor};
+
+// ...
+
+pub struct SunSensor {
+    pub tm: Output<SampleReply>,
+    pub requestor: Requestor<(), [f32; 3]>,
+    voltage: f32,
+    address: u8,
+}
+
+impl Model for SunSensor {}
+
+impl SunSensor {
+    pub fn new(address: u8) -> Self {
+        Self {
+            tm: Output::default(),
+            requestor: Requestor::default(),
+            voltage: 0.0,
+            address,
+        }
+    }
+
+    pub async fn tc(&mut self, cmd: SampleCommand) {
+        if self.voltage < POWER_ON_VOLTAGE {
+            return;
+        }
+        let sun_position = self.requestor.send(()).await.next().unwrap();
+        let [x, y, z] = normalize(sun_position);
+
+        let SampleCommand { src_address, .. } = cmd;
+
+        self.tm
+            .send(SampleReply {
+                src_address: self.address,
+                dest_address: src_address,
+                x,
+                y,
+                z,
+            })
+            .await;
+    }
+    // ...
+}
+```
+
+This would work fine, but we expect the `Dynamics` model to be the only source
+of information about the position of the sun and the `SunSensor` model requires
+the requestor to be connected to a replier to work correctly. The `UniRequestor`
+is a better fit for our use case, so let's use it instead.
+
+```{.rust source-line-numbers="1,3,7,15,18,28,43"}
+use nexosim::ports::{Output, UniRequestor};
+
+// ...
+
+pub struct SunSensor {
+    pub tm: Output<SampleReply>,
+    pub requestor: UniRequestor<(), [f32; 3]>,
+    voltage: f32,
+    address: u8,
+}
+
+impl Model for SunSensor {}
+
+impl SunSensor {
+    pub fn new(address: u8, requestor: UniRequestor<(), [f32; 3]>) -> Self {
+        Self {
+            tm: Output::default(),
+            requestor,
+            voltage: 0.0,
+            address,
+        }
+    }
+
+    pub async fn tc(&mut self, cmd: SampleCommand) {
+        if self.voltage < POWER_ON_VOLTAGE {
+            return;
+        }
+        let sun_position = self.requestor.send(()).await.unwrap();
+        let [x, y, z] = normalize(sun_position);
+
+        let SampleCommand { src_address, .. } = cmd;
+
+        self.tm
+            .send(SampleReply {
+                src_address: self.address,
+                dest_address: src_address,
+                x,
+                y,
+                z,
+            })
+            .await;
+    }
+    // ...
+}
+```
+
+The major difference in use of unirequestors instead of regular requestors is
+<!-- TODO: Is the use of 'agnostic' here correct -->
+that we can't construct the instance agnostic of other models like we did the
+`Requestor` earlier. To ensure that the unirequestor is connected to exactly one
+replier, connecting occurs during instantiation. Generally we'd create the
+instance during bench assembly and pass the connected instance to the model in
+its constructor.
+
+Note that the `UniRequestor::send` returns an Option, not an iterator, so
+here we don't call `next()` when retrieving the sun position.
+
+To test out the requestor port, let's add the dynamics model to the simulation,
+instantiate the `UniRequestor` and pass it to the sun sensor constructor.
+
+```{.rust source-line-numbers="1,15-18,47"}
+use nexosim::ports::{EventSlot, UniRequestor};
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+use sun_sensor::dynamics::Dynamics;
+use sun_sensor::obc::Obc;
+use sun_sensor::sensor;
+
+const OBC_ADDR: u8 = 0x10;
+const SENSOR_ADDR: u8 = 0x11;
+
+fn main() {
+    let dynamics = Dynamics;
+    let dynamics_mbox = Mailbox::new();
+
+    let requestor = UniRequestor::new(Dynamics::sun_position, &dynamics_mbox);
+
+    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR, requestor);
+    let sensor_mbox = Mailbox::new();
+    let sensor_addr = sensor_mbox.address();
+
+    let mut sensor_sink = EventSlot::new();
+    sensor.tm.connect_sink(&sensor_sink);
+
+    let mut obc = Obc::new(OBC_ADDR, SENSOR_ADDR);
+    let obc_mbox = Mailbox::new();
+    let obc_addr = obc_mbox.address();
+
+    let mut obc_sink = EventSlot::new();
+    obc.tc.connect_sink(&obc_sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let (mut sim, _) = SimInit::new()
+        .add_model(sensor, sensor_mbox, "SUN_SENSOR")
+        .add_model(obc, obc_mbox, "OBC")
+        .add_model(dynamics, dynamics_mbox, "DYNAMICS")
+        .init(t0)
+        .unwrap();
+
+    // Power up the sensor.
+    sim.process_event(sensor::SunSensor::voltage_in, 5.0, &sensor_addr)
+        .unwrap();
+
+    // Power up the obc.
+    sim.process_event(Obc::voltage_in, 5.0, &obc_addr).unwrap();
+
+    sim.step_until(MonotonicTime::new(42, 0).unwrap()).unwrap();
+
+    // Send a sample command to the sensor.
+    sim.process_event(
+        sensor::SunSensor::tc,
+        sensor::SampleCommand {
+            src_address: OBC_ADDR,
+            dest_address: SENSOR_ADDR,
+        },
+        &sensor_addr,
+    )
+    .unwrap();
+
+    println!("{:?}", sensor_sink.next().unwrap());
+
+    // Make the OBC send the command packet.
+    sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
+        .unwrap();
+
+    println!("{:?}", obc_sink.next().unwrap());
+}
+```
+
+We removed the process_query call and moved the step_until call so that it
+occurs before sending the sample command to the sensor. When we run the program
+it will print out a `SampleReply` the same sun position vector normalized to a
+length of 1.
+
+```
+SampleReply { src_address: 17, dest_address: 16, x: 0.9588968, y: 0.18328935, z: 0.21661466 }
+```
+
+------
+
+<!-- TODO: Conclusion -->
+
+While testing out the models we used event slots and created the first
+connection between models when we instantiated the UniRequestor, but we didn't
+delve too deep into
+
+
+[InputFn]: https://docs.rs/nexosim/latest/nexosim/ports/trait.InputFn.html
+[Output]: https://docs.rs/nexosim/latest/nexosim/ports/struct.Output.html
+[Requestor]: https://docs.rs/nexosim/latest/nexosim/ports/struct.Requestor.html
+[UniRequestor]: https://docs.rs/nexosim/latest/nexosim/ports/struct.UniRequestor.html
