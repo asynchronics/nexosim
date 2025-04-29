@@ -594,9 +594,9 @@ impl Simulation {
         )
         .unwrap()
     }
-    fn deserialize_state(state: Vec<u8>) -> SimulationState {
+    fn deserialize_state(state: &[u8]) -> SimulationState {
         bincode::serde::decode_from_slice(
-            &state,
+            state,
             crate::util::serialization::get_serialization_config(),
         )
         .unwrap()

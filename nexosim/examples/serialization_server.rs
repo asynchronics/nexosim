@@ -31,10 +31,12 @@ fn bench(_: ()) -> Result<(SimInit, EndpointRegistry), SimulationError> {
 
     let input_id = sim_init.register_event_source(source);
 
-    sim_init = sim_init.with_post_init(move |_, scheduler| {
-        println!("Init");
-        scheduler.schedule_event(Duration::from_secs(5), input_id, 19);
-    });
+    sim_init = sim_init
+        .with_post_init(move |_, scheduler| {
+            println!("Init");
+            scheduler.schedule_event(Duration::from_secs(5), input_id, 19);
+        })
+        .with_post_restore(|_, _| println!("Restored!"));
 
     Ok((sim_init, registry))
 }

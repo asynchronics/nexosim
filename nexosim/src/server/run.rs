@@ -288,6 +288,7 @@ impl GrpcSimulationService {
 impl simulation_server::Simulation for GrpcSimulationService {
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
+        let cfg = request.cfg.clone();
 
         let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
@@ -301,6 +302,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             let event_sink_registry = endpoint_registry.event_sink_registry;
 
             *self.controller_service.lock().unwrap() = ControllerService::Started {
+                cfg,
                 simulation,
                 event_source_registry: event_source_registry.clone(),
                 query_source_registry,
@@ -321,7 +323,36 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         request: Request<RestoreRequest>,
     ) -> Result<Response<RestoreReply>, Status> {
-        Ok(Response::new(RestoreReply { result: None }))
+        let request = request.into_inner();
+
+        let (reply, bench) = self.init_service.lock().unwrap().restore(request);
+
+        if let Some((cfg, mut simulation, scheduler, mut endpoint_registry)) = bench {
+            endpoint_registry
+                .event_source_registry
+                .register_scheduler_events(&mut simulation);
+
+            let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
+            let query_source_registry = endpoint_registry.query_source_registry;
+            let event_sink_registry = endpoint_registry.event_sink_registry;
+
+            *self.controller_service.lock().unwrap() = ControllerService::Started {
+                cfg,
+                simulation,
+                event_source_registry: event_source_registry.clone(),
+                query_source_registry,
+            };
+            *self.monitor_service.write().unwrap() = MonitorService::Started {
+                event_sink_registry,
+            };
+            *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
+                scheduler,
+                event_source_registry,
+                key_registry: KeyRegistry::default(),
+            };
+        }
+
+        Ok(Response::new(reply))
     }
     async fn shutdown(
         &self,
