@@ -55,10 +55,7 @@ message InitReply {
 
 message RestoreRequest {
   bytes state = 1;
-  oneof cfg {
-    bytes value = 2;
-    google.protobuf.Empty empty = 3;
-  }
+  optional bytes cfg = 2;
 }
 message RestoreReply {
   oneof result { // Always returns exactly 1 variant.

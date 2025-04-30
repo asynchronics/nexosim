@@ -123,7 +123,7 @@ impl InitService {
                 .unwrap()
                 .0;
         let cfg = match request.cfg {
-            Some(restore_request::Cfg::Value(cfg)) => cfg,
+            Some(cfg) => cfg,
             _ => stored_cfg,
         };
 

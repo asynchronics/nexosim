@@ -41,18 +41,8 @@ pub mod init_reply {
 pub struct RestoreRequest {
     #[prost(bytes = "vec", tag = "1")]
     pub state: ::prost::alloc::vec::Vec<u8>,
-    #[prost(oneof = "restore_request::Cfg", tags = "2, 3")]
-    pub cfg: ::core::option::Option<restore_request::Cfg>,
-}
-/// Nested message and enum types in `RestoreRequest`.
-pub mod restore_request {
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Cfg {
-        #[prost(bytes, tag = "2")]
-        Value(::prost::alloc::vec::Vec<u8>),
-        #[prost(message, tag = "3")]
-        Empty(()),
-    }
+    #[prost(bytes = "vec", optional, tag = "2")]
+    pub cfg: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RestoreReply {

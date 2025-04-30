@@ -12,20 +12,17 @@ use serde::{Deserialize, Serialize};
 fn bench(cfg: usize) -> Result<(SimInit, EndpointRegistry), SimulationError> {
     let mut registry = EndpointRegistry::new();
 
-    let model = MyModel {
-        id,
-        output: Output::default(),
-    };
-    let mbox = Mailbox::new();
-    let addr = mbox.address();
+    // let mut source = EventSource::new();
+    // source.connect(MyModel::input, &mbox);
 
     let mut sim_init = SimInit::new().set_clock(AutoSystemClock::new());
 
-    let (sim, _) = SimInit::new()
-        .add_model(model, mbox, "model")
-        .set_clock(AutoSystemClock::new())
-        .init(MonotonicTime::EPOCH)
-        .unwrap();
+    for i in 0..cfg {
+        let model = MyModel {
+            output: Output::default(),
+        };
+        let mbox = Mailbox::new();
+        let addr = mbox.address();
 
         let mut input = EventSource::new();
         input.connect(MyModel::input, &addr);
@@ -54,15 +51,11 @@ fn main() {
 
 #[derive(Serialize, Deserialize)]
 struct MyModel {
-    id: String,
-    output: Output<String>,
+    output: Output<u16>,
 }
 impl MyModel {
-    pub async fn repl(&mut self) -> u16 {
-        14
-    }
-    pub async fn input(&mut self, value: String) {
-        println!("{} {}", self.id, value);
+    pub async fn input(&mut self, value: u16) {
+        println!("@@@@@@@@@@@@@@@ {}", value);
         self.output.send(value);
     }
 }
