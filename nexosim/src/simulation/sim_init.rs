@@ -19,7 +19,7 @@ use super::{
     SchedulerQueue, Signal, Simulation, SimulationContext, SourceId,
 };
 
-type PostCallback = dyn FnOnce(&Simulation, &Scheduler);
+type PostCallback = dyn FnMut(&mut Simulation, &mut Scheduler);
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
@@ -179,7 +179,7 @@ impl SimInit {
 
     pub fn with_post_init(
         mut self,
-        callback: impl FnOnce(&Simulation, &Scheduler) + 'static,
+        callback: impl FnMut(&mut Simulation, &mut Scheduler) + 'static,
     ) -> Self {
         self.post_init_callback = Some(Box::new(callback));
         self
@@ -187,7 +187,7 @@ impl SimInit {
 
     pub fn with_post_restore(
         mut self,
-        callback: impl FnOnce(&Simulation, &Scheduler) + 'static,
+        callback: impl FnMut(&mut Simulation, &mut Scheduler) + 'static,
     ) -> Self {
         self.post_restore_callback = Some(Box::new(callback));
         self
@@ -245,10 +245,10 @@ impl SimInit {
             }
         }
         let callback = self.post_init_callback.take();
-        let (mut simulation, scheduler) = self.build();
+        let (mut simulation, mut scheduler) = self.build();
 
-        if let Some(callback) = callback {
-            callback(&simulation, &scheduler);
+        if let Some(mut callback) = callback {
+            callback(&mut simulation, &mut scheduler);
         }
         simulation.run()?;
 
@@ -259,11 +259,11 @@ impl SimInit {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();
-        let (mut simulation, scheduler) = self.build();
+        let (mut simulation, mut scheduler) = self.build();
         simulation.restore_state(state);
 
-        if let Some(callback) = callback {
-            callback(&simulation, &scheduler);
+        if let Some(mut callback) = callback {
+            callback(&mut simulation, &mut scheduler);
         }
         // TODO verify if run should be called?
         simulation.run()?;

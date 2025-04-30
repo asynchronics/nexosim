@@ -3,9 +3,9 @@ use nexosim::ports::{EventBuffer, EventSource, Output, QuerySource};
 use nexosim::registry::EndpointRegistry;
 use nexosim::server;
 use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
-use nexosim::time::{AutoSystemClock, MonotonicTime};
+use nexosim::time::{MonotonicTime, SystemClock};
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,12 @@ fn bench(cfg: usize) -> Result<(SimInit, EndpointRegistry), SimulationError> {
     // let mut source = EventSource::new();
     // source.connect(MyModel::input, &mbox);
 
-    let mut sim_init = SimInit::new().set_clock(AutoSystemClock::new());
+    let mut sim_init = SimInit::new()
+        .set_clock(SystemClock::from_instant(
+            MonotonicTime::EPOCH,
+            Instant::now(),
+        ))
+        .set_clock_tolerance(Duration::from_secs(2));
 
     for i in 0..cfg {
         let model = MyModel {
@@ -35,12 +40,9 @@ fn bench(cfg: usize) -> Result<(SimInit, EndpointRegistry), SimulationError> {
 
     // let input_id = sim_init.register_event_source(source);
 
-    // sim_init = sim_init
-    //     .with_post_init(move |_, scheduler| {
-    //         println!("Init");
-    //         scheduler.schedule_event(Duration::from_secs(5), input_id, 19);
-    //     })
-    //     .with_post_restore(|_, _| println!("Restored!"));
+    sim_init = sim_init.with_post_restore(|sim, _| {
+        sim.reset_clock(SystemClock::from_instant(sim.time(), Instant::now()))
+    });
 
     Ok((sim_init, registry))
 }
@@ -54,8 +56,8 @@ struct MyModel {
     output: Output<u16>,
 }
 impl MyModel {
-    pub async fn input(&mut self, value: u16) {
-        println!("@@@@@@@@@@@@@@@ {}", value);
+    pub async fn input(&mut self, value: u16, cx: &mut Context<Self>) {
+        println!("{} {}", value, cx.time());
         self.output.send(value);
     }
 }
