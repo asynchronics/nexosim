@@ -201,6 +201,11 @@ impl SimInit {
         queue.registry.add(source)
     }
 
+    pub(crate) fn with_queue<F: FnOnce(&mut SchedulerQueue)>(&self, f: F) {
+        let mut queue = self.scheduler_queue.lock().unwrap();
+        f(&mut *queue)
+    }
+
     fn build(self) -> (Simulation, Scheduler) {
         let scheduler = Scheduler::new(
             self.scheduler_queue.clone(),

@@ -90,7 +90,9 @@ impl InitService {
         let time = timestamp_to_monotonic(request.time.unwrap()).unwrap();
 
         let (reply, bench) = match reply {
-            Ok((sim_init, registry)) => {
+            Ok((sim_init, mut registry)) => {
+                sim_init
+                    .with_queue(|q| registry.event_source_registry.register_scheduler_events(q));
                 // TODO error handling
                 let (simulation, scheduler) = sim_init.init(time).unwrap();
                 (
@@ -160,7 +162,9 @@ impl InitService {
             });
 
         let (reply, bench) = match reply {
-            Ok((sim_init, registry)) => {
+            Ok((sim_init, mut registry)) => {
+                sim_init
+                    .with_queue(|q| registry.event_source_registry.register_scheduler_events(q));
                 // TODO error handling
                 let (simulation, scheduler) = sim_init.restore(&state).unwrap();
                 (

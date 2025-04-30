@@ -80,14 +80,13 @@ mod scheduler;
 mod scheduler_events;
 mod sim_init;
 
-pub(crate) use scheduler::GlobalScheduler;
-
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
+pub(crate) use scheduler::{GlobalScheduler, SchedulerQueue};
 pub(crate) use scheduler_events::{
     ActionKeyReg, ScheduledEvent, SchedulerEventSource, SourceIdErased, ACTION_KEYS,
 };
@@ -108,8 +107,6 @@ use std::{panic, task};
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
-
-use scheduler::SchedulerQueue;
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};

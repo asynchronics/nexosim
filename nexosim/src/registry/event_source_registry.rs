@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ciborium;
@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::ports::EventSource;
 use crate::simulation::{
-    ActionKey, ScheduledEvent, SchedulerEventSource, Simulation, SourceIdErased,
+    ActionKey, ScheduledEvent, SchedulerEventSource, SchedulerQueue, SourceIdErased,
 };
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
@@ -53,11 +53,11 @@ impl EventSourceRegistry {
         self.0.get(name).map(|s| s.as_ref())
     }
 
-    pub(crate) fn register_scheduler_events(&mut self, simulation: &mut Simulation) {
-        // TODO very PoC implementation
-        let mut queue = simulation.scheduler_queue.lock().unwrap();
+    pub(crate) fn register_scheduler_events(&mut self, scheduler_queue: &mut SchedulerQueue) {
         for entry in self.0.values_mut() {
-            let source_id = queue.registry.add_erased(entry.as_scheduler_source());
+            let source_id = scheduler_queue
+                .registry
+                .add_erased(entry.as_scheduler_source());
             entry.set_source_id(source_id);
         }
     }
