@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::registry::EndpointRegistry;
-use crate::simulation::{Simulation, SimulationError};
+use crate::simulation::{SimInit, SimulationError};
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
@@ -27,7 +27,7 @@ use super::services::{ControllerService, MonitorService, SchedulerService};
 /// public event and query interface.
 pub fn run<F, I>(sim_gen: F, addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
 {
     run_service(GrpcSimulationService::new(sim_gen), addr, None)
@@ -46,7 +46,7 @@ pub fn run_with_shutdown<F, I, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
     for<'a> S: Future<Output = ()> + 'a,
 {
@@ -92,7 +92,7 @@ fn run_service(
 #[cfg(unix)]
 pub fn run_local<F, I, P>(sim_gen: F, path: P) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
 {
@@ -113,7 +113,7 @@ pub fn run_local_with_shutdown<F, I, P, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
     for<'a> S: Future<Output = ()> + 'a,
@@ -205,7 +205,7 @@ impl GrpcSimulationService {
     /// the public event and query interface.
     pub(crate) fn new<F, I>(sim_gen: F) -> Self
     where
-        F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+        F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
         I: DeserializeOwned,
     {
         Self {
@@ -288,19 +288,48 @@ impl GrpcSimulationService {
 impl simulation_server::Simulation for GrpcSimulationService {
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
+        let cfg = request.cfg.clone();
 
         let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
         if let Some((mut simulation, scheduler, mut endpoint_registry)) = bench {
-            endpoint_registry
-                .event_source_registry
-                .register_scheduler_events(&mut simulation);
-
             let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
             let query_source_registry = endpoint_registry.query_source_registry;
             let event_sink_registry = endpoint_registry.event_sink_registry;
 
             *self.controller_service.lock().unwrap() = ControllerService::Started {
+                cfg,
+                simulation,
+                event_source_registry: event_source_registry.clone(),
+                query_source_registry,
+            };
+            *self.monitor_service.write().unwrap() = MonitorService::Started {
+                event_sink_registry,
+            };
+            *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
+                scheduler,
+                event_source_registry,
+                key_registry: KeyRegistry::default(),
+            };
+        }
+
+        Ok(Response::new(reply))
+    }
+    async fn restore(
+        &self,
+        request: Request<RestoreRequest>,
+    ) -> Result<Response<RestoreReply>, Status> {
+        let request = request.into_inner();
+
+        let (reply, bench) = self.init_service.lock().unwrap().restore(request);
+
+        if let Some((cfg, simulation, scheduler, endpoint_registry)) = bench {
+            let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
+            let query_source_registry = endpoint_registry.query_source_registry;
+            let event_sink_registry = endpoint_registry.event_sink_registry;
+
+            *self.controller_service.lock().unwrap() = ControllerService::Started {
+                cfg,
                 simulation,
                 event_source_registry: event_source_registry.clone(),
                 query_source_registry,
@@ -332,6 +361,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
 
         self.execute_scheduler_fn(request, SchedulerService::halt)
+    }
+    async fn save(&self, request: Request<SaveRequest>) -> Result<Response<SaveReply>, Status> {
+        let request = request.into_inner();
+        self.execute_controller_fn(request, ControllerService::save)
+            .await
     }
     async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
         let request = request.into_inner();

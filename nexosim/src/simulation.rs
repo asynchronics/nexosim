@@ -80,14 +80,13 @@ mod scheduler;
 mod scheduler_events;
 mod sim_init;
 
-pub(crate) use scheduler::GlobalScheduler;
-
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use scheduler_events::{ActionKey, AutoActionKey, SourceId};
 use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
+pub(crate) use scheduler::{GlobalScheduler, SchedulerQueue};
 pub(crate) use scheduler_events::{
     ActionKeyReg, ScheduledEvent, SchedulerEventSource, SourceIdErased, ACTION_KEYS,
 };
@@ -108,8 +107,6 @@ use std::{panic, task};
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
-
-use scheduler::SchedulerQueue;
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
@@ -582,6 +579,7 @@ impl Simulation {
         self.scheduler_queue.lock().unwrap().serialize()
     }
     pub fn serialize_state(&mut self) -> Vec<u8> {
+        self.scheduler().halt();
         let state = SimulationState {
             models: self.serialize_models(),
             scheduler_queue: self.serialize_scheduler_queue(),
@@ -593,15 +591,15 @@ impl Simulation {
         )
         .unwrap()
     }
-    fn deserialize_state(state: Vec<u8>) -> SimulationState {
+    fn deserialize_state(state: &[u8]) -> SimulationState {
         bincode::serde::decode_from_slice(
-            &state,
+            state,
             crate::util::serialization::get_serialization_config(),
         )
         .unwrap()
         .0
     }
-    pub(crate) fn restore_state(&mut self, state: Vec<u8>) {
+    pub(crate) fn restore_state(&mut self, state: &[u8]) {
         let action_key_reg = Arc::new(Mutex::new(HashMap::new()));
         ACTION_KEYS.set(&action_key_reg, || {
             let deserialized_state = Simulation::deserialize_state(state);

@@ -1,13 +1,15 @@
-use nexosim::model::{BuildContext, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Context, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventBuffer, EventSource, Output, QuerySource};
 use nexosim::registry::EndpointRegistry;
 use nexosim::server;
 use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
-fn bench(id: String) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+fn bench(cfg: usize) -> Result<(SimInit, EndpointRegistry), SimulationError> {
     let mut registry = EndpointRegistry::new();
 
     let model = MyModel {
@@ -17,9 +19,7 @@ fn bench(id: String) -> Result<(Simulation, EndpointRegistry), SimulationError> 
     let mbox = Mailbox::new();
     let addr = mbox.address();
 
-    let mut input = EventSource::new();
-    input.connect(MyModel::input, &addr);
-    registry.add_event_source(input, "input").unwrap();
+    let mut sim_init = SimInit::new().set_clock(AutoSystemClock::new());
 
     let (sim, _) = SimInit::new()
         .add_model(model, mbox, "model")
@@ -27,7 +27,25 @@ fn bench(id: String) -> Result<(Simulation, EndpointRegistry), SimulationError> 
         .init(MonotonicTime::EPOCH)
         .unwrap();
 
-    Ok((sim, registry))
+        let mut input = EventSource::new();
+        input.connect(MyModel::input, &addr);
+        registry
+            .add_event_source(input, format!("input_{}", i))
+            .unwrap();
+
+        sim_init = sim_init.add_model(model, mbox, "model");
+    }
+
+    // let input_id = sim_init.register_event_source(source);
+
+    // sim_init = sim_init
+    //     .with_post_init(move |_, scheduler| {
+    //         println!("Init");
+    //         scheduler.schedule_event(Duration::from_secs(5), input_id, 19);
+    //     })
+    //     .with_post_restore(|_, _| println!("Restored!"));
+
+    Ok((sim_init, registry))
 }
 
 fn main() {

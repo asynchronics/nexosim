@@ -42,8 +42,25 @@ message EventKey {
   uint64 subkey2 = 2;
 }
 
-message InitRequest { bytes cfg = 2; }
+message InitRequest {
+  google.protobuf.Timestamp time = 1;
+  bytes cfg = 2;
+}
 message InitReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
+message RestoreRequest {
+  bytes state = 1;
+  oneof cfg {
+    bytes value = 2;
+    google.protobuf.Empty empty = 3;
+  }
+}
+message RestoreReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
     Error error = 100;
@@ -62,6 +79,14 @@ message HaltRequest {}
 message HaltReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
+message SaveRequest {}
+message SaveReply {
+  oneof result {
+    bytes state = 1;
     Error error = 100;
   }
 }
@@ -196,27 +221,31 @@ message CloseSinkReply {
 message AnyRequest {
   oneof request { // Expects exactly 1 variant.
     InitRequest init_request = 1;
-    HaltRequest halt_request = 2;
-    TimeRequest time_request = 3;
-    StepRequest step_request = 4;
-    StepUntilRequest step_until_request = 5;
-    ScheduleEventRequest schedule_event_request = 6;
-    CancelEventRequest cancel_event_request = 7;
-    ProcessEventRequest process_event_request = 8;
-    ProcessQueryRequest process_query_request = 9;
-    ReadEventsRequest read_events_request = 10;
-    OpenSinkRequest open_sink_request = 11;
-    CloseSinkRequest close_sink_request = 12;
-    AwaitEventRequest await_event_request = 13;
-    StepUnboundedRequest step_unbounded_request = 14;
-    ShutdownRequest shutdown_request = 15;
+    RestoreRequest restore_request = 2;
+    HaltRequest halt_request = 3;
+    SaveRequest save_request = 4;
+    TimeRequest time_request = 5;
+    StepRequest step_request = 6;
+    StepUntilRequest step_until_request = 7;
+    ScheduleEventRequest schedule_event_request = 8;
+    CancelEventRequest cancel_event_request = 9;
+    ProcessEventRequest process_event_request = 10;
+    ProcessQueryRequest process_query_request = 11;
+    ReadEventsRequest read_events_request = 12;
+    OpenSinkRequest open_sink_request = 13;
+    CloseSinkRequest close_sink_request = 14;
+    AwaitEventRequest await_event_request = 15;
+    StepUnboundedRequest step_unbounded_request = 16;
+    ShutdownRequest shutdown_request = 17;
   }
 }
 
 service Simulation {
   rpc Init(InitRequest) returns (InitReply);
+  rpc Restore(RestoreRequest) returns (RestoreReply);
   rpc Shutdown(ShutdownRequest) returns (ShutdownReply);
   rpc Halt(HaltRequest) returns (HaltReply);
+  rpc Save(SaveRequest) returns (SaveReply);
   rpc Time(TimeRequest) returns (TimeReply);
   rpc Step(StepRequest) returns (StepReply);
   rpc StepUntil(StepUntilRequest) returns (StepUntilReply);

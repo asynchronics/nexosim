@@ -5,6 +5,7 @@ use prost_types::Timestamp;
 
 use crate::registry::{EventSourceRegistry, QuerySourceRegistry};
 use crate::simulation::Simulation;
+use crate::util::serialization::get_serialization_config;
 
 use super::super::codegen::simulation::*;
 use super::{
@@ -20,6 +21,7 @@ use super::{
 pub(crate) enum ControllerService {
     NotStarted,
     Started {
+        cfg: Vec<u8>,
         simulation: Simulation,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: QuerySourceRegistry,
@@ -253,6 +255,25 @@ impl ControllerService {
                 replies: Vec::new(),
                 result: Some(process_query_reply::Result::Error(error)),
             },
+        }
+    }
+
+    pub(crate) fn save(&mut self, _request: SaveRequest) -> SaveReply {
+        match self {
+            Self::NotStarted => SaveReply {
+                result: Some(save_reply::Result::Error(simulation_not_started_error())),
+            },
+            Self::Started {
+                cfg, simulation, ..
+            } => {
+                let state = simulation.serialize_state();
+                SaveReply {
+                    result: Some(save_reply::Result::State(
+                        bincode::serde::encode_to_vec((cfg, state), get_serialization_config())
+                            .unwrap(),
+                    )),
+                }
+            }
         }
     }
 }

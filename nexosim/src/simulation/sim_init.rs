@@ -19,6 +19,8 @@ use super::{
     SchedulerQueue, Signal, Simulation, SimulationContext, SourceId,
 };
 
+type PostCallback = dyn FnOnce(&Simulation, &Scheduler);
+
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
     executor: Executor,
@@ -33,6 +35,8 @@ pub struct SimInit {
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
     registered_models: Vec<RegisteredModel>,
+    post_init_callback: Option<Box<PostCallback>>,
+    post_restore_callback: Option<Box<PostCallback>>,
 }
 
 impl SimInit {
@@ -88,6 +92,8 @@ impl SimInit {
             observers: Vec::new(),
             abort_signal,
             registered_models: Vec::new(),
+            post_init_callback: None,
+            post_restore_callback: None,
         }
     }
 
@@ -171,12 +177,33 @@ impl SimInit {
         self
     }
 
+    pub fn with_post_init(
+        mut self,
+        callback: impl FnOnce(&Simulation, &Scheduler) + 'static,
+    ) -> Self {
+        self.post_init_callback = Some(Box::new(callback));
+        self
+    }
+
+    pub fn with_post_restore(
+        mut self,
+        callback: impl FnOnce(&Simulation, &Scheduler) + 'static,
+    ) -> Self {
+        self.post_restore_callback = Some(Box::new(callback));
+        self
+    }
+
     pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         let mut queue = self.scheduler_queue.lock().unwrap();
         queue.registry.add(source)
+    }
+
+    pub(crate) fn with_queue<F: FnOnce(&mut SchedulerQueue)>(&self, f: F) {
+        let mut queue = self.scheduler_queue.lock().unwrap();
+        f(&mut *queue)
     }
 
     fn build(self) -> (Simulation, Scheduler) {
@@ -217,16 +244,27 @@ impl SimInit {
                 }
             }
         }
+        let callback = self.post_init_callback.take();
         let (mut simulation, scheduler) = self.build();
+
+        if let Some(callback) = callback {
+            callback(&simulation, &scheduler);
+        }
         simulation.run()?;
 
         Ok((simulation, scheduler))
     }
 
-    pub fn restore(mut self, state: Vec<u8>) -> Result<(Simulation, Scheduler), ExecutionError> {
+    pub fn restore(mut self, state: &[u8]) -> Result<(Simulation, Scheduler), ExecutionError> {
         self.is_resumed.store(true, Ordering::Relaxed);
+
+        let callback = self.post_restore_callback.take();
         let (mut simulation, scheduler) = self.build();
         simulation.restore_state(state);
+
+        if let Some(callback) = callback {
+            callback(&simulation, &scheduler);
+        }
         // TODO verify if run should be called?
         simulation.run()?;
 
