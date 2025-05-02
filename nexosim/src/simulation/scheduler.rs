@@ -15,7 +15,7 @@ use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::events::{ScheduledEvent, SchedulerSourceRegistry};
+use crate::simulation::events::{EventKey, ScheduledEvent, SchedulerSourceRegistry, SourceId};
 use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
@@ -26,7 +26,9 @@ use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
 use super::ExecutionError;
 
-const GLOBAL_SCHEDULER_ORIGIN_ID: usize = 0;
+// Usize::MAX - 1 is used as plain usize::MAX is used e.g. to mark a missing
+// ModelId.
+const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
 
 /// A global simulation scheduler.
 ///
@@ -61,19 +63,6 @@ impl Scheduler {
         self.0.time()
     }
 
-    /// Schedules an action at a future time.
-    ///
-    /// An error is returned if the specified time is not in the future of the
-    /// current simulation time.
-    ///
-    /// If multiple actions send events at the same simulation time to the same
-    /// model, these events are guaranteed to be processed according to the
-    /// scheduling order of the actions.
-    pub fn schedule(&self, deadline: impl Deadline, action: Action) -> Result<(), SchedulingError> {
-        self.0
-            .schedule_from(deadline, action, GLOBAL_SCHEDULER_ORIGIN_ID)
-    }
-
     /// Schedules an event at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
@@ -81,21 +70,17 @@ impl Scheduler {
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
-    pub fn schedule_event<M, F, T, S>(
+    pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
     ) -> Result<(), SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         self.0
-            .schedule_event_from(deadline, func, arg, address, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules a cancellable event at a future time and returns an event key.
@@ -105,21 +90,17 @@ impl Scheduler {
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
-    pub fn schedule_keyed_event<M, F, T, S>(
+    pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
-    ) -> Result<ActionKey, SchedulingError>
+    ) -> Result<EventKey, SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         self.0
-            .schedule_keyed_event_from(deadline, func, arg, address, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_keyed_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules a periodically recurring event at a future time.
@@ -129,26 +110,21 @@ impl Scheduler {
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
-    pub fn schedule_periodic_event<M, F, T, S>(
+    pub fn schedule_periodic_event<T>(
         &self,
         deadline: impl Deadline,
         period: Duration,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
     ) -> Result<(), SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         self.0.schedule_periodic_event_from(
             deadline,
             period,
-            func,
+            source_id,
             arg,
-            address,
             GLOBAL_SCHEDULER_ORIGIN_ID,
         )
     }
@@ -161,26 +137,21 @@ impl Scheduler {
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
-    pub fn schedule_keyed_periodic_event<M, F, T, S>(
+    pub fn schedule_keyed_periodic_event<T>(
         &self,
         deadline: impl Deadline,
         period: Duration,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
-    ) -> Result<ActionKey, SchedulingError>
+    ) -> Result<EventKey, SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         self.0.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            func,
+            source_id,
             arg,
-            address,
             GLOBAL_SCHEDULER_ORIGIN_ID,
         )
     }
@@ -389,51 +360,17 @@ impl GlobalScheduler {
         self.time.read()
     }
 
-    /// Schedules an action identified by its origin at a future time.
-    pub(crate) fn schedule_from(
-        &self,
-        deadline: impl Deadline,
-        action: Action,
-        origin_id: usize,
-    ) -> Result<(), SchedulingError> {
-        // The scheduler queue must always be locked when reading the time,
-        // otherwise the following race could occur:
-        // 1) this method reads the time and concludes that it is not too late to
-        //    schedule the action,
-        // 2) the `Simulation` object takes the lock, increments simulation time and
-        //    runs the simulation step,
-        // 3) this method takes the lock and schedules the now-outdated action.
-        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
-
-        let now = self.time();
-        let time = deadline.into_time(now);
-        if now >= time {
-            return Err(SchedulingError::InvalidScheduledTime);
-        }
-
-        scheduler_queue.insert((time, origin_id), action);
-
-        Ok(())
-    }
-
     /// Schedules an event identified by its origin at a future time.
-    pub(crate) fn schedule_event_from<M, F, T, S>(
+    pub(crate) fn schedule_event_from<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
-        let sender = address.into().0;
-        let action = Action::new(OnceAction::new(process_event(func, arg, sender)));
-
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
@@ -443,33 +380,25 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::new(source_id, arg);
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
     }
 
     /// Schedules a cancellable event identified by its origin at a future time
     /// and returns an event key.
-    pub(crate) fn schedule_keyed_event_from<M, F, T, S>(
+    pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
-    ) -> Result<ActionKey, SchedulingError>
+    ) -> Result<EventKey, SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
-        let event_key = ActionKey::new();
-        let sender = address.into().0;
-        let action = Action::new(KeyedOnceAction::new(
-            |ek| send_keyed_event(ek, func, arg, sender),
-            event_key.clone(),
-        ));
+        let event_key = EventKey::new();
 
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
@@ -480,36 +409,28 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::new(source_id, arg).with_key(event_key.clone());
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(event_key)
     }
 
     /// Schedules a periodically recurring event identified by its origin at a
     /// future time.
-    pub(crate) fn schedule_periodic_event_from<M, F, T, S>(
+    pub(crate) fn schedule_periodic_event_from<T>(
         &self,
         deadline: impl Deadline,
         period: Duration,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         if period.is_zero() {
             return Err(SchedulingError::NullRepetitionPeriod);
         }
-        let sender = address.into().0;
-        let action = Action::new(PeriodicAction::new(
-            || process_event(func, arg, sender),
-            period,
-        ));
 
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
@@ -520,38 +441,29 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::new(source_id, arg).with_period(period);
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
     }
 
     /// Schedules a cancellable, periodically recurring event identified by its
     /// origin at a future time and returns an event key.
-    pub(crate) fn schedule_keyed_periodic_event_from<M, F, T, S>(
+    pub(crate) fn schedule_keyed_periodic_event_from<T>(
         &self,
         deadline: impl Deadline,
         period: Duration,
-        func: F,
+        source_id: SourceId<T>,
         arg: T,
-        address: impl Into<Address<M>>,
         origin_id: usize,
-    ) -> Result<ActionKey, SchedulingError>
+    ) -> Result<EventKey, SchedulingError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         if period.is_zero() {
             return Err(SchedulingError::NullRepetitionPeriod);
         }
-        let event_key = ActionKey::new();
-        let sender = address.into().0;
-        let action = Action::new(KeyedPeriodicAction::new(
-            |ek| send_keyed_event(ek, func, arg, sender),
-            period,
-            event_key.clone(),
-        ));
+        let event_key = EventKey::new();
 
         // The scheduler queue must always be locked when reading the time (see
         // `schedule_from`).
@@ -562,7 +474,10 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), action);
+        let event = ScheduledEvent::new(source_id, arg)
+            .with_period(period)
+            .with_key(event_key.clone());
+        scheduler_queue.insert((time, origin_id), event);
 
         Ok(event_key)
     }
@@ -662,7 +577,7 @@ where
     G: (FnOnce() -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
-    /// A clonable generator for the associated future.
+    /// A cloneable generator for the associated future.
     gen: G,
     /// The action repetition period.
     period: Duration,
@@ -750,7 +665,7 @@ where
     G: (FnOnce(ActionKey) -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
-    /// A clonable generator for associated future.
+    /// A cloneable generator for associated future.
     gen: G,
     /// The repetition period.
     period: Duration,
@@ -853,7 +768,7 @@ pub(crate) async fn send_keyed_event<M, F, T, S>(
 impl GlobalScheduler {
     /// Creates a dummy scheduler for testing purposes.
     pub(crate) fn new_dummy() -> Self {
-        let dummy_priority_queue = Arc::new(Mutex::new(PriorityQueue::new()));
+        let dummy_priority_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
         let dummy_running = Arc::new(AtomicBool::new(false));
         GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_running)
