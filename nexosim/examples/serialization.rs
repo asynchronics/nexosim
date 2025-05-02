@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim_util::observables::ObservableValue;
+// use nexosim_util::observables::ObservableValue;
 
 use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, EventSource, Output, UniRequestor};
@@ -19,7 +19,7 @@ pub struct Listener {
     pub key: Option<ActionKey>,
     pub message: Output<String>,
     pub temp: UniRequestor<(), f64>,
-    observable: ObservableValue<f64>,
+    // observable: ObservableValue<f64>,
 }
 
 impl Listener {
@@ -37,7 +37,7 @@ impl Listener {
         }
 
         let temp = self.temp.send(()).await.unwrap();
-        self.observable.set(temp).await;
+        // self.observable.set(temp).await;
         println!("Temp: {} @ {}", temp, cx.time());
     }
 }
@@ -57,7 +57,7 @@ impl Model for Listener {
         )
         .unwrap();
 
-        self.observable.set(1.31).await;
+        // self.observable.set(1.31).await;
 
         self.key = Some(
             cx.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17)
@@ -84,7 +84,7 @@ impl ProtoModel for ProtoListener {
                 key: None,
                 message: self.message,
                 temp: self.temp,
-                observable: ObservableValue::new(self.observable_output.clone()),
+                // observable: ObservableValue::new(self.observable_output.clone()),
             },
             (),
         )
@@ -172,7 +172,7 @@ fn main() -> Result<(), SimulationError> {
 
     println!("Restore 0");
     let (bench, mut message, mut obs, temp_source) = get_bench();
-    let (mut simu, _) = bench.restore(state_0)?;
+    let (mut simu, _) = bench.restore(&state_0)?;
 
     simu.step().unwrap();
     // back to value == 3 and time == :02
@@ -188,7 +188,7 @@ fn main() -> Result<(), SimulationError> {
 
     println!("Restore 1");
     let (bench, mut message, mut obs, temp_source) = get_bench();
-    let (mut simu, _) = bench.restore(state_1)?;
+    let (mut simu, _) = bench.restore(&state_1)?;
 
     assert_eq!(1, INIT_COUNT.load(Ordering::Relaxed));
 
