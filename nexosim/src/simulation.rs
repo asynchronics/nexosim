@@ -84,8 +84,9 @@ pub(crate) use scheduler::{
     GlobalScheduler, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
 };
 
+pub use events::{AutoEventKey, EventKey, SourceId};
 pub use mailbox::{Address, Mailbox};
-pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError};
+pub use scheduler::{Action, Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{EventKeyReg, EVENT_KEY_REG};

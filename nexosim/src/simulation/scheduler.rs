@@ -1,13 +1,12 @@
 //! Scheduling functions and types.
 use std::error::Error;
+use std::fmt;
 use std::future::Future;
-use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
-use std::{fmt, ptr};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
@@ -16,12 +15,16 @@ use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
+use crate::simulation::events::{ScheduledEvent, SchedulerSourceRegistry};
 use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
+use crate::util::serialization::serialization_config;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
+
+use super::ExecutionError;
 
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = 0;
 
@@ -48,7 +51,7 @@ impl Scheduler {
     /// use nexosim::simulation::Scheduler;
     /// use nexosim::time::MonotonicTime;
     ///
-    /// fn is_third_millenium(scheduler: &Scheduler) -> bool {
+    /// fn is_third_millennium(scheduler: &Scheduler) -> bool {
     ///     let time = scheduler.time();
     ///     time >= MonotonicTime::new(978307200, 0).unwrap()
     ///         && time < MonotonicTime::new(32535216000, 0).unwrap()
@@ -296,7 +299,64 @@ impl fmt::Debug for Action {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub(crate) type SchedulerQueue = PriorityQueue<(MonotonicTime, usize), Action>;
+pub(crate) struct SchedulerQueue {
+    inner: PriorityQueue<SchedulerKey, ScheduledEvent>,
+    pub(crate) registry: SchedulerSourceRegistry,
+}
+impl SchedulerQueue {
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: PriorityQueue::new(),
+            registry: SchedulerSourceRegistry::default(),
+        }
+    }
+
+    pub(crate) fn insert(&mut self, key: SchedulerKey, event: ScheduledEvent) {
+        self.inner.insert(key, event);
+    }
+
+    pub(crate) fn peek(&self) -> Option<(&SchedulerKey, &ScheduledEvent)> {
+        self.inner.peek()
+    }
+
+    pub(crate) fn pull(&mut self) -> Option<(SchedulerKey, ScheduledEvent)> {
+        self.inner.pull()
+    }
+
+    pub(crate) fn serialize(&self) -> Result<Vec<u8>, ExecutionError> {
+        let queue = self
+            .inner
+            .iter()
+            .map(|(k, v)| match v.serialize(&self.registry) {
+                Ok(v) => Ok((*k, v)),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<Vec<_>, ExecutionError>>()?;
+
+        bincode::serde::encode_to_vec(&queue, serialization_config())
+            .map_err(|_| ExecutionError::SerializationError)
+    }
+
+    pub(crate) fn restore(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
+        let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
+            bincode::serde::decode_from_slice(state, serialization_config())
+                .map_err(|_| ExecutionError::SerializationError)?
+                .0;
+
+        self.inner.clear();
+
+        for entry in deserialized {
+            self.inner.insert(
+                entry.0,
+                ScheduledEvent::deserialize(&entry.1, &self.registry)?,
+            );
+        }
+
+        Ok(())
+    }
+}
+
+pub(crate) type SchedulerKey = (MonotonicTime, usize);
 
 /// Internal implementation of the global scheduler.
 #[derive(Clone)]
