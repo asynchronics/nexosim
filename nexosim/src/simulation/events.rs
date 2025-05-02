@@ -13,6 +13,7 @@ use serde::de::{DeserializeOwned, Visitor};
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 
+use crate::executor::Executor;
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::ports::EventSource;
 use crate::util::serialization::serialization_config;
@@ -98,12 +99,89 @@ where
     }
 }
 
+/// Struct representing a single scheduled event on the queue.
 #[derive(Debug)]
 pub(crate) struct ScheduledEvent {
     pub source_id: SourceIdErased,
     pub arg: Box<dyn Any + Send>,
     pub period: Option<Duration>,
     pub key: Option<EventKey>,
+}
+impl ScheduledEvent {
+    pub(crate) fn new<T: Send + 'static>(source_id: SourceId<T>, arg: T) -> Self {
+        Self {
+            source_id: source_id.into(),
+            arg: Box::new(arg),
+            period: None,
+            key: None,
+        }
+    }
+
+    pub(crate) fn with_period(mut self, period: Duration) -> Self {
+        self.period = Some(period);
+        self
+    }
+
+    pub(crate) fn with_key(mut self, key: EventKey) -> Self {
+        self.key = Some(key);
+        self
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.key.as_ref().map(|k| k.is_cancelled()).unwrap_or(false)
+    }
+
+    pub(crate) fn serialize(
+        &self,
+        registry: &SchedulerSourceRegistry,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let source = registry
+            .get(&self.source_id)
+            .ok_or(ExecutionError::SerializationError)?;
+        let arg = source.serialize_arg(&*self.arg)?;
+
+        bincode::serde::encode_to_vec(
+            SerializableEvent {
+                source_id: self.source_id,
+                arg,
+                period: self.period,
+                key: self.key.clone(),
+            },
+            serialization_config(),
+        )
+        .map_err(|_| ExecutionError::SerializationError)
+    }
+
+    pub(crate) fn deserialize(
+        data: &[u8],
+        registry: &SchedulerSourceRegistry,
+    ) -> Result<Self, ExecutionError> {
+        let mut event: SerializableEvent =
+            bincode::serde::decode_from_slice(data, serialization_config())
+                .map_err(|_| ExecutionError::SerializationError)?
+                .0;
+
+        let source = registry
+            .get(&event.source_id)
+            .ok_or(ExecutionError::SerializationError)?;
+        let arg = source.deserialize_arg(&event.arg)?;
+
+        Ok(Self {
+            source_id: event.source_id,
+            arg,
+            period: event.period,
+            key: event.key.take(),
+        })
+    }
+}
+
+/// Local helper struct organizing data for serialization
+#[derive(Serialize, Deserialize)]
+struct SerializableEvent {
+    source_id: SourceIdErased,
+    arg: Vec<u8>,
+    period: Option<Duration>,
+    key: Option<EventKey>,
 }
 
 /// Managed handle to a scheduled action.
