@@ -2,6 +2,7 @@ mod broadcaster;
 mod sender;
 
 use std::fmt;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -167,6 +168,13 @@ impl<T: Clone + Send + 'static> EventSource<T> {
         ));
 
         (action, action_key)
+    }
+
+    pub(crate) fn into_future(&self, arg: T) -> impl Future<Output = ()> {
+        let fut = self.broadcaster.broadcast(arg);
+        async {
+            fut.await.unwrap_or_throw();
+        };
     }
 }
 

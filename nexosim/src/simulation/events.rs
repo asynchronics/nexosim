@@ -1,8 +1,231 @@
+use std::any::Any;
 use std::collections::HashMap;
+use std::future::Future;
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use serde::de::{DeserializeOwned, Visitor};
+use serde::ser::SerializeTuple;
+use serde::{Deserialize, Serialize};
 
 use crate::macros::scoped_thread_local::scoped_thread_local;
+use crate::ports::EventSource;
+use crate::util::serialization::serialization_config;
+
+use super::ExecutionError;
 
 scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<T>);
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct SourceIdErased(pub(crate) usize);
+
+impl<T> From<SourceId<T>> for SourceIdErased {
+    fn from(value: SourceId<T>) -> Self {
+        Self(value.0)
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
+impl SchedulerSourceRegistry {
+    pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        let source_id = SourceId(self.0.len(), PhantomData);
+        self.0.push(Box::new(source));
+        source_id
+    }
+    pub(crate) fn get(&self, source_id: &SourceIdErased) -> Option<&dyn SchedulerEventSource> {
+        self.0.get(source_id.0).map(|s| s.as_ref())
+    }
+}
+
+pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + Sync + 'static {
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
+    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+}
+
+impl<T> SchedulerEventSource for EventSource<T>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        let value = arg
+            .downcast_ref::<T>()
+            .ok_or(ExecutionError::SerializationError)?;
+        bincode::serde::encode_to_vec(value, serialization_config())
+            .map_err(|_| ExecutionError::SerializationError)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        Ok(Box::new(
+            bincode::serde::decode_from_slice::<T, _>(arg, serialization_config())
+                .map_err(|_| ExecutionError::SerializationError)?
+                .0,
+        ))
+    }
+    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(EventSource::into_future(
+            self,
+            arg.downcast_ref::<T>().unwrap().clone(),
+        ))
+    }
+}
+
+impl<T> SchedulerEventSource for Arc<EventSource<T>>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        self.as_ref().serialize_arg(arg)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        self.as_ref().deserialize_arg(arg)
+    }
+    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let inner: &dyn SchedulerEventSource = self.as_ref();
+        inner.into_future(arg)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ScheduledEvent {
+    pub source_id: SourceIdErased,
+    pub arg: Box<dyn Any + Send>,
+    pub period: Option<Duration>,
+    pub key: Option<EventKey>,
+}
+
+/// Managed handle to a scheduled action.
+///
+/// An `AutoEventKey` is a managed handle to a scheduled action that cancels
+/// its associated action on drop.
+#[derive(Debug)]
+#[must_use = "dropping this key immediately cancels the associated action"]
+pub struct AutoEventKey {
+    is_cancelled: Arc<AtomicBool>,
+}
+
+impl Drop for AutoEventKey {
+    fn drop(&mut self) {
+        self.is_cancelled.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Handle to a scheduled action.
+///
+/// An `ActionKey` can be used to cancel a scheduled action.
+#[derive(Clone, Debug)]
+#[must_use = "prefer unkeyed scheduling methods if the action is never cancelled"]
+pub struct EventKey {
+    is_cancelled: Arc<AtomicBool>,
+}
+
+impl EventKey {
+    /// Creates a key for a pending action.
+    pub(crate) fn new() -> Self {
+        Self {
+            is_cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Create a key from an existing atomic bool
+    fn restore(is_cancelled: Arc<AtomicBool>) -> Self {
+        Self { is_cancelled }
+    }
+
+    /// Checks whether the action was cancelled.
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.is_cancelled.load(Ordering::Relaxed)
+    }
+
+    /// Cancels the associated action.
+    pub fn cancel(self) {
+        self.is_cancelled.store(true, Ordering::Relaxed);
+    }
+
+    /// Converts action key to a managed key.
+    pub fn into_auto(self) -> AutoEventKey {
+        AutoEventKey {
+            is_cancelled: self.is_cancelled,
+        }
+    }
+}
+
+impl PartialEq for EventKey {
+    /// Implements equality by considering clones to be equivalent, rather than
+    /// keys with the same `is_cancelled` value.
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(&*self.is_cancelled, &*other.is_cancelled)
+    }
+}
+
+impl Eq for EventKey {}
+
+impl Hash for EventKey {
+    /// Implements `Hash`` by considering clones to be equivalent, rather than
+    /// keys with the same `is_cancelled` value.
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        ptr::hash(&*self.is_cancelled, state)
+    }
+}
+
+impl Serialize for EventKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut tuple = serializer.serialize_tuple(2)?;
+        tuple.serialize_element(&self.is_cancelled.load(Ordering::Relaxed))?;
+        tuple.serialize_element(&Arc::as_ptr(&self.is_cancelled).addr())?;
+        tuple.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for EventKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct KeyVisitor;
+        impl<'de> Visitor<'de> for KeyVisitor {
+            type Value = EventKey;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("tuple")
+            }
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let value = seq
+                    .next_element()?
+                    .ok_or(serde::de::Error::custom("Expected bool"))?;
+                let addr: usize = seq
+                    .next_element()?
+                    .ok_or(serde::de::Error::custom("Expected usize"))?;
+                Ok(EVENT_KEY_REG
+                    .map(|reg| {
+                        let mut reg = reg.lock().unwrap();
+                        let target = reg.entry(addr).or_insert(Arc::new(value));
+                        EventKey::restore(target.clone())
+                    })
+                    .unwrap_or(EventKey::new()))
+            }
+        }
+
+        deserializer.deserialize_tuple_struct("EventKey", 2, KeyVisitor)
+    }
+}

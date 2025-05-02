@@ -213,78 +213,6 @@ impl fmt::Debug for Scheduler {
     }
 }
 
-/// Managed handle to a scheduled action.
-///
-/// An `AutoActionKey` is a managed handle to a scheduled action that cancels
-/// its associated action on drop.
-#[derive(Debug)]
-#[must_use = "dropping this key immediately cancels the associated action"]
-pub struct AutoActionKey {
-    is_cancelled: Arc<AtomicBool>,
-}
-
-impl Drop for AutoActionKey {
-    fn drop(&mut self) {
-        self.is_cancelled.store(true, Ordering::Relaxed);
-    }
-}
-
-/// Handle to a scheduled action.
-///
-/// An `ActionKey` can be used to cancel a scheduled action.
-#[derive(Clone, Debug)]
-#[must_use = "prefer unkeyed scheduling methods if the action is never cancelled"]
-pub struct ActionKey {
-    is_cancelled: Arc<AtomicBool>,
-}
-
-impl ActionKey {
-    /// Creates a key for a pending action.
-    pub(crate) fn new() -> Self {
-        Self {
-            is_cancelled: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Checks whether the action was cancelled.
-    pub(crate) fn is_cancelled(&self) -> bool {
-        self.is_cancelled.load(Ordering::Relaxed)
-    }
-
-    /// Cancels the associated action.
-    pub fn cancel(self) {
-        self.is_cancelled.store(true, Ordering::Relaxed);
-    }
-
-    /// Converts action key to a managed key.
-    pub fn into_auto(self) -> AutoActionKey {
-        AutoActionKey {
-            is_cancelled: self.is_cancelled,
-        }
-    }
-}
-
-impl PartialEq for ActionKey {
-    /// Implements equality by considering clones to be equivalent, rather than
-    /// keys with the same `is_cancelled` value.
-    fn eq(&self, other: &Self) -> bool {
-        ptr::eq(&*self.is_cancelled, &*other.is_cancelled)
-    }
-}
-
-impl Eq for ActionKey {}
-
-impl Hash for ActionKey {
-    /// Implements `Hash`` by considering clones to be equivalent, rather than
-    /// keys with the same `is_cancelled` value.
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        ptr::hash(&*self.is_cancelled, state)
-    }
-}
-
 /// Error returned when the scheduled time or the repetition period are invalid.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SchedulingError {
@@ -410,10 +338,10 @@ impl GlobalScheduler {
     ) -> Result<(), SchedulingError> {
         // The scheduler queue must always be locked when reading the time,
         // otherwise the following race could occur:
-        // 1) this method reads the time and concludes that it is not too late
-        //    to schedule the action,
-        // 2) the `Simulation` object takes the lock, increments simulation time
-        //    and runs the simulation step,
+        // 1) this method reads the time and concludes that it is not too late to
+        //    schedule the action,
+        // 2) the `Simulation` object takes the lock, increments simulation time and
+        //    runs the simulation step,
         // 3) this method takes the lock and schedules the now-outdated action.
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
 
