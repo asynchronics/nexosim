@@ -27,7 +27,7 @@ use crate::util::priority_queue::PriorityQueue;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
 
-use super::scheduler_events::{ActionKey, SerializableEvent};
+use super::scheduler_events::ActionKey;
 
 // -1 as plain usize::MAX is used e.g. to mark a missing ModelId
 const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
@@ -312,12 +312,7 @@ impl SchedulerQueue {
         let queue = self
             .inner
             .iter()
-            .map(|e| {
-                (
-                    e.key,
-                    SerializableEvent::from_scheduled_event(&e.value, &self.registry),
-                )
-            })
+            .map(|e| (e.key, e.value.serialize(&self.registry)))
             .collect::<Vec<_>>();
         bincode::serde::encode_to_vec(
             queue,
@@ -327,7 +322,7 @@ impl SchedulerQueue {
     }
 
     pub(crate) fn restore(&mut self, state: Vec<u8>) {
-        let deserialized_state: Vec<((TaiTime<0>, usize), SerializableEvent)> =
+        let deserialized_state: Vec<((TaiTime<0>, usize), Vec<u8>)> =
             bincode::serde::decode_from_slice(
                 &state,
                 crate::util::serialization::get_serialization_config(),
@@ -340,8 +335,10 @@ impl SchedulerQueue {
         while let Some(_) = self.inner.pull() {}
 
         for entry in deserialized_state {
-            self.inner
-                .insert(entry.0, entry.1.to_scheduled_event(&self.registry));
+            self.inner.insert(
+                entry.0,
+                ScheduledEvent::deserialize(&entry.1, &self.registry),
+            );
         }
     }
 }

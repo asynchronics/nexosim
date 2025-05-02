@@ -149,42 +149,73 @@ impl ScheduledEvent {
             None => false,
         }
     }
+    pub(crate) fn serialize(&self, registry: &SchedulerSourceRegistry) -> Vec<u8> {
+        let source = registry.get(&self.source_id).unwrap();
+        let arg = source.serialize_arg(&*self.arg);
+        bincode::serde::encode_to_vec(
+            SerializableEvent {
+                source_id: self.source_id,
+                arg,
+                period: self.period,
+                action_key: self.action_key.clone(),
+            },
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap()
+    }
+    pub(crate) fn deserialize(data: &[u8], registry: &SchedulerSourceRegistry) -> Self {
+        let mut serializable: SerializableEvent = bincode::serde::decode_from_slice(
+            data,
+            crate::util::serialization::get_serialization_config(),
+        )
+        .unwrap()
+        .0;
+        let source = registry.get(&serializable.source_id).unwrap();
+        let arg = source.deserialize_arg(&serializable.arg);
+        Self {
+            source_id: serializable.source_id,
+            arg,
+            period: serializable.period,
+            action_key: serializable.action_key.take(),
+        }
+    }
 }
 
+/// Private helper struct
 #[derive(Serialize, Deserialize)]
-pub(crate) struct SerializableEvent {
+struct SerializableEvent {
     source_id: SourceIdErased,
     arg: Vec<u8>,
     period: Option<Duration>,
     action_key: Option<ActionKey>,
 }
-impl SerializableEvent {
-    pub fn from_scheduled_event(
-        event: &ScheduledEvent,
-        registry: &SchedulerSourceRegistry,
-    ) -> Self {
-        // TODO error handling
-        let source = registry.get(&event.source_id).unwrap();
-        let arg = source.serialize_arg(&*event.arg);
-        Self {
-            source_id: event.source_id,
-            arg,
-            period: event.period,
-            action_key: event.action_key.clone(),
-        }
-    }
-    pub fn to_scheduled_event(&self, registry: &SchedulerSourceRegistry) -> ScheduledEvent {
-        // TODO error handling
-        let source = registry.get(&self.source_id).unwrap();
-        let arg = source.deserialize_arg(&self.arg);
-        ScheduledEvent {
-            source_id: self.source_id,
-            arg,
-            period: self.period,
-            action_key: self.action_key.clone(),
-        }
-    }
-}
+// impl SerializableEvent {
+//     pub fn from_scheduled_event(
+//         event: &ScheduledEvent,
+//         registry: &SchedulerSourceRegistry,
+//     ) -> Self {
+//         // TODO error handling
+//         let source = registry.get(&event.source_id).unwrap();
+//         let arg = source.serialize_arg(&*event.arg);
+//         Self {
+//             source_id: event.source_id,
+//             arg,
+//             period: event.period,
+//             action_key: event.action_key.clone(),
+//         }
+//     }
+//     pub fn to_scheduled_event(&self, registry: &SchedulerSourceRegistry) ->
+// ScheduledEvent {         // TODO error handling
+//         let source = registry.get(&self.source_id).unwrap();
+//         let arg = source.deserialize_arg(&self.arg);
+//         ScheduledEvent {
+//             source_id: self.source_id,
+//             arg,
+//             period: self.period,
+//             action_key: self.action_key.clone(),
+//         }
+//     }
+// }
 
 /// Managed handle to a scheduled action.
 ///

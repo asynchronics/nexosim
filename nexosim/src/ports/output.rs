@@ -183,12 +183,10 @@ impl<T: Clone + Send> Serialize for Output<T> {
     where
         S: serde::Serializer,
     {
-        PORTS_REG
-            .map(|reg| {
-                let mut reg = reg.lock().unwrap();
-                reg.push_back(Box::new(self.clone()));
-            })
-            .unwrap();
+        PORTS_REG.map(|reg| {
+            let mut reg = reg.lock().unwrap();
+            reg.push_back(Box::new(self.clone()));
+        });
 
         serializer.serialize_unit()
     }
@@ -204,7 +202,7 @@ impl<'de, T: Clone + Send> Deserialize<'de> for Output<T> {
                 let entry = reg.pop_front().unwrap();
                 entry.downcast().unwrap()
             })
-            .unwrap();
+            .unwrap_or_default();
         Ok(*output)
     }
 }
@@ -355,12 +353,10 @@ impl<T: Clone + Send, R: Send> Serialize for Requestor<T, R> {
     where
         S: serde::Serializer,
     {
-        PORTS_REG
-            .map(|reg| {
-                let mut reg = reg.lock().unwrap();
-                reg.push_back(Box::new(self.clone()));
-            })
-            .unwrap();
+        PORTS_REG.map(|reg| {
+            let mut reg = reg.lock().unwrap();
+            reg.push_back(Box::new(self.clone()));
+        });
 
         serializer.serialize_unit()
     }
@@ -376,7 +372,7 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for Requestor<T, R> {
                 let entry = reg.pop_front().unwrap();
                 entry.downcast().unwrap()
             })
-            .unwrap();
+            .unwrap_or_default();
         Ok(*output)
     }
 }
@@ -509,12 +505,10 @@ impl<T: Clone + Send, R: Send> Serialize for UniRequestor<T, R> {
     where
         S: serde::Serializer,
     {
-        PORTS_REG
-            .map(|reg| {
-                let mut reg = reg.lock().unwrap();
-                reg.push_back(Box::new(self.clone()));
-            })
-            .unwrap();
+        PORTS_REG.map(|reg| {
+            let mut reg = reg.lock().unwrap();
+            reg.push_back(Box::new(self.clone()));
+        });
 
         serializer.serialize_unit()
     }
