@@ -1,8 +1,14 @@
 mod broadcaster;
 mod sender;
 
+use std::any::Any;
+use std::collections::VecDeque;
 use std::fmt;
+use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
+
+use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::Model;
 use crate::ports::EventSink;
 use crate::ports::{InputFn, ReplierFn};
@@ -17,6 +23,9 @@ use self::sender::{
     EventSinkSender, FilterMapEventSinkSender, FilterMapInputSender, InputSender,
     MapEventSinkSender, MapInputSender, MapReplierSender, ReplierSender,
 };
+
+scoped_thread_local!(pub(crate) static PORT_REG: PortsReg);
+pub(crate) type PortsReg = Arc<Mutex<VecDeque<Box<dyn Any>>>>;
 
 /// An output port.
 ///
@@ -169,6 +178,30 @@ impl<T: Clone + Send + 'static> fmt::Debug for Output<T> {
     }
 }
 
+impl<T: Clone + Send> Serialize for Output<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Use serialization to store output copy in the global registry.
+        PORT_REG.map(|reg| reg.lock().unwrap().push_back(Box::new(self.clone())));
+        serializer.serialize_unit()
+    }
+}
+
+impl<'de, T: Clone + Send> Deserialize<'de> for Output<T> {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Pop stored value from the registry.
+        // If registry is not present, use a default
+        Ok(*PORT_REG
+            .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
+            .unwrap_or_default())
+    }
+}
+
 /// A requestor port.
 ///
 /// `Requestor` ports can be connected to replier ports, i.e. to asynchronous
@@ -178,7 +211,6 @@ impl<T: Clone + Send + 'static> fmt::Debug for Output<T> {
 /// When a `Requestor` is cloned, the information on connected ports remains
 /// shared and therefore all clones use and modify the same list of connected
 /// ports.
-#[derive(Clone)]
 pub struct Requestor<T: Clone + Send + 'static, R: Send + 'static> {
     broadcaster: CachedRwLock<QueryBroadcaster<T, R>>,
 }
@@ -284,6 +316,15 @@ impl<T: Clone + Send + 'static, R: Send + 'static> Requestor<T, R> {
     }
 }
 
+// Manual clone implementation to cover cases when R is not Clone
+impl<T: Clone + Send, R: Send> Clone for Requestor<T, R> {
+    fn clone(&self) -> Self {
+        Self {
+            broadcaster: Clone::clone(&self.broadcaster),
+        }
+    }
+}
+
 impl<T: Clone + Send + 'static, R: Send + 'static> Default for Requestor<T, R> {
     fn default() -> Self {
         Self {
@@ -302,11 +343,34 @@ impl<T: Clone + Send + 'static, R: Send + 'static> fmt::Debug for Requestor<T, R
     }
 }
 
+impl<T: Clone + Send, R: Send> Serialize for Requestor<T, R> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Use serialization to store output copy in the global registry.
+        PORT_REG.map(|reg| reg.lock().unwrap().push_back(Box::new(self.clone())));
+        serializer.serialize_unit()
+    }
+}
+
+impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for Requestor<T, R> {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Pop stored value from the registry.
+        // If registry is not present, use a default
+        Ok(*PORT_REG
+            .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
+            .unwrap_or_default())
+    }
+}
+
 /// A requestor port with exactly one connection.
 ///
 /// A `UniRequestor` port is connected to a replier port, i.e. to an
 /// asynchronous model method that returns a value.
-#[derive(Clone)]
 pub struct UniRequestor<T: Clone + Send + 'static, R: Send + 'static> {
     sender: Box<dyn Sender<T, R>>,
 }
@@ -411,8 +475,62 @@ impl<T: Clone + Send + 'static, R: Send + 'static> UniRequestor<T, R> {
     }
 }
 
+// Manual clone implementation to cover cases when R is not Clone
+impl<T: Clone + Send, R: Send> Clone for UniRequestor<T, R> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: Clone::clone(&self.sender),
+        }
+    }
+}
+
 impl<T: Clone + Send + 'static, R: Send + 'static> fmt::Debug for UniRequestor<T, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "UniRequestor")
+    }
+}
+
+impl<T: Clone + Send, R: Send> Serialize for UniRequestor<T, R> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Use serialization to store output copy in the global registry.
+        PORT_REG.map(|reg| reg.lock().unwrap().push_back(Box::new(self.clone())));
+        serializer.serialize_unit()
+    }
+}
+
+impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for UniRequestor<T, R> {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Pop stored value from the registry.
+        // Since there is no ease way to create a default
+        // a dummy sender is used instead.
+        Ok(*PORT_REG
+            .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
+            .unwrap_or(Box::new(UniRequestor {
+                sender: Box::new(EmptySender),
+            })))
+    }
+}
+
+// TODO validate this
+#[derive(Clone)]
+struct EmptySender;
+impl<T, R> Sender<T, R> for EmptySender {
+    fn send(
+        &mut self,
+        _: &T,
+    ) -> Option<sender::RecycledFuture<'_, Result<R, crate::channel::SendError>>> {
+        None
+    }
+    fn send_owned(
+        &mut self,
+        _: T,
+    ) -> Option<sender::RecycledFuture<'_, Result<R, crate::channel::SendError>>> {
+        None
     }
 }

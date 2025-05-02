@@ -53,8 +53,8 @@
 //! rare in practice, these may occur due to one of the below:
 //!
 //! 1. *query loopback*: if a model sends a query which loops back to itself
-//!    (either directly or transitively via other models), that model
-//!    would in effect wait for its own response and block,
+//!    (either directly or transitively via other models), that model would in
+//!    effect wait for its own response and block,
 //! 2. *mailbox saturation loopback*: if an asynchronous model method sends in
 //!    the same call many events that end up saturating its own mailbox (either
 //!    directly or transitively via other models), then any attempt to send
@@ -75,6 +75,7 @@
 //! Deadlocks are reported as [`ExecutionError::Deadlock`] errors, which
 //! identify all involved models and the count of unprocessed messages (events
 //! or requests) in their mailboxes.
+mod events;
 mod mailbox;
 mod scheduler;
 mod sim_init;
@@ -86,6 +87,8 @@ pub(crate) use scheduler::{
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError};
 pub use sim_init::SimInit;
+
+pub(crate) use events::{EventKeyReg, EVENT_KEY_REG};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -672,6 +675,8 @@ pub enum ExecutionError {
     ///
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
+    /// Simulation serialization or deserialization has failed.
+    SerializationError,
 }
 
 impl fmt::Display for ExecutionError {
@@ -739,6 +744,7 @@ impl fmt::Display for ExecutionError {
                     time
                 )
             }
+            Self::SerializationError => f.write_str("serialization or deserialization of the simulation data has failed"),
         }
     }
 }
@@ -805,7 +811,7 @@ pub(crate) fn add_model<P: ProtoModel>(
         abort_signal,
         model_names,
     );
-    let model = model.build(&mut build_cx);
+    let (model, env) = model.build(&mut build_cx);
 
     let address = mailbox.address();
     let mut receiver = mailbox.0;

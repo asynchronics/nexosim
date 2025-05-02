@@ -192,9 +192,16 @@
 //!     }
 //! }
 //! impl Model for ChildModel {}
-//!
 //! ```
+use std::collections::VecDeque;
 use std::future::Future;
+use std::sync::{Arc, Mutex};
+
+use serde::{de::DeserializeOwned, Serialize};
+
+use crate::ports::PORT_REG;
+use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
+use crate::util::serialization::serialization_config;
 
 pub use context::{BuildContext, Context};
 
@@ -212,11 +219,15 @@ mod context;
 /// to prevent an already initialized model from being added to the simulation
 /// bench.
 pub trait Model: Sized + Send + 'static {
+    /// TODO
+    type Environment: Send + 'static;
+
     /// Performs asynchronous model initialization.
     ///
     /// This asynchronous method is executed exactly once for all models of the
     /// simulation when the
     /// [`SimInit::init`](crate::simulation::SimInit::init) method is called.
+    /// It is not called after the model is restored from a serialized state.
     ///
     /// The default implementation simply converts the model to an
     /// `InitializedModel` without any side effect.
@@ -245,6 +256,20 @@ pub trait Model: Sized + Send + 'static {
     /// }
     /// ```
     fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
+        async { self.into() }
+    }
+
+    /// Reinitialization method called after model has been restored from a
+    /// serialized state.
+    ///
+    /// This asynchronous method is executed exactly once for all models of the
+    /// simulation when the
+    /// [`SimInit::restore`](crate::simulation::SimInit::restore) method is
+    /// called.
+    ///
+    /// The default implementation simply converts the model to an
+    /// `InitializedModel` without any side effect.
+    fn restore(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
 }
@@ -283,14 +308,72 @@ pub trait ProtoModel: Sized {
     /// This method is invoked when the
     /// [`SimInit::add_model`](crate::simulation::SimInit::add_model) or
     /// [`BuildContext::add_submodel`] method are called.
-    fn build(self, cx: &mut BuildContext<Self>) -> Self::Model;
+    fn build(
+        self,
+        cx: &mut BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Environment);
 }
 
-// Every model can be used as a prototype for itself.
-impl<M: Model> ProtoModel for M {
+// Every model can be used as a prototype for itself,
+// if it's environment is empty.
+impl<M: Model<Environment = ()>> ProtoModel for M {
     type Model = Self;
 
-    fn build(self, _: &mut BuildContext<Self>) -> Self::Model {
-        self
+    fn build(
+        self,
+        _: &mut BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        (self, ())
     }
+}
+
+/// An internal helper struct used to handle simulation models.
+pub(crate) struct RegisteredModel {
+    pub name: String,
+    pub serialize: Box<dyn FnOnce(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
+    pub deserialize: Box<
+        dyn FnOnce(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send,
+    >,
+}
+impl RegisteredModel {
+    pub fn new<M: Model + Serialize + DeserializeOwned>(name: String, address: Address<M>) -> Self {
+        let serialize_address = address.clone();
+        let serialize = Box::new(move |sim: &mut Simulation| {
+            sim.process_query(serialize_model, (), serialize_address.clone())?
+        });
+        let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
+            sim.process_query(deserialize_model, state, address)?
+        });
+        Self {
+            name,
+            serialize,
+            deserialize,
+        }
+    }
+}
+
+async fn serialize_model<M: Serialize>(model: &mut M) -> Result<Vec<u8>, ExecutionError> {
+    bincode::serde::encode_to_vec(model, serialization_config())
+        .map_err(|_| ExecutionError::SerializationError)
+}
+
+async fn deserialize_model<M: Model + Serialize + DeserializeOwned>(
+    model: &mut M,
+    state: (Vec<u8>, EventKeyReg),
+    cx: &mut Context<M>,
+) -> Result<(), ExecutionError> {
+    let restored = PORT_REG
+        .set(&Arc::new(Mutex::new(VecDeque::new())), || {
+            EVENT_KEY_REG.set(&state.1, || {
+                if bincode::serde::encode_to_vec(&model, serialization_config()).is_err() {
+                    return Err(ExecutionError::SerializationError);
+                };
+                bincode::serde::decode_from_slice::<M, _>(&state.0, serialization_config())
+                    .map_err(|_| ExecutionError::SerializationError)
+            })
+        })?
+        .0;
+    let restored = restored.restore(cx).await.0;
+    std::mem::replace(model, restored);
+    Ok(())
 }
