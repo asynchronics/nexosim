@@ -26,12 +26,15 @@
 //!                       │          ├───────────────────────────────► Total power
 //!                       └──────────┘
 //! ```
+use serde::{Deserialize, Serialize};
+
 use nexosim::model::Model;
 use nexosim::ports::{EventSlot, Output, Requestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 /// Power supply.
+#[derive(Serialize, Deserialize)]
 pub struct PowerSupply {
     /// Electrical output [V → A] -- requestor port.
     pub pwr_out: Requestor<f64, f64>,
@@ -65,9 +68,12 @@ impl PowerSupply {
     }
 }
 
-impl Model for PowerSupply {}
+impl Model for PowerSupply {
+    type Environment = ();
+}
 
 /// Power supply.
+#[derive(Serialize, Deserialize)]
 pub struct Load {
     /// Power consumption [W] -- output port.
     pub power: Output<f64>,
@@ -97,7 +103,9 @@ impl Load {
     }
 }
 
-impl Model for Load {}
+impl Model for Load {
+    type Environment = ();
+}
 
 fn main() -> Result<(), SimulationError> {
     // ---------------
@@ -144,8 +152,7 @@ fn main() -> Result<(), SimulationError> {
         .add_model(load1, load1_mbox, "load1")
         .add_model(load2, load2_mbox, "load2")
         .add_model(load3, load3_mbox, "load3")
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     // ----------
     // Simulation.
