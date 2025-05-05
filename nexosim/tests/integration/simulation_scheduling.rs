@@ -17,13 +17,13 @@ const MT_NUM_THREADS: usize = 4;
 #[derive(Serialize, Deserialize)]
 struct PassThroughModel<T>
 where
-    T: Serialize + Deserialize + Clone + Send + 'static,
+    T: Clone + Send + 'static,
 {
     pub output: Output<T>,
 }
 impl<T> PassThroughModel<T>
 where
-    T: Serialize + Deserialize + Clone + Send + 'static,
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     pub fn new() -> Self {
         Self {
@@ -34,7 +34,10 @@ where
         self.output.send(arg).await;
     }
 }
-impl<T: Clone + Send + 'static> Model for PassThroughModel<T> {
+impl<T> Model for PassThroughModel<T>
+where
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+{
     type Environment = ();
 }
 
@@ -262,6 +265,8 @@ impl TimestampModel {
 }
 #[cfg(not(miri))]
 impl Model for TimestampModel {
+    type Environment = ();
+
     async fn init(mut self, _: &mut Context<Self>) -> nexosim::model::InitializedModel<Self> {
         self.stamp.send((Instant::now(), SystemTime::now())).await;
         self.into()
@@ -295,6 +300,7 @@ fn timestamp_bench(
     let source_id = bench.register_model_input(TimestampModel::trigger, &addr);
 
     let simu = bench.init(t0).unwrap();
+    let scheduler = simu.scheduler();
 
     (simu, scheduler, source_id, stamp_stream.into_reader())
 }

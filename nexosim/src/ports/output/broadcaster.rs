@@ -4,6 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use diatomic_waker::WakeSink;
+use serde::{Deserialize, Serialize};
 
 use super::sender::{RecycledFuture, Sender};
 use crate::channel::SendError;
@@ -528,8 +529,28 @@ mod tests {
             self.inner.fetch_add(by, Ordering::Relaxed);
         }
     }
-    impl Model for SumModel {}
+    impl Model for SumModel {
+        type Environment = ();
+    }
+    impl Serialize for SumModel {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_u64(self.inner.load(Ordering::Relaxed) as u64)
+        }
+    }
+    impl<'de> Deserialize<'de> for SumModel {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let counter = usize::deserialize(deserializer)?;
+            Ok(SumModel::new(Arc::new(AtomicUsize::new(counter))))
+        }
+    }
 
+    #[derive(Serialize, Deserialize)]
     struct DoubleModel {}
     impl DoubleModel {
         fn new() -> Self {
@@ -539,7 +560,9 @@ mod tests {
             2 * value
         }
     }
-    impl Model for DoubleModel {}
+    impl Model for DoubleModel {
+        type Environment = ();
+    }
 
     #[test]
     fn broadcast_event_smoke() {
@@ -650,7 +673,8 @@ mod tests {
 
         assert_eq!(
             sum.load(Ordering::Relaxed),
-            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) // Twice the sum of all IDs + N_RECV times the special value
+            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) /* Twice the sum of all IDs + N_RECV times
+                                                     * the special value */
         );
     }
 
@@ -781,7 +805,9 @@ mod tests {
 
         assert_eq!(
             sum,
-            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) * 2 * 3, // Twice the sum of all IDs + N_RECV times the special value, then doubled and tripled
+            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) * 2 * 3, /* Twice the sum of all IDs +
+                                                              * N_RECV times the special value,
+                                                              * then doubled and tripled */
         );
     }
 }

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Model, ProtoModel};
+use nexosim::model::{BuildContext, InitializedModel, Model, ProtoModel};
 use nexosim::ports::Output;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -90,7 +90,7 @@ fn timeout_triggered(num_threads: usize) {
     model.output.connect(TestModel::input, addr.clone());
 
     let t0 = MonotonicTime::EPOCH;
-    let bench = SimInit::with_num_threads(num_threads)
+    let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
         .init(t0)

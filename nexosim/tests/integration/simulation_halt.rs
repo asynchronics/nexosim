@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model};
+use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
@@ -14,30 +14,57 @@ use nexosim::time::{MonotonicTime, SystemClock};
 struct RecurringModel {
     pub message: Output<()>,
     delay: Duration,
+    input: InputId<Self, ()>,
 }
 impl RecurringModel {
+    async fn process(&mut self) {
+        self.message.send(()).await;
+    }
+}
+impl Model for RecurringModel {
+    type Environment = ();
+
+    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        cx.schedule_periodic_event(self.delay, self.delay, self.input, ())
+            .unwrap();
+
+        self.into()
+    }
+}
+struct ProtoRecurring {
+    pub message: Output<()>,
+    delay: Duration,
+}
+impl ProtoRecurring {
     fn new(delay: Duration) -> Self {
         Self {
             delay,
             message: Output::new(),
         }
     }
-    async fn process(&mut self) {
-        self.message.send(()).await;
-    }
 }
-impl Model for RecurringModel {
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        cx.schedule_periodic_event(self.delay, self.delay, RecurringModel::process, ())
-            .unwrap();
+impl ProtoModel for ProtoRecurring {
+    type Model = RecurringModel;
 
-        self.into()
+    fn build(
+        self,
+        cx: &mut BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        let input = cx.register_input(RecurringModel::process);
+        (
+            RecurringModel {
+                input,
+                delay: self.delay,
+                message: self.message,
+            },
+            (),
+        )
     }
 }
 
 #[test]
 fn halt_and_resume() -> Result<(), SimulationError> {
-    let mut model = RecurringModel::new(Duration::from_millis(200));
+    let mut model = ProtoRecurring::new(Duration::from_millis(200));
     let mailbox = Mailbox::new();
 
     let message = EventQueue::new();
