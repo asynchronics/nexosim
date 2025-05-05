@@ -90,6 +90,7 @@ pub use scheduler::{Action, Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{EventKeyReg, SourceIdErased, EVENT_KEY_REG};
+pub(crate) use scheduler::{process_event, send_keyed_event};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -461,7 +462,7 @@ impl Simulation {
                     .registry
                     .get(&event.source_id)
                     .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
-                let fut = source.into_future(&*event.arg);
+                let fut = source.into_future(&*event.arg, event.key.as_ref().map(|a| a.clone()));
 
                 if let Some(period) = event.period {
                     scheduler_queue.insert((time + period, channel_id), event);

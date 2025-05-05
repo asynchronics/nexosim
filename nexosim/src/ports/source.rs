@@ -9,7 +9,8 @@ use std::time::Duration;
 use crate::model::Model;
 use crate::ports::InputFn;
 use crate::simulation::{
-    Action, Address, EventKey, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
+    process_event, send_keyed_event, Action, Address, EventKey, KeyedOnceAction,
+    KeyedPeriodicAction, OnceAction, PeriodicAction,
 };
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
@@ -170,10 +171,18 @@ impl<T: Clone + Send + 'static> EventSource<T> {
         (action, action_key)
     }
 
-    pub(crate) fn into_future(&self, arg: T) -> impl Future<Output = ()> {
+    pub(crate) fn into_future(
+        &self,
+        arg: T,
+        event_key: Option<EventKey>,
+    ) -> impl Future<Output = ()> {
         let fut = self.broadcaster.broadcast(arg);
+
         async {
-            fut.await.unwrap_or_throw();
+            match event_key {
+                Some(key) if key.is_cancelled() => (),
+                _ => fut.await.unwrap_or_throw(),
+            };
         }
     }
 }

@@ -61,7 +61,11 @@ impl SchedulerSourceRegistry {
 pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + Sync + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
-    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+    fn into_future(
+        &self,
+        arg: &dyn Any,
+        event_key: Option<EventKey>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
 impl<T> SchedulerEventSource for EventSource<T>
@@ -82,10 +86,15 @@ where
                 .0,
         ))
     }
-    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    fn into_future(
+        &self,
+        arg: &dyn Any,
+        event_key: Option<EventKey>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(EventSource::into_future(
             self,
             arg.downcast_ref::<T>().unwrap().clone(),
+            event_key,
         ))
     }
 }
@@ -100,9 +109,13 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         self.as_ref().deserialize_arg(arg)
     }
-    fn into_future(&self, arg: &dyn Any) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    fn into_future(
+        &self,
+        arg: &dyn Any,
+        event_key: Option<EventKey>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let inner: &dyn SchedulerEventSource = self.as_ref();
-        inner.into_future(arg)
+        inner.into_future(arg, event_key)
     }
 }
 
