@@ -452,7 +452,8 @@ impl Simulation {
             let mut next_key;
 
             // TODO if there is a single event consider firing immediately
-            // instead of allocating SeqFuture
+            // instead of allocating SeqFuture, although the perf vs. complexity
+            // might be not worth it.
             let mut action_seq = SeqFuture::new();
             loop {
                 let ((time, channel_id), event) = scheduler_queue.pull().unwrap();

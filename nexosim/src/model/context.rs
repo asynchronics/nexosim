@@ -543,12 +543,13 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
-impl<M: Model> Context<M> {
+impl<M: Model<Environment = ()>> Context<M> {
     /// Creates a dummy context for testing purposes.
     pub(crate) fn new_dummy() -> Self {
         let dummy_address = Receiver::new(1).sender();
         Context::new(
             String::new(),
+            (),
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
         )

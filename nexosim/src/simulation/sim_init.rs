@@ -7,14 +7,14 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
-use crate::model::{ProtoModel, RegisteredModel};
-use crate::ports::EventSource;
+use crate::model::{Model, ProtoModel, RegisteredModel};
+use crate::ports::{EventSource, InputFn};
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ExecutionError, GlobalScheduler, Mailbox, SchedulerQueue, Signal, Simulation,
-    SourceId,
+    add_model, Address, ExecutionError, GlobalScheduler, Mailbox, SchedulerQueue, Signal,
+    Simulation, SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -173,11 +173,28 @@ impl SimInit {
         self
     }
 
+    // TODO is this needed as a separate method?
     pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.scheduler_queue.lock().unwrap().registry.add(source)
+    }
+
+    pub fn register_model_input<M, F, S, T>(
+        &self,
+        input: F,
+        address: impl Into<Address<M>>,
+    ) -> SourceId<T>
+    where
+        M: Model,
+        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+        S: Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        let mut source = EventSource::new();
+        source.connect(input, address);
+        self.register_event_source(source)
     }
 
     fn build(self) -> Simulation {
