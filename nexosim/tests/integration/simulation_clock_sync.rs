@@ -3,27 +3,31 @@
 use std::thread;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use nexosim::model::Model;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
 const MT_NUM_THREADS: usize = 4;
 
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 struct TestModel {}
 impl TestModel {
     fn block_for(&mut self, duration: Duration) {
         thread::sleep(duration);
     }
 }
-impl Model for TestModel {}
+impl Model for TestModel {
+    type Environment = ();
+}
 
 // Schedule `TestModel::block_for` at the required ticks, blocking each time for
 // the specified period, and then run the simulation with the specified
 // synchronization tolerance.
 //
-// Returns the last simulation tick at completion or when the error occurred, and
-// the result of `Simulation::step_until`.
+// Returns the last simulation tick at completion or when the error occurred,
+// and the result of `Simulation::step_until`.
 fn clock_sync(
     num_threads: usize,
     block_time_ms: u64,
@@ -39,12 +43,16 @@ fn clock_sync(
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler) = SimInit::with_num_threads(num_threads)
+    let bench = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "test")
         .set_clock(clock)
-        .set_clock_tolerance(clock_tolerance)
-        .init(t0)
-        .unwrap();
+        .set_clock_tolerance(clock_tolerance);
+
+    let source_id = bench.register_model_input(TestModel::block_for, &addr);
+
+    let mut simu = bench.init(t0).unwrap();
+
+    let scheduler = simu.scheduler();
 
     let mut delta = Duration::ZERO;
     for tick_ms in ticks_ms {
@@ -53,7 +61,7 @@ fn clock_sync(
             delta = tick;
         }
         scheduler
-            .schedule_event(tick, TestModel::block_for, block_time, &addr)
+            .schedule_event(tick, source_id, block_time)
             .unwrap();
     }
 

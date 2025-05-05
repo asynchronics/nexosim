@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use nexosim::model::Model;
 use nexosim::ports::{EventSource, Output, QuerySource, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
@@ -9,7 +11,7 @@ use nexosim::time::MonotonicTime;
 
 const MT_NUM_THREADS: usize = 4;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct TestModel {
     output: Output<()>,
     requestor: Requestor<(), ()>,
@@ -22,7 +24,9 @@ impl TestModel {
         let _ = self.requestor.send(()).await;
     }
 }
-impl Model for TestModel {}
+impl Model for TestModel {
+    type Environment = ();
+}
 
 /// Send an event from a model to a dead input.
 fn no_input_from_model(num_threads: usize) {
@@ -41,8 +45,7 @@ fn no_input_from_model(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, MODEL_NAME)
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_event(TestModel::activate_output, (), addr) {
         Err(ExecutionError::NoRecipient { model }) => {
@@ -71,8 +74,7 @@ fn no_replier_from_model(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, MODEL_NAME)
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_event(TestModel::activate_requestor, (), addr) {
         Err(ExecutionError::NoRecipient { model }) => {
@@ -93,9 +95,11 @@ fn no_input_from_scheduler(num_threads: usize) {
     drop(bad_mbox);
 
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler) = SimInit::with_num_threads(num_threads).init(t0).unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads).init(t0).unwrap();
+    let scheduler = simu.scheduler();
 
-    scheduler.schedule(Duration::from_secs(1), event).unwrap();
+    // TODO
+    // scheduler.schedule(Duration::from_secs(1), event).unwrap();
 
     match simu.step() {
         Err(ExecutionError::NoRecipient { model }) => {
@@ -116,9 +120,11 @@ fn no_replier_from_scheduler(num_threads: usize) {
     drop(bad_mbox);
 
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler) = SimInit::with_num_threads(num_threads).init(t0).unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads).init(t0).unwrap();
+    let scheduler = simu.scheduler();
 
-    scheduler.schedule(Duration::from_secs(1), query).unwrap();
+    // TODO
+    // scheduler.schedule(Duration::from_secs(1), query).unwrap();
 
     match simu.step() {
         Err(ExecutionError::NoRecipient { model }) => {

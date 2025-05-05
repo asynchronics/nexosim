@@ -23,7 +23,9 @@ fn model_schedule_event(num_threads: usize) {
             self.output.send(()).await;
         }
     }
-    impl Model for TestModel {}
+    impl Model for TestModel {
+        type Environment = ();
+    }
 
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
@@ -71,7 +73,9 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
             self.output.send(2).await;
         }
     }
-    impl Model for TestModel {}
+    impl Model for TestModel {
+        type Environment = ();
+    }
 
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
@@ -120,7 +124,9 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
             self.output.send(2).await;
         }
     }
-    impl Model for TestModel {}
+    impl Model for TestModel {
+        type Environment = ();
+    }
 
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
@@ -165,7 +171,9 @@ fn model_schedule_periodic_event(num_threads: usize) {
             self.output.send(payload).await;
         }
     }
-    impl Model for TestModel {}
+    impl Model for TestModel {
+        type Environment = ();
+    }
 
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
@@ -219,7 +227,9 @@ fn model_cancel_periodic_event(num_threads: usize) {
             self.key.take().unwrap().cancel();
         }
     }
-    impl Model for TestModel {}
+    impl Model for TestModel {
+        type Environment = ();
+    }
 
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
