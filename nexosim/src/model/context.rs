@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::executor::{Executor, Signal};
 use crate::ports::{EventSource, InputFn};
@@ -501,7 +501,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn register_input<F, T, S>(&self, func: F) -> InputId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
         let mut source = EventSource::new();
@@ -521,7 +521,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: impl Into<String>)
     where
         S: ProtoModel,
-        <S as ProtoModel>::Model: Serialize + DeserializeOwned,
+        for<'de> <S as ProtoModel>::Model: Serialize + Deserialize<'de>,
     {
         let mut submodel_name = name.into();
         if submodel_name.is_empty() {

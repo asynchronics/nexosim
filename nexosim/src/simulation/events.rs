@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::de::{DeserializeOwned, Visitor};
+use serde::de::Visitor;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 
@@ -47,7 +47,7 @@ pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
     pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
         let source_id = SourceId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
@@ -66,7 +66,7 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + Sync + 'static {
 
 impl<T> SchedulerEventSource for EventSource<T>
 where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
         let value = arg
@@ -77,7 +77,7 @@ where
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         Ok(Box::new(
-            bincode::serde::decode_from_slice::<T, _>(arg, serialization_config())
+            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
                 .map_err(|_| ExecutionError::SerializationError)?
                 .0,
         ))
@@ -92,7 +92,7 @@ where
 
 impl<T> SchedulerEventSource for Arc<EventSource<T>>
 where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
         self.as_ref().serialize_arg(arg)

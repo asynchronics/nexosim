@@ -197,7 +197,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::ports::PORT_REG;
 use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
@@ -335,7 +335,10 @@ pub(crate) struct RegisteredModel {
         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
-    pub fn new<M: Model + Serialize + DeserializeOwned>(name: String, address: Address<M>) -> Self {
+    pub fn new<M>(name: String, address: Address<M>) -> Self
+    where
+        for<'de> M: Model + Serialize + Deserialize<'de>,
+    {
         let ser_address = address.clone();
         let de_address = address.clone();
         let serialize = Box::new(move |sim: &mut Simulation| {
@@ -365,18 +368,21 @@ async fn serialize_model<M: Serialize>(model: &mut M) -> Result<Vec<u8>, Executi
         .map_err(|_| ExecutionError::SerializationError)
 }
 
-async fn deserialize_model<M: Model + Serialize + DeserializeOwned>(
+async fn deserialize_model<M>(
     model: &mut M,
     state: (Vec<u8>, EventKeyReg),
     cx: &mut Context<M>,
-) -> Result<(), ExecutionError> {
+) -> Result<(), ExecutionError>
+where
+    for<'de> M: Model + Serialize + Deserialize<'de>,
+{
     let restored = PORT_REG
         .set(&Arc::new(Mutex::new(VecDeque::new())), || {
             EVENT_KEY_REG.set(&state.1, || {
                 bincode::serde::encode_to_vec(&model, serialization_config())
                     .map_err(|_| ExecutionError::SerializationError)?;
 
-                bincode::serde::decode_from_slice::<M, _>(&state.0, serialization_config())
+                bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
                     .map_err(|_| ExecutionError::SerializationError)
             })
         })?

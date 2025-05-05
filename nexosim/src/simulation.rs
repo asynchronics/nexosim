@@ -106,7 +106,7 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use scheduler::SchedulerQueue;
 
@@ -867,7 +867,7 @@ pub(crate) fn add_model<P>(
     is_resumed: Arc<AtomicBool>,
 ) where
     P: ProtoModel,
-    <P as ProtoModel>::Model: Serialize + DeserializeOwned,
+    for<'de> <P as ProtoModel>::Model: Serialize + Deserialize<'de>,
 {
     #[cfg(feature = "tracing")]
     let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", name);
