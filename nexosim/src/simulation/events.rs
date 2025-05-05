@@ -13,7 +13,6 @@ use serde::de::{DeserializeOwned, Visitor};
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 
-use crate::executor::Executor;
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::ports::EventSource;
 use crate::util::serialization::serialization_config;
@@ -23,8 +22,16 @@ use super::ExecutionError;
 scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<T>);
+
+// Manual clone and copy impl. to not enforce bounds on T.
+impl<T> Clone for SourceId<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for SourceId<T> {}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct SourceIdErased(pub(crate) usize);

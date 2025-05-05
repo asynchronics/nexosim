@@ -1,12 +1,18 @@
 use std::fmt;
+use std::marker::PhantomData;
+use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
 use crate::executor::{Executor, Signal};
-use crate::ports::InputFn;
-use crate::simulation::{self, ActionKey, Address, GlobalScheduler, Mailbox, SchedulingError};
+use crate::ports::{EventSource, InputFn};
+use crate::simulation::{
+    self, Address, EventKey, GlobalScheduler, Mailbox, SchedulingError, SourceId, SourceIdErased,
+};
 use crate::time::{Deadline, MonotonicTime};
 
-use super::{Model, ProtoModel};
+use super::{Model, ProtoModel, RegisteredModel};
 
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::channel::Receiver;
@@ -76,6 +82,7 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
+    pub env: M::Environment,
     name: String,
     scheduler: GlobalScheduler,
     address: Address<M>,
@@ -84,7 +91,12 @@ pub struct Context<M: Model> {
 
 impl<M: Model> Context<M> {
     /// Creates a new local context.
-    pub(crate) fn new(name: String, scheduler: GlobalScheduler, address: Address<M>) -> Self {
+    pub(crate) fn new(
+        name: String,
+        env: M::Environment,
+        scheduler: GlobalScheduler,
+        address: Address<M>,
+    ) -> Self {
         // The only requirement for the origin ID is that it must be (i)
         // specific to each model and (ii) different from 0 (which is reserved
         // for the global scheduler). The channel ID of the model mailbox
@@ -93,6 +105,7 @@ impl<M: Model> Context<M> {
 
         Self {
             name,
+            env,
             scheduler,
             address,
             origin_id,
@@ -143,19 +156,17 @@ impl<M: Model> Context<M> {
     ///
     /// impl Model for Timer {}
     /// ```
-    pub fn schedule_event<F, T, S>(
+    pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        input_id: InputId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         self.scheduler
-            .schedule_event_from(deadline, func, arg, &self.address, self.origin_id)
+            .schedule_event_from(deadline, input_id.into(), arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -200,22 +211,19 @@ impl<M: Model> Context<M> {
     ///
     /// impl Model for CancellableAlarmClock {}
     /// ```
-    pub fn schedule_keyed_event<F, T, S>(
+    pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        func: F,
+        input_id: InputId<M, T>,
         arg: T,
-    ) -> Result<ActionKey, SchedulingError>
+    ) -> Result<EventKey, SchedulingError>
     where
-        F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         let event_key = self.scheduler.schedule_keyed_event_from(
             deadline,
-            func,
+            input_id.into(),
             arg,
-            &self.address,
             self.origin_id,
         )?;
 
@@ -259,24 +267,21 @@ impl<M: Model> Context<M> {
     ///
     /// impl Model for BeepingAlarmClock {}
     /// ```
-    pub fn schedule_periodic_event<F, T, S>(
+    pub fn schedule_periodic_event<T>(
         &self,
         deadline: impl Deadline,
         period: Duration,
-        func: F,
+        input_id: InputId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         self.scheduler.schedule_periodic_event_from(
             deadline,
             period,
-            func,
+            input_id.into(),
             arg,
-            &self.address,
             self.origin_id,
         )
     }
@@ -331,24 +336,21 @@ impl<M: Model> Context<M> {
     ///
     /// impl Model for CancellableBeepingAlarmClock {}
     /// ```
-    pub fn schedule_keyed_periodic_event<F, T, S>(
+    pub fn schedule_keyed_periodic_event<T>(
         &self,
         deadline: impl Deadline,
         period: Duration,
-        func: F,
+        input_id: InputId<M, T>,
         arg: T,
-    ) -> Result<ActionKey, SchedulingError>
+    ) -> Result<EventKey, SchedulingError>
     where
-        F: for<'a> InputFn<'a, M, T, S> + Clone,
         T: Send + Clone + 'static,
-        S: Send + 'static,
     {
         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            func,
+            input_id.into(),
             arg,
-            &self.address,
             self.origin_id,
         )?;
 
@@ -448,7 +450,6 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///         mult
 ///     }
 /// }
-///
 /// ```
 #[derive(Debug)]
 pub struct BuildContext<'a, P: ProtoModel> {
@@ -457,7 +458,8 @@ pub struct BuildContext<'a, P: ProtoModel> {
     scheduler: &'a GlobalScheduler,
     executor: &'a Executor,
     abort_signal: &'a Signal,
-    model_names: &'a mut Vec<String>,
+    registered_models: &'a mut Vec<RegisteredModel>,
+    is_resumed: Arc<AtomicBool>,
 }
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
@@ -468,7 +470,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         scheduler: &'a GlobalScheduler,
         executor: &'a Executor,
         abort_signal: &'a Signal,
-        model_names: &'a mut Vec<String>,
+        registered_models: &'a mut Vec<RegisteredModel>,
+        is_resumed: Arc<AtomicBool>,
     ) -> Self {
         Self {
             mailbox,
@@ -476,7 +479,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             scheduler,
             executor,
             abort_signal,
-            model_names,
+            registered_models,
+            is_resumed,
         }
     }
 
@@ -493,6 +497,19 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
+    // TODO docs
+    pub fn register_input<F, T, S>(&self, func: F) -> InputId<P::Model, T>
+    where
+        F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        S: Send + Sync + 'static,
+    {
+        let mut source = EventSource::new();
+        source.connect(func, self.address().clone());
+        let source_id = self.scheduler.register_source(source);
+        InputId(source_id.0, PhantomData, PhantomData)
+    }
+
     /// Adds a sub-model to the simulation bench.
     ///
     /// The `name` argument needs not be unique. It is appended to that of the
@@ -501,12 +518,11 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// the dot character in the unqualified name is possible but discouraged.
     /// If an empty string is provided, it is replaced by the string
     /// `<unknown>`.
-    pub fn add_submodel<S: ProtoModel>(
-        &mut self,
-        model: S,
-        mailbox: Mailbox<S::Model>,
-        name: impl Into<String>,
-    ) {
+    pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: impl Into<String>)
+    where
+        S: ProtoModel,
+        <S as ProtoModel>::Model: Serialize + DeserializeOwned,
+    {
         let mut submodel_name = name.into();
         if submodel_name.is_empty() {
             submodel_name = String::from("<unknown>");
@@ -520,7 +536,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             self.scheduler.clone(),
             self.executor,
             self.abort_signal,
-            self.model_names,
+            self.registered_models,
+            self.is_resumed.clone(),
         );
     }
 }
@@ -535,5 +552,28 @@ impl<M: Model> Context<M> {
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
         )
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InputId<M, T>(usize, PhantomData<M>, PhantomData<T>);
+
+// Manual clone and copy impl. to not enforce bounds on M and T.
+impl<M, T> Clone for InputId<M, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<M, T> Copy for InputId<M, T> {}
+
+impl<M, T> From<InputId<M, T>> for SourceIdErased {
+    fn from(value: InputId<M, T>) -> Self {
+        Self(value.0)
+    }
+}
+
+impl<M, T> From<InputId<M, T>> for SourceId<T> {
+    fn from(value: InputId<M, T>) -> Self {
+        Self(value.0, PhantomData)
     }
 }

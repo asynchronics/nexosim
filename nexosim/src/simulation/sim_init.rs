@@ -1,18 +1,20 @@
 use std::fmt;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::{de::DeserializeOwned, Serialize};
+
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
-use crate::model::ProtoModel;
+use crate::model::{ProtoModel, RegisteredModel};
+use crate::ports::EventSource;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
-use crate::util::priority_queue::PriorityQueue;
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ExecutionError, GlobalScheduler, Mailbox, Scheduler, SchedulerQueue, Signal,
-    Simulation,
+    add_model, ExecutionError, GlobalScheduler, Mailbox, SchedulerQueue, Signal, Simulation,
+    SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -21,12 +23,15 @@ pub struct SimInit {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
+    is_resumed: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
-    model_names: Vec<String>,
+    registered_models: Vec<RegisteredModel>,
+    post_init_callback: Option<Box<dyn FnMut(&mut Simulation)>>,
+    post_restore_callback: Option<Box<dyn FnMut(&mut Simulation)>>,
 }
 
 impl SimInit {
@@ -63,15 +68,18 @@ impl SimInit {
 
         Self {
             executor,
-            scheduler_queue: Arc::new(Mutex::new(PriorityQueue::new())),
+            scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
+            is_resumed: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,
             observers: Vec::new(),
             abort_signal,
-            model_names: Vec::new(),
+            registered_models: Vec::new(),
+            post_init_callback: None,
+            post_restore_callback: None,
         }
     }
 
@@ -81,12 +89,16 @@ impl SimInit {
     /// the name is possible but discouraged as it can cause confusion with the
     /// fully qualified name of a submodel. If an empty string is provided, it
     /// is replaced by the string `<unknown>`.
-    pub fn add_model<P: ProtoModel>(
+    pub fn add_model<P>(
         mut self,
         model: P,
         mailbox: Mailbox<P::Model>,
         name: impl Into<String>,
-    ) -> Self {
+    ) -> Self
+    where
+        P: ProtoModel,
+        <P as ProtoModel>::Model: Serialize + DeserializeOwned,
+    {
         let mut name = name.into();
         if name.is_empty() {
             name = String::from("<unknown>");
@@ -106,7 +118,8 @@ impl SimInit {
             scheduler,
             &self.executor,
             &self.abort_signal,
-            &mut self.model_names,
+            &mut self.registered_models,
+            self.is_resumed.clone(),
         );
 
         self
@@ -150,16 +163,44 @@ impl SimInit {
         self
     }
 
+    pub fn with_post_init(mut self, callback: impl FnMut(&mut Simulation) + 'static) -> Self {
+        self.post_init_callback = Some(Box::new(callback));
+        self
+    }
+
+    pub fn with_post_restore(mut self, callback: impl FnMut(&mut Simulation) + 'static) -> Self {
+        self.post_restore_callback = Some(Box::new(callback));
+        self
+    }
+
+    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        self.scheduler_queue.lock().unwrap().registry.add(source)
+    }
+
+    fn build(self) -> Simulation {
+        Simulation::new(
+            self.executor,
+            self.scheduler_queue,
+            self.time,
+            self.clock,
+            self.clock_tolerance,
+            self.timeout,
+            self.observers,
+            self.registered_models,
+            self.is_halted,
+        )
+    }
+
     /// Builds a simulation initialized at the specified simulation time,
     /// executing the [`Model::init`](crate::model::Model::init) method on all
     /// model initializers.
     ///
     /// The simulation object and its associated scheduler are returned upon
     /// success.
-    pub fn init(
-        mut self,
-        start_time: MonotonicTime,
-    ) -> Result<(Simulation, Scheduler), ExecutionError> {
+    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, ExecutionError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
@@ -169,25 +210,31 @@ impl SimInit {
             }
         }
 
-        let scheduler = Scheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_halted.clone(),
-        );
-        let mut simulation = Simulation::new(
-            self.executor,
-            self.scheduler_queue,
-            self.time,
-            self.clock,
-            self.clock_tolerance,
-            self.timeout,
-            self.observers,
-            self.model_names,
-            self.is_halted,
-        );
+        let callback = self.post_init_callback.take();
+        let mut simulation = self.build();
+        if let Some(mut callback) = callback {
+            callback(&mut simulation);
+        }
         simulation.run()?;
 
-        Ok((simulation, scheduler))
+        Ok(simulation)
+    }
+
+    pub fn restore(mut self, state: &[u8]) -> Result<Simulation, ExecutionError> {
+        self.is_resumed.store(true, Ordering::Relaxed);
+
+        let callback = self.post_restore_callback.take();
+        let mut simulation = self.build();
+
+        simulation.restore_state(state)?;
+
+        if let Some(mut callback) = callback {
+            callback(&mut simulation);
+        }
+        // TODO should run?
+        simulation.run()?;
+
+        Ok(simulation)
     }
 }
 

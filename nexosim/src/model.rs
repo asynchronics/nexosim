@@ -330,25 +330,33 @@ impl<M: Model<Environment = ()>> ProtoModel for M {
 /// An internal helper struct used to handle simulation models.
 pub(crate) struct RegisteredModel {
     pub name: String,
-    pub serialize: Box<dyn FnOnce(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
-    pub deserialize: Box<
-        dyn FnOnce(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send,
-    >,
+    pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
+    pub deserialize:
+        Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
     pub fn new<M: Model + Serialize + DeserializeOwned>(name: String, address: Address<M>) -> Self {
-        let serialize_address = address.clone();
+        let ser_address = address.clone();
+        let de_address = address.clone();
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_query(serialize_model, (), serialize_address.clone())?
+            sim.process_query(serialize_model, (), &ser_address)?
         });
         let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
-            sim.process_query(deserialize_model, state, address)?
+            sim.process_query(deserialize_model, state, &de_address)?
         });
         Self {
             name,
             serialize,
             deserialize,
         }
+    }
+}
+
+impl std::fmt::Debug for RegisteredModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registered Model")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
     }
 }
 
@@ -365,9 +373,9 @@ async fn deserialize_model<M: Model + Serialize + DeserializeOwned>(
     let restored = PORT_REG
         .set(&Arc::new(Mutex::new(VecDeque::new())), || {
             EVENT_KEY_REG.set(&state.1, || {
-                if bincode::serde::encode_to_vec(&model, serialization_config()).is_err() {
-                    return Err(ExecutionError::SerializationError);
-                };
+                bincode::serde::encode_to_vec(&model, serialization_config())
+                    .map_err(|_| ExecutionError::SerializationError)?;
+
                 bincode::serde::decode_from_slice::<M, _>(&state.0, serialization_config())
                     .map_err(|_| ExecutionError::SerializationError)
             })

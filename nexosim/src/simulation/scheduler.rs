@@ -10,13 +10,13 @@ use std::time::Duration;
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
-use crate::ports::InputFn;
+use crate::ports::{EventSource, InputFn};
 use crate::simulation::events::{EventKey, ScheduledEvent, SchedulerSourceRegistry, SourceId};
-use crate::simulation::Address;
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
@@ -358,6 +358,15 @@ impl GlobalScheduler {
         // concurrently. The chances of this happening are very small since
         // simulation time is not changed frequently.
         self.time.read()
+    }
+
+    // TODO docs
+    pub(crate) fn register_source<T>(&self, source: EventSource<T>) -> SourceId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        let mut queue = self.scheduler_queue.lock().unwrap();
+        queue.registry.add(source)
     }
 
     /// Schedules an event identified by its origin at a future time.
