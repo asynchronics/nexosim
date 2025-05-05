@@ -203,7 +203,7 @@ use crate::ports::PORT_REG;
 use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
 use crate::util::serialization::serialization_config;
 
-pub use context::{BuildContext, Context};
+pub use context::{BuildContext, Context, InputId};
 
 mod context;
 

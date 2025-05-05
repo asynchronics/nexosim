@@ -557,8 +557,7 @@ impl Simulation {
     }
 
     /// Returns a scheduler handle.
-    #[cfg(feature = "server")]
-    pub(crate) fn scheduler(&self) -> Scheduler {
+    pub fn scheduler(&self) -> Scheduler {
         Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),

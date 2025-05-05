@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::model::Model;
 use crate::ports::InputFn;
 use crate::simulation::{
-    Action, ActionKey, Address, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
+    Action, Address, EventKey, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
 };
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
@@ -113,8 +113,8 @@ impl<T: Clone + Send + 'static> EventSource<T> {
 
     /// Returns a cancellable action and a cancellation key; when processed, the
     /// action broadcasts an event to all connected input ports.
-    pub fn keyed_event(&self, arg: T) -> (Action, ActionKey) {
-        let action_key = ActionKey::new();
+    pub fn keyed_event(&self, arg: T) -> (Action, EventKey) {
+        let action_key = EventKey::new();
         let fut = self.broadcaster.broadcast(arg);
 
         let action = Action::new(KeyedOnceAction::new(
@@ -149,8 +149,8 @@ impl<T: Clone + Send + 'static> EventSource<T> {
     /// Returns a cancellable, periodically recurring action and a cancellation
     /// key; when processed, the action broadcasts an event to all connected
     /// input ports.
-    pub fn keyed_periodic_event(self: &Arc<Self>, period: Duration, arg: T) -> (Action, ActionKey) {
-        let action_key = ActionKey::new();
+    pub fn keyed_periodic_event(self: &Arc<Self>, period: Duration, arg: T) -> (Action, EventKey) {
+        let action_key = EventKey::new();
         let source = self.clone();
 
         let action = Action::new(KeyedPeriodicAction::new(
@@ -174,7 +174,7 @@ impl<T: Clone + Send + 'static> EventSource<T> {
         let fut = self.broadcaster.broadcast(arg);
         async {
             fut.await.unwrap_or_throw();
-        };
+        }
     }
 }
 

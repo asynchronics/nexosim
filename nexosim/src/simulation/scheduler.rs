@@ -628,29 +628,29 @@ where
 /// action.
 pub(crate) struct KeyedOnceAction<G, F>
 where
-    G: (FnOnce(ActionKey) -> F) + Send + 'static,
+    G: (FnOnce(EventKey) -> F) + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     /// A generator for the associated future.
     gen: G,
     /// The event cancellation key.
-    event_key: ActionKey,
+    event_key: EventKey,
 }
 
 impl<G, F> KeyedOnceAction<G, F>
 where
-    G: (FnOnce(ActionKey) -> F) + Send + 'static,
+    G: (FnOnce(EventKey) -> F) + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     /// Constructs a new `KeyedOnceAction`.
-    pub(crate) fn new(gen: G, event_key: ActionKey) -> Self {
+    pub(crate) fn new(gen: G, event_key: EventKey) -> Self {
         Self { gen, event_key }
     }
 }
 
 impl<G, F> ActionInner for KeyedOnceAction<G, F>
 where
-    G: (FnOnce(ActionKey) -> F) + Send + 'static,
+    G: (FnOnce(EventKey) -> F) + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     fn is_cancelled(&self) -> bool {
@@ -671,7 +671,7 @@ where
 /// cancellable action.
 pub(crate) struct KeyedPeriodicAction<G, F>
 where
-    G: (FnOnce(ActionKey) -> F) + Clone + Send + 'static,
+    G: (FnOnce(EventKey) -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     /// A cloneable generator for associated future.
@@ -679,16 +679,16 @@ where
     /// The repetition period.
     period: Duration,
     /// The event cancellation key.
-    event_key: ActionKey,
+    event_key: EventKey,
 }
 
 impl<G, F> KeyedPeriodicAction<G, F>
 where
-    G: (FnOnce(ActionKey) -> F) + Clone + Send + 'static,
+    G: (FnOnce(EventKey) -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     /// Constructs a new `KeyedPeriodicAction`.
-    pub(crate) fn new(gen: G, period: Duration, event_key: ActionKey) -> Self {
+    pub(crate) fn new(gen: G, period: Duration, event_key: EventKey) -> Self {
         Self {
             gen,
             period,
@@ -699,7 +699,7 @@ where
 
 impl<G, F> ActionInner for KeyedPeriodicAction<G, F>
 where
-    G: (FnOnce(ActionKey) -> F) + Clone + Send + 'static,
+    G: (FnOnce(EventKey) -> F) + Clone + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     fn is_cancelled(&self) -> bool {
@@ -745,7 +745,7 @@ where
 
 /// Asynchronously sends a cancellable event to a model input.
 pub(crate) async fn send_keyed_event<M, F, T, S>(
-    event_key: ActionKey,
+    event_key: EventKey,
     func: F,
     arg: T,
     sender: Sender<M>,
