@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::any::{type_name, Any};
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -9,12 +9,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use recycle_box::{coerce_box, RecycleBox};
 use serde::de::Visitor;
 use serde::ser::SerializeTuple;
 use serde::{Deserialize, Serialize};
 
+use crate::channel::Sender;
 use crate::macros::scoped_thread_local::scoped_thread_local;
-use crate::ports::EventSource;
+use crate::model::Model;
+use crate::ports::{EventSource, InputFn};
+use crate::simulation::Address;
 use crate::util::serialization::serialization_config;
 
 use super::ExecutionError;
@@ -45,8 +49,11 @@ impl<T> From<SourceId<T>> for SourceIdErased {
 #[derive(Default)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
-    pub(crate) fn add<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    pub(crate) fn add<M, F, S, T>(&mut self, source: InputSource<M, F, S, T>) -> SourceId<T>
     where
+        M: Model,
+        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+        S: Send + Sync + 'static,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
         let source_id = SourceId(self.0.len(), PhantomData);
@@ -58,7 +65,7 @@ impl SchedulerSourceRegistry {
     }
 }
 
-pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + Sync + 'static {
+pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
     fn into_future(
@@ -66,6 +73,98 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + Sync + 'static {
         arg: &dyn Any,
         event_key: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+}
+
+pub(crate) struct InputSource<M, F, S, T>
+where
+    M: Model,
+    F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+    S: Send + Sync + 'static,
+    T: Clone + Send + 'static,
+{
+    sender: Sender<M>,
+    func: F,
+    _phantom: PhantomData<(T, S)>,
+}
+impl<M, F, S, T> InputSource<M, F, S, T>
+where
+    M: Model,
+    F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+    S: Send + Sync + 'static,
+    T: Clone + Send + 'static,
+{
+    pub fn new(func: F, address: impl Into<Address<M>>) -> Self {
+        let sender = address.into().0;
+
+        Self {
+            sender,
+            func,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<M, F, S, T> std::fmt::Debug for InputSource<M, F, S, T>
+where
+    M: Model,
+    F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+    S: Send + Sync + 'static,
+    T: Clone + Send + 'static,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Input source, T: {}", type_name::<T>())
+    }
+}
+
+impl<M, F, S, T> SchedulerEventSource for InputSource<M, F, S, T>
+where
+    M: Model,
+    F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+    S: Send + Sync + 'static,
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        let value = arg
+            .downcast_ref::<T>()
+            .ok_or(ExecutionError::SerializationError)?;
+        bincode::serde::encode_to_vec(value, serialization_config())
+            .map_err(|_| ExecutionError::SerializationError)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        Ok(Box::new(
+            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
+                .map_err(|_| ExecutionError::SerializationError)?
+                .0,
+        ))
+    }
+    fn into_future(
+        &self,
+        arg: &dyn Any,
+        event_key: Option<EventKey>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let arg = arg.downcast_ref::<T>().unwrap().clone();
+        let func = self.func.clone();
+        let sender = self.sender.clone();
+
+        let fut = async move {
+            sender
+                .send(
+                    move |model: &mut M, scheduler, recycle_box: RecycleBox<()>| {
+                        let fut = async {
+                            match event_key {
+                                Some(key) if key.is_cancelled() => (),
+                                _ => func.call(model, arg, scheduler).await,
+                            }
+                        };
+
+                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
+                    },
+                )
+                .await;
+        };
+
+        Box::pin(fut)
+    }
 }
 
 impl<T> SchedulerEventSource for EventSource<T>
@@ -89,12 +188,11 @@ where
     fn into_future(
         &self,
         arg: &dyn Any,
-        event_key: Option<EventKey>,
+        _: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         Box::pin(EventSource::into_future(
             self,
             arg.downcast_ref::<T>().unwrap().clone(),
-            event_key,
         ))
     }
 }

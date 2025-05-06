@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::executor::{Executor, Signal};
 use crate::ports::{EventSource, InputFn};
 use crate::simulation::{
-    self, Address, EventKey, GlobalScheduler, Mailbox, SchedulingError, SourceId, SourceIdErased,
+    self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulingError, SourceId,
+    SourceIdErased,
 };
 use crate::time::{Deadline, MonotonicTime};
 
@@ -504,8 +505,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
-        let mut source = EventSource::new();
-        source.connect(func, self.address().clone());
+        let source = InputSource::new(func, self.address().clone());
         let source_id = self.scheduler.register_source(source);
         InputId(source_id.0, PhantomData, PhantomData)
     }

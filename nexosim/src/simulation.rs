@@ -89,7 +89,7 @@ pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Action, Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
-pub(crate) use events::{EventKeyReg, SourceIdErased, EVENT_KEY_REG};
+pub(crate) use events::{EventKeyReg, InputSource, SourceIdErased, EVENT_KEY_REG};
 pub(crate) use scheduler::{process_event, send_keyed_event};
 
 use std::any::{Any, TypeId};

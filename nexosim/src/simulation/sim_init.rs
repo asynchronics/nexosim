@@ -13,8 +13,8 @@ use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, Tearabl
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, Address, ExecutionError, GlobalScheduler, Mailbox, SchedulerQueue, Signal,
-    Simulation, SourceId,
+    add_model, Address, ExecutionError, GlobalScheduler, InputSource, Mailbox, SchedulerQueue,
+    Signal, Simulation, SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -173,14 +173,6 @@ impl SimInit {
         self
     }
 
-    // TODO is this needed as a separate method?
-    pub fn register_event_source<T>(&self, source: EventSource<T>) -> SourceId<T>
-    where
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
-    {
-        self.scheduler_queue.lock().unwrap().registry.add(source)
-    }
-
     pub fn register_model_input<M, F, S, T>(
         &self,
         input: F,
@@ -192,9 +184,8 @@ impl SimInit {
         S: Send + Sync + 'static,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
-        let mut source = EventSource::new();
-        source.connect(input, address);
-        self.register_event_source(source)
+        let source = InputSource::new(input, address);
+        self.scheduler_queue.lock().unwrap().registry.add(source)
     }
 
     fn build(self) -> Simulation {
