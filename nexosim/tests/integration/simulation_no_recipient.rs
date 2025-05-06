@@ -88,18 +88,18 @@ fn no_replier_from_model(num_threads: usize) {
 fn no_input_from_scheduler(num_threads: usize) {
     let bad_mbox = Mailbox::new();
 
-    let mut src = EventSource::new();
-    src.connect(TestModel::activate_output, &bad_mbox);
-    let event = src.event(());
+    let t0 = MonotonicTime::EPOCH;
+    let bench = SimInit::with_num_threads(num_threads);
 
+    let input_id = bench.register_model_input(TestModel::activate_output, &bad_mbox);
     drop(bad_mbox);
 
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads).init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
 
-    // TODO
-    // scheduler.schedule(Duration::from_secs(1), event).unwrap();
+    scheduler
+        .schedule_event(Duration::from_secs(1), input_id, ())
+        .unwrap();
 
     match simu.step() {
         Err(ExecutionError::NoRecipient { model }) => {
