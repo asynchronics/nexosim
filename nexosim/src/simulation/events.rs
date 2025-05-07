@@ -20,6 +20,7 @@ use crate::model::Model;
 use crate::ports::{EventSource, InputFn};
 use crate::simulation::Address;
 use crate::util::serialization::serialization_config;
+use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
 use super::ExecutionError;
 
@@ -160,7 +161,8 @@ where
                         coerce_box!(RecycleBox::recycle(recycle_box, fut))
                     },
                 )
-                .await;
+                .await
+                .unwrap_or_throw();
         };
 
         Box::pin(fut)
