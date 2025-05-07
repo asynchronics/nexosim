@@ -89,8 +89,9 @@ pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Action, Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
-pub(crate) use events::{EventKeyReg, InputSource, SourceIdErased, EVENT_KEY_REG};
-pub(crate) use scheduler::{process_event, send_keyed_event};
+pub(crate) use events::{
+    EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased, EVENT_KEY_REG,
+};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -109,7 +110,8 @@ use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
 
-use scheduler::SchedulerQueue;
+use events::ScheduledEvent;
+use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
@@ -162,6 +164,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    scheduler_registry: SchedulerSourceRegistry,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -178,6 +181,7 @@ impl Simulation {
     pub(crate) fn new(
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+        scheduler_registry: SchedulerSourceRegistry,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
@@ -189,6 +193,7 @@ impl Simulation {
         Self {
             executor,
             scheduler_queue,
+            scheduler_registry,
             time,
             clock,
             clock_tolerance,
@@ -458,8 +463,8 @@ impl Simulation {
             let mut action_seq = SeqFuture::new();
             loop {
                 let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
-                let source = scheduler_queue
-                    .registry
+                let source = self
+                    .scheduler_registry
                     .get(&event.source_id)
                     .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
                 let fut = source.into_future(&*event.arg, event.key.as_ref().map(|a| a.clone()));
@@ -568,7 +573,7 @@ impl Simulation {
     }
 
     /// Requests and stores serialized state from the models
-    fn serialize_models(&mut self) -> Result<Vec<Vec<u8>>, ExecutionError> {
+    fn save_models(&mut self) -> Result<Vec<Vec<u8>>, ExecutionError> {
         // Temporarily move out of the simulation object.
         let models = self.registered_models.drain(..).collect::<Vec<_>>();
         let mut values = Vec::new();
@@ -594,12 +599,43 @@ impl Simulation {
         Ok(())
     }
 
+    fn save_queue(&self) -> Result<Vec<u8>, ExecutionError> {
+        let scheduler_queue = self.scheduler_queue.lock().unwrap();
+        let queue = scheduler_queue
+            .iter()
+            .map(|(k, v)| match v.serialize(&self.scheduler_registry) {
+                Ok(v) => Ok((*k, v)),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<Vec<_>, ExecutionError>>()?;
+
+        bincode::serde::encode_to_vec(&queue, serialization_config())
+            .map_err(|_| ExecutionError::SerializationError)
+    }
+
+    fn restore_queue(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
+        let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
+            bincode::serde::decode_from_slice(state, serialization_config())
+                .map_err(|_| ExecutionError::SerializationError)?
+                .0;
+
+        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+        scheduler_queue.clear();
+
+        for entry in deserialized {
+            scheduler_queue.insert(
+                entry.0,
+                ScheduledEvent::deserialize(&entry.1, &self.scheduler_registry)?,
+            );
+        }
+        Ok(())
+    }
     /// Serialize simulation state to bytes.
-    pub fn serialize_state(&mut self) -> Result<Vec<u8>, ExecutionError> {
+    pub fn save(&mut self) -> Result<Vec<u8>, ExecutionError> {
         // TODO should call halt first?
         let state = SimulationState {
-            models: self.serialize_models()?,
-            scheduler_queue: self.scheduler_queue.lock().unwrap().serialize()?,
+            models: self.save_models()?,
+            scheduler_queue: self.save_queue()?,
             time: self.time(),
         };
         bincode::serde::encode_to_vec(state, serialization_config())
@@ -607,7 +643,7 @@ impl Simulation {
     }
 
     /// Restore simulation's state from serialized data.
-    pub(crate) fn restore_state(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
+    pub(crate) fn restore(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
         let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
         EVENT_KEY_REG.set(&event_key_reg, || {
             let state: SimulationState =
@@ -617,10 +653,7 @@ impl Simulation {
 
             self.time.write(state.time);
             self.restore_models(state.models, &event_key_reg)?;
-            self.scheduler_queue
-                .lock()
-                .unwrap()
-                .restore(&state.scheduler_queue);
+            self.restore_queue(&state.scheduler_queue)?;
             Ok(())
         })?;
         Ok(())
@@ -862,6 +895,7 @@ pub(crate) fn add_model<P>(
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
+    scheduler_registry: &mut SchedulerSourceRegistry,
     executor: &Executor,
     abort_signal: &Signal,
     registered_models: &mut Vec<RegisteredModel>,
@@ -877,6 +911,7 @@ pub(crate) fn add_model<P>(
         &mailbox,
         &name,
         &scheduler,
+        scheduler_registry,
         executor,
         abort_signal,
         registered_models,

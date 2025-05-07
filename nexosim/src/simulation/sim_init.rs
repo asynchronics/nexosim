@@ -14,13 +14,14 @@ use crate::util::sync_cell::SyncCell;
 
 use super::{
     add_model, Address, ExecutionError, GlobalScheduler, InputSource, Mailbox, SchedulerQueue,
-    Signal, Simulation, SourceId,
+    SchedulerSourceRegistry, Signal, Simulation, SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    scheduler_registry: SchedulerSourceRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
     is_resumed: Arc<AtomicBool>,
@@ -69,6 +70,7 @@ impl SimInit {
         Self {
             executor,
             scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
+            scheduler_registry: SchedulerSourceRegistry::default(),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
             is_resumed: Arc::new(AtomicBool::new(false)),
@@ -116,6 +118,7 @@ impl SimInit {
             mailbox,
             name,
             scheduler,
+            &mut self.scheduler_registry,
             &self.executor,
             &self.abort_signal,
             &mut self.registered_models,
@@ -174,7 +177,7 @@ impl SimInit {
     }
 
     pub fn register_model_input<M, F, S, T>(
-        &self,
+        &mut self,
         input: F,
         address: impl Into<Address<M>>,
     ) -> SourceId<T>
@@ -185,13 +188,14 @@ impl SimInit {
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
         let source = InputSource::new(input, address);
-        self.scheduler_queue.lock().unwrap().registry.add(source)
+        self.scheduler_registry.add(source)
     }
 
     fn build(self) -> Simulation {
         Simulation::new(
             self.executor,
             self.scheduler_queue,
+            self.scheduler_registry,
             self.time,
             self.clock,
             self.clock_tolerance,
@@ -234,7 +238,7 @@ impl SimInit {
         let callback = self.post_restore_callback.take();
         let mut simulation = self.build();
 
-        simulation.restore_state(state)?;
+        simulation.restore(state)?;
 
         if let Some(mut callback) = callback {
             callback(&mut simulation);

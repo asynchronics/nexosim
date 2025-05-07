@@ -47,7 +47,7 @@ impl<T> From<SourceId<T>> for SourceIdErased {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
     pub(crate) fn add<M, F, S, T>(&mut self, source: InputSource<M, F, S, T>) -> SourceId<T>

@@ -272,62 +272,7 @@ impl fmt::Debug for Action {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub(crate) struct SchedulerQueue {
-    inner: PriorityQueue<SchedulerKey, ScheduledEvent>,
-    pub(crate) registry: SchedulerSourceRegistry,
-}
-impl SchedulerQueue {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: PriorityQueue::new(),
-            registry: SchedulerSourceRegistry::default(),
-        }
-    }
-
-    pub(crate) fn insert(&mut self, key: SchedulerKey, event: ScheduledEvent) {
-        self.inner.insert(key, event);
-    }
-
-    pub(crate) fn peek(&self) -> Option<(&SchedulerKey, &ScheduledEvent)> {
-        self.inner.peek()
-    }
-
-    pub(crate) fn pull(&mut self) -> Option<(SchedulerKey, ScheduledEvent)> {
-        self.inner.pull()
-    }
-
-    pub(crate) fn serialize(&self) -> Result<Vec<u8>, ExecutionError> {
-        let queue = self
-            .inner
-            .iter()
-            .map(|(k, v)| match v.serialize(&self.registry) {
-                Ok(v) => Ok((*k, v)),
-                Err(e) => Err(e),
-            })
-            .collect::<Result<Vec<_>, ExecutionError>>()?;
-
-        bincode::serde::encode_to_vec(&queue, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
-    }
-
-    pub(crate) fn restore(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
-        let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
-            bincode::serde::decode_from_slice(state, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
-                .0;
-
-        self.inner.clear();
-
-        for entry in deserialized {
-            self.inner.insert(
-                entry.0,
-                ScheduledEvent::deserialize(&entry.1, &self.registry)?,
-            );
-        }
-
-        Ok(())
-    }
-}
+pub type SchedulerQueue = PriorityQueue<SchedulerKey, ScheduledEvent>;
 
 pub(crate) type SchedulerKey = (MonotonicTime, usize);
 
@@ -360,18 +305,6 @@ impl GlobalScheduler {
         // concurrently. The chances of this happening are very small since
         // simulation time is not changed frequently.
         self.time.read()
-    }
-
-    // TODO docs
-    pub(crate) fn register_source<M, F, S, T>(&self, source: InputSource<M, F, S, T>) -> SourceId<T>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
-        S: Send + Sync + 'static,
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
-    {
-        let mut queue = self.scheduler_queue.lock().unwrap();
-        queue.registry.add(source)
     }
 
     /// Schedules an event identified by its origin at a future time.

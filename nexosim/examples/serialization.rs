@@ -100,7 +100,7 @@ fn main() {
     assert_eq!(message.next(), Some(3));
 
     // Store state after one step.
-    let state = simu.serialize_state().unwrap();
+    let state = simu.save().unwrap();
 
     // Execute two more steps.
     simu.step().unwrap();

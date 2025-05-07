@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::executor::{Executor, Signal};
 use crate::ports::{EventSource, InputFn};
 use crate::simulation::{
-    self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulingError, SourceId,
-    SourceIdErased,
+    self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulerSourceRegistry,
+    SchedulingError, SourceId, SourceIdErased,
 };
 use crate::time::{Deadline, MonotonicTime};
 
@@ -457,6 +457,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     mailbox: &'a Mailbox<P::Model>,
     name: &'a String,
     scheduler: &'a GlobalScheduler,
+    scheduler_registry: &'a mut SchedulerSourceRegistry,
     executor: &'a Executor,
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
@@ -469,6 +470,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         mailbox: &'a Mailbox<P::Model>,
         name: &'a String,
         scheduler: &'a GlobalScheduler,
+        scheduler_registry: &'a mut SchedulerSourceRegistry,
         executor: &'a Executor,
         abort_signal: &'a Signal,
         registered_models: &'a mut Vec<RegisteredModel>,
@@ -478,6 +480,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             mailbox,
             name,
             scheduler,
+            scheduler_registry,
             executor,
             abort_signal,
             registered_models,
@@ -499,14 +502,14 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     // TODO docs
-    pub fn register_input<F, T, S>(&self, func: F) -> InputId<P::Model, T>
+    pub fn register_input<F, T, S>(&mut self, func: F) -> InputId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        let source_id = self.scheduler.register_source(source);
+        let source_id = self.scheduler_registry.add(source);
         InputId(source_id.0, PhantomData, PhantomData)
     }
 
@@ -534,6 +537,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             mailbox,
             submodel_name,
             self.scheduler.clone(),
+            &mut self.scheduler_registry,
             self.executor,
             self.abort_signal,
             self.registered_models,
