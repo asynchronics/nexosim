@@ -333,11 +333,18 @@ impl RegisteredModel {
     pub fn new<M: Model>(name: String, address: Address<M>) -> Self {
         let ser_address = address.clone();
         let de_address = address.clone();
+        let ser_name = name.clone();
+        let de_name = name.clone();
+
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_query(serialize_model, (), &ser_address)?
+            sim.process_query(serialize_model, ser_name.clone(), &ser_address)?
         });
         let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
-            sim.process_query(deserialize_model, state, &de_address)?
+            sim.process_query(
+                deserialize_model,
+                (state.0, state.1, de_name.clone()),
+                &de_address,
+            )?
         });
         Self {
             name,
@@ -355,26 +362,34 @@ impl std::fmt::Debug for RegisteredModel {
     }
 }
 
-async fn serialize_model<M: Model>(model: &mut M) -> Result<Vec<u8>, ExecutionError> {
+async fn serialize_model<M: Model>(model: &mut M, name: String) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config())
-        .map_err(|_| ExecutionError::SaveError(format!("Model {}", type_name::<M>())))
+        .map_err(|_| ExecutionError::SaveError(format!("Model: {} ({})", name, type_name::<M>())))
 }
 
 async fn deserialize_model<M: Model>(
     model: &mut M,
-    state: (Vec<u8>, EventKeyReg),
+    state: (Vec<u8>, EventKeyReg, String),
     cx: &mut Context<M>,
 ) -> Result<(), ExecutionError> {
     let restored = PORT_REG
         .set(&Arc::new(Mutex::new(VecDeque::new())), || {
             EVENT_KEY_REG.set(&state.1, || {
                 bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|_| {
-                    ExecutionError::RestoreError(format!("Model {}", type_name::<M>()))
+                    ExecutionError::RestoreError(format!(
+                        "Model: {} ({})",
+                        state.2,
+                        type_name::<M>()
+                    ))
                 })?;
 
                 bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
                     .map_err(|_| {
-                        ExecutionError::RestoreError(format!("Model {}", type_name::<M>()))
+                        ExecutionError::RestoreError(format!(
+                            "Model: {} ({})",
+                            state.2,
+                            type_name::<M>()
+                        ))
                     })
             })
         })?
