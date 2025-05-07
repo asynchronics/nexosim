@@ -902,7 +902,6 @@ pub(crate) fn add_model<P>(
     is_resumed: Arc<AtomicBool>,
 ) where
     P: ProtoModel,
-    for<'de> <P as ProtoModel>::Model: Serialize + Deserialize<'de>,
 {
     #[cfg(feature = "tracing")]
     let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", name);

@@ -218,7 +218,7 @@ mod context;
 /// The `init` function converts the model to the opaque `InitializedModel` type
 /// to prevent an already initialized model from being added to the simulation
 /// bench.
-pub trait Model: Sized + Send + 'static {
+pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static {
     /// TODO
     type Environment: Send + 'static;
 
@@ -335,10 +335,7 @@ pub(crate) struct RegisteredModel {
         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
-    pub fn new<M>(name: String, address: Address<M>) -> Self
-    where
-        for<'de> M: Model + Serialize + Deserialize<'de>,
-    {
+    pub fn new<M: Model>(name: String, address: Address<M>) -> Self {
         let ser_address = address.clone();
         let de_address = address.clone();
         let serialize = Box::new(move |sim: &mut Simulation| {
@@ -363,19 +360,16 @@ impl std::fmt::Debug for RegisteredModel {
     }
 }
 
-async fn serialize_model<M: Serialize>(model: &mut M) -> Result<Vec<u8>, ExecutionError> {
+async fn serialize_model<M: Model>(model: &mut M) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config())
         .map_err(|_| ExecutionError::SerializationError)
 }
 
-async fn deserialize_model<M>(
+async fn deserialize_model<M: Model>(
     model: &mut M,
     state: (Vec<u8>, EventKeyReg),
     cx: &mut Context<M>,
-) -> Result<(), ExecutionError>
-where
-    for<'de> M: Model + Serialize + Deserialize<'de>,
-{
+) -> Result<(), ExecutionError> {
     let restored = PORT_REG
         .set(&Arc::new(Mutex::new(VecDeque::new())), || {
             EVENT_KEY_REG.set(&state.1, || {

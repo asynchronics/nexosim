@@ -99,7 +99,6 @@ impl SimInit {
     ) -> Self
     where
         P: ProtoModel,
-        for<'de> <P as ProtoModel>::Model: Serialize + Deserialize<'de>,
     {
         let mut name = name.into();
         if name.is_empty() {

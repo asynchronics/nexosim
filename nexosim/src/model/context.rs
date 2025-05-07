@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::executor::{Executor, Signal};
-use crate::ports::{EventSource, InputFn};
+use crate::ports::InputFn;
 use crate::simulation::{
     self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulerSourceRegistry,
     SchedulingError, SourceId, SourceIdErased,
@@ -523,7 +523,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: impl Into<String>)
     where
         S: ProtoModel,
-        for<'de> <S as ProtoModel>::Model: Serialize + Deserialize<'de>,
     {
         let mut submodel_name = name.into();
         if submodel_name.is_empty() {
