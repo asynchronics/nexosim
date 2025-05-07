@@ -22,10 +22,10 @@ impl RecurringModel {
     }
 }
 impl Model for RecurringModel {
-    type Environment = ();
+    type Env = ();
 
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        cx.schedule_periodic_event(self.delay, self.delay, self.input, ())
+        cx.schedule_periodic_event(self.delay, self.delay, &self.input, ())
             .unwrap();
 
         self.into()
@@ -46,10 +46,7 @@ impl ProtoRecurring {
 impl ProtoModel for ProtoRecurring {
     type Model = RecurringModel;
 
-    fn build(
-        self,
-        cx: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         let input = cx.register_input(RecurringModel::process);
         (
             RecurringModel {

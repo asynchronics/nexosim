@@ -30,7 +30,7 @@ impl MyModel {
 }
 
 impl Model for MyModel {
-    type Environment = ();
+    type Env = ();
 
     async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         self.value = 2;
@@ -57,10 +57,7 @@ struct MyProto {
 impl ProtoModel for MyProto {
     type Model = MyModel;
 
-    fn build(
-        self,
-        cx: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         let input_id = cx.register_input(MyModel::process);
         (
             MyModel {

@@ -92,7 +92,7 @@ impl Motor {
 }
 
 impl Model for Motor {
-    type Environment = ();
+    type Env = ();
     /// Broadcasts the initial position of the motor.
     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.position.send(self.pos).await;
@@ -119,7 +119,7 @@ impl ProtoModel for ProtoDriver {
     fn build(
         self,
         cx: &mut nexosim::model::BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
         let input_id = cx.register_input(Driver::send_pulse);
         (Driver::new(self.current, self.current_out, input_id), ())
     }
@@ -214,7 +214,7 @@ impl Driver {
 }
 
 impl Model for Driver {
-    type Environment = ();
+    type Env = ();
 }
 
 #[allow(dead_code)]

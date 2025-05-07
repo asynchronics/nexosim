@@ -24,7 +24,7 @@ impl TestModel {
     }
 }
 impl Model for TestModel {
-    type Environment = TestEnv;
+    type Env = TestEnv;
 }
 
 struct TestEnv {
@@ -44,10 +44,7 @@ struct TestProto {
 impl ProtoModel for TestProto {
     type Model = TestModel;
 
-    fn build(
-        self,
-        cx: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         (
             TestModel {
                 output: self.output,

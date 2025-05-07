@@ -25,7 +25,7 @@ impl TestModel {
     }
 }
 impl Model for TestModel {
-    type Environment = ();
+    type Env = ();
 }
 
 /// Send an event from a model to a dead input.
@@ -89,7 +89,7 @@ fn no_input_from_scheduler(num_threads: usize) {
     let bad_mbox = Mailbox::new();
 
     let t0 = MonotonicTime::EPOCH;
-    let bench = SimInit::with_num_threads(num_threads);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
     let source_id = bench.register_model_input(TestModel::activate_output, &bad_mbox);
     drop(bad_mbox);
@@ -98,7 +98,7 @@ fn no_input_from_scheduler(num_threads: usize) {
     let scheduler = simu.scheduler();
 
     scheduler
-        .schedule_event(Duration::from_secs(1), source_id, ())
+        .schedule_event(Duration::from_secs(1), &source_id, ())
         .unwrap();
 
     match simu.step() {

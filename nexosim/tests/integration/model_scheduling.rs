@@ -19,7 +19,7 @@ fn model_schedule_event(num_threads: usize) {
     }
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
-            cx.schedule_event(Duration::from_secs(2), self.input, ())
+            cx.schedule_event(Duration::from_secs(2), &self.input, ())
                 .unwrap();
         }
         async fn action(&mut self) {
@@ -27,7 +27,7 @@ fn model_schedule_event(num_threads: usize) {
         }
     }
     impl Model for TestModel {
-        type Environment = ();
+        type Env = ();
     }
 
     #[derive(Default)]
@@ -37,10 +37,7 @@ fn model_schedule_event(num_threads: usize) {
     impl ProtoModel for ProtoTest {
         type Model = TestModel;
 
-        fn build(
-            self,
-            cx: &mut BuildContext<Self>,
-        ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
             let input = cx.register_input(TestModel::action);
             (
                 TestModel {
@@ -84,10 +81,10 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     }
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
-            cx.schedule_event(Duration::from_secs(1), self.input_1, ())
+            cx.schedule_event(Duration::from_secs(1), &self.input_1, ())
                 .unwrap();
             self.key = cx
-                .schedule_keyed_event(Duration::from_secs(2), self.input_1, ())
+                .schedule_keyed_event(Duration::from_secs(2), &self.input_1, ())
                 .ok();
         }
         async fn action1(&mut self) {
@@ -100,7 +97,7 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
         }
     }
     impl Model for TestModel {
-        type Environment = ();
+        type Env = ();
     }
 
     #[derive(Default)]
@@ -110,10 +107,7 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     impl ProtoModel for ProtoTest {
         type Model = TestModel;
 
-        fn build(
-            self,
-            cx: &mut BuildContext<Self>,
-        ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
             let input_1 = cx.register_input(TestModel::action1);
             let input_2 = cx.register_input(TestModel::action2);
             (
@@ -161,10 +155,10 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     }
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
-            cx.schedule_event(Duration::from_secs(2), self.input_1, ())
+            cx.schedule_event(Duration::from_secs(2), &self.input_1, ())
                 .unwrap();
             self.key = cx
-                .schedule_keyed_event(Duration::from_secs(2), self.input_2, ())
+                .schedule_keyed_event(Duration::from_secs(2), &self.input_2, ())
                 .ok();
         }
         async fn action1(&mut self) {
@@ -180,7 +174,7 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
         }
     }
     impl Model for TestModel {
-        type Environment = ();
+        type Env = ();
     }
 
     #[derive(Default)]
@@ -190,10 +184,7 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     impl ProtoModel for ProtoTest {
         type Model = TestModel;
 
-        fn build(
-            self,
-            cx: &mut BuildContext<Self>,
-        ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
             let input_1 = cx.register_input(TestModel::action1);
             let input_2 = cx.register_input(TestModel::action2);
             (
@@ -242,7 +233,7 @@ fn model_schedule_periodic_event(num_threads: usize) {
             cx.schedule_periodic_event(
                 Duration::from_secs(2),
                 Duration::from_secs(3),
-                self.input,
+                &self.input,
                 42,
             )
             .unwrap();
@@ -252,7 +243,7 @@ fn model_schedule_periodic_event(num_threads: usize) {
         }
     }
     impl Model for TestModel {
-        type Environment = ();
+        type Env = ();
     }
 
     #[derive(Default)]
@@ -262,10 +253,7 @@ fn model_schedule_periodic_event(num_threads: usize) {
     impl ProtoModel for ProtoTest {
         type Model = TestModel;
 
-        fn build(
-            self,
-            cx: &mut BuildContext<Self>,
-        ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
             let input = cx.register_input(TestModel::action);
             (
                 TestModel {
@@ -318,7 +306,7 @@ fn model_cancel_periodic_event(num_threads: usize) {
                 .schedule_keyed_periodic_event(
                     Duration::from_secs(2),
                     Duration::from_secs(3),
-                    self.input,
+                    &self.input,
                     (),
                 )
                 .ok();
@@ -330,7 +318,7 @@ fn model_cancel_periodic_event(num_threads: usize) {
         }
     }
     impl Model for TestModel {
-        type Environment = ();
+        type Env = ();
     }
 
     #[derive(Default)]
@@ -340,10 +328,7 @@ fn model_cancel_periodic_event(num_threads: usize) {
     impl ProtoModel for ProtoTest {
         type Model = TestModel;
 
-        fn build(
-            self,
-            cx: &mut BuildContext<Self>,
-        ) -> (Self::Model, <Self::Model as Model>::Environment) {
+        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
             let input = cx.register_input(TestModel::action);
             (
                 TestModel {

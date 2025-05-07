@@ -19,7 +19,7 @@ impl TestModel {
     }
 }
 impl Model for TestModel {
-    type Environment = ();
+    type Env = ();
 }
 
 // Schedule `TestModel::block_for` at the required ticks, blocking each time for
@@ -43,7 +43,7 @@ fn clock_sync(
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let bench = SimInit::with_num_threads(num_threads)
+    let mut bench = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "test")
         .set_clock(clock)
         .set_clock_tolerance(clock_tolerance);
@@ -61,7 +61,7 @@ fn clock_sync(
             delta = tick;
         }
         scheduler
-            .schedule_event(tick, source_id, block_time)
+            .schedule_event(tick, &source_id, block_time)
             .unwrap();
     }
 

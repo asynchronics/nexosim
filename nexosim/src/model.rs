@@ -220,7 +220,7 @@ mod context;
 /// bench.
 pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static {
     /// TODO
-    type Environment: Send + 'static;
+    type Env: Send + 'static;
 
     /// Performs asynchronous model initialization.
     ///
@@ -308,21 +308,15 @@ pub trait ProtoModel: Sized {
     /// This method is invoked when the
     /// [`SimInit::add_model`](crate::simulation::SimInit::add_model) or
     /// [`BuildContext::add_submodel`] method are called.
-    fn build(
-        self,
-        cx: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment);
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env);
 }
 
 // Every model can be used as a prototype for itself,
 // if it's environment is empty.
-impl<M: Model<Environment = ()>> ProtoModel for M {
+impl<M: Model<Env = ()>> ProtoModel for M {
     type Model = Self;
 
-    fn build(
-        self,
-        _: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    fn build(self, _: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         (self, ())
     }
 }

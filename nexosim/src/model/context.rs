@@ -83,7 +83,7 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
-    pub env: M::Environment,
+    env: M::Env,
     name: String,
     scheduler: GlobalScheduler,
     address: Address<M>,
@@ -94,7 +94,7 @@ impl<M: Model> Context<M> {
     /// Creates a new local context.
     pub(crate) fn new(
         name: String,
-        env: M::Environment,
+        env: M::Env,
         scheduler: GlobalScheduler,
         address: Address<M>,
     ) -> Self {
@@ -124,6 +124,11 @@ impl<M: Model> Context<M> {
     /// Returns the current simulation time.
     pub fn time(&self) -> MonotonicTime {
         self.scheduler.time()
+    }
+
+    /// Returns a mutable reference to model's env.
+    pub fn env(&mut self) -> &mut M::Env {
+        &mut self.env
     }
 
     /// Schedules an event at a future time on this model.
@@ -545,7 +550,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
-impl<M: Model<Environment = ()>> Context<M> {
+impl<M: Model<Env = ()>> Context<M> {
     /// Creates a dummy context for testing purposes.
     pub(crate) fn new_dummy() -> Self {
         let dummy_address = Receiver::new(1).sender();

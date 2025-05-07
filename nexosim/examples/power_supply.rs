@@ -69,7 +69,7 @@ impl PowerSupply {
 }
 
 impl Model for PowerSupply {
-    type Environment = ();
+    type Env = ();
 }
 
 /// Power supply.
@@ -104,7 +104,7 @@ impl Load {
 }
 
 impl Model for Load {
-    type Environment = ();
+    type Env = ();
 }
 
 fn main() -> Result<(), SimulationError> {

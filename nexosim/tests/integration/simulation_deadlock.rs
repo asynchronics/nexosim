@@ -23,7 +23,7 @@ impl TestModel {
     }
 }
 impl Model for TestModel {
-    type Environment = ();
+    type Env = ();
 }
 
 /// Overflows a mailbox by sending 2 messages in loopback for each incoming
