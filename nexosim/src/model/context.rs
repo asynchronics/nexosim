@@ -509,8 +509,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        let source_id = self.scheduler_registry.add(source);
-        InputId(source_id.0, PhantomData, PhantomData)
+        self.scheduler_registry.add(source).into()
     }
 
     /// Adds a sub-model to the simulation bench.
@@ -591,5 +590,11 @@ impl<M, T> From<InputId<M, T>> for SourceId<T> {
 impl<M, T> From<&InputId<M, T>> for SourceId<T> {
     fn from(value: &InputId<M, T>) -> Self {
         Self(value.0, PhantomData)
+    }
+}
+
+impl<M, T> From<SourceId<T>> for InputId<M, T> {
+    fn from(value: SourceId<T>) -> Self {
+        Self(value.0, PhantomData, PhantomData)
     }
 }

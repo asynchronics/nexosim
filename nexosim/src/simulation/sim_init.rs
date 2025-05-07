@@ -176,6 +176,13 @@ impl SimInit {
         self
     }
 
+    pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    where
+        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    {
+        self.scheduler_registry.add(source)
+    }
+
     pub fn register_model_input<M, F, S, T>(
         &mut self,
         input: F,

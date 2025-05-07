@@ -56,11 +56,8 @@ impl<T> From<&SourceId<T>> for SourceIdErased {
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
-    pub(crate) fn add<M, F, S, T>(&mut self, source: InputSource<M, F, S, T>) -> SourceId<T>
+    pub(crate) fn add<T>(&mut self, source: impl TypedEventSource<T>) -> SourceId<T>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
-        S: Send + Sync + 'static,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
         let source_id = SourceId(self.0.len(), PhantomData);
@@ -81,6 +78,8 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
         event_key: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
+
+pub(crate) trait TypedEventSource<T>: SchedulerEventSource {}
 
 pub(crate) struct InputSource<M, F, S, T>
 where
@@ -123,6 +122,14 @@ where
     }
 }
 
+impl<M, F, S, T> TypedEventSource<T> for InputSource<M, F, S, T>
+where
+    M: Model,
+    F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+    S: Send + Sync + 'static,
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+{
+}
 impl<M, F, S, T> SchedulerEventSource for InputSource<M, F, S, T>
 where
     M: Model,
@@ -175,6 +182,11 @@ where
     }
 }
 
+impl<T> TypedEventSource<T> for EventSource<T> where
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
+{
+}
+
 impl<T> SchedulerEventSource for EventSource<T>
 where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
@@ -205,6 +217,10 @@ where
     }
 }
 
+impl<T> TypedEventSource<T> for Arc<EventSource<T>> where
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
+{
+}
 impl<T> SchedulerEventSource for Arc<EventSource<T>>
 where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
