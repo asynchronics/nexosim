@@ -207,7 +207,7 @@ impl Driver {
             let pulse_duration = Duration::from_secs_f64(1.0 / self.pps.abs());
 
             // Schedule the next pulse.
-            cx.schedule_event(pulse_duration, self.pulse_input_id, ())
+            cx.schedule_event(pulse_duration, &self.pulse_input_id, ())
                 .unwrap();
         }
     }
@@ -267,7 +267,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(Duration::from_secs(2), pulse_rate_source_id, 10.0)
+        .schedule_event(Duration::from_secs(2), &pulse_rate_source_id, 10.0)
         .unwrap();
 
     // Advance simulation time to two next events.

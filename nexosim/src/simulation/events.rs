@@ -47,6 +47,12 @@ impl<T> From<SourceId<T>> for SourceIdErased {
     }
 }
 
+impl<T> From<&SourceId<T>> for SourceIdErased {
+    fn from(value: &SourceId<T>) -> Self {
+        Self(value.0)
+    }
+}
+
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
@@ -228,7 +234,7 @@ pub(crate) struct ScheduledEvent {
     pub key: Option<EventKey>,
 }
 impl ScheduledEvent {
-    pub(crate) fn new<T: Send + 'static>(source_id: SourceId<T>, arg: T) -> Self {
+    pub(crate) fn new<T: Send + 'static>(source_id: &SourceId<T>, arg: T) -> Self {
         Self {
             source_id: source_id.into(),
             arg: Box::new(arg),

@@ -10,23 +10,17 @@ use std::time::Duration;
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{Deserialize, Serialize};
 
 use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::events::{
-    EventKey, InputSource, ScheduledEvent, SchedulerSourceRegistry, SourceId,
-};
+use crate::simulation::events::{EventKey, ScheduledEvent, SourceId};
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
-use crate::util::serialization::serialization_config;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
-
-use super::ExecutionError;
 
 // Usize::MAX - 1 is used as plain usize::MAX is used e.g. to mark a missing
 // ModelId.
@@ -75,7 +69,7 @@ impl Scheduler {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -95,7 +89,7 @@ impl Scheduler {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -116,7 +110,7 @@ impl Scheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -143,7 +137,7 @@ impl Scheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -311,7 +305,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
@@ -338,7 +332,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<EventKey, SchedulingError>
@@ -368,7 +362,7 @@ impl GlobalScheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
@@ -400,7 +394,7 @@ impl GlobalScheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<EventKey, SchedulingError>

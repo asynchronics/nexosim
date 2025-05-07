@@ -160,14 +160,14 @@ impl<M: Model> Context<M> {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
         T: Send + Clone + 'static,
     {
         self.scheduler
-            .schedule_event_from(deadline, input_id.into(), arg, self.origin_id)
+            .schedule_event_from(deadline, &input_id.into(), arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -215,7 +215,7 @@ impl<M: Model> Context<M> {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -223,7 +223,7 @@ impl<M: Model> Context<M> {
     {
         let event_key = self.scheduler.schedule_keyed_event_from(
             deadline,
-            input_id.into(),
+            &input_id.into(),
             arg,
             self.origin_id,
         )?;
@@ -272,7 +272,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -281,7 +281,7 @@ impl<M: Model> Context<M> {
         self.scheduler.schedule_periodic_event_from(
             deadline,
             period,
-            input_id.into(),
+            &input_id.into(),
             arg,
             self.origin_id,
         )
@@ -341,7 +341,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -350,7 +350,7 @@ impl<M: Model> Context<M> {
         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            input_id.into(),
+            &input_id.into(),
             arg,
             self.origin_id,
         )?;
@@ -576,9 +576,20 @@ impl<M, T> From<InputId<M, T>> for SourceIdErased {
         Self(value.0)
     }
 }
+impl<M, T> From<&InputId<M, T>> for SourceIdErased {
+    fn from(value: &InputId<M, T>) -> Self {
+        Self(value.0)
+    }
+}
 
 impl<M, T> From<InputId<M, T>> for SourceId<T> {
     fn from(value: InputId<M, T>) -> Self {
+        Self(value.0, PhantomData)
+    }
+}
+
+impl<M, T> From<&InputId<M, T>> for SourceId<T> {
+    fn from(value: &InputId<M, T>) -> Self {
         Self(value.0, PhantomData)
     }
 }

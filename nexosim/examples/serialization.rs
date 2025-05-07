@@ -37,13 +37,13 @@ impl Model for MyModel {
         cx.schedule_periodic_event(
             Duration::from_secs(2),
             Duration::from_secs(2),
-            self.input_id,
+            &self.input_id,
             13,
         );
 
         // This event is meant to be cancelled after deserialization.
         self.key = Some(
-            cx.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17)
+            cx.schedule_keyed_event(Duration::from_secs(15), &self.input_id, 17)
                 .unwrap(),
         );
 
