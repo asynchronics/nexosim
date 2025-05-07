@@ -610,13 +610,13 @@ impl Simulation {
             .collect::<Result<Vec<_>, ExecutionError>>()?;
 
         bincode::serde::encode_to_vec(&queue, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
+            .map_err(|_| ExecutionError::SaveError("Scheduler Queue".to_string()))
     }
 
     fn restore_queue(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
         let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
             bincode::serde::decode_from_slice(state, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
+                .map_err(|_| ExecutionError::RestoreError("Scheduler Queue".to_string()))?
                 .0;
 
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
@@ -639,7 +639,7 @@ impl Simulation {
             time: self.time(),
         };
         bincode::serde::encode_to_vec(state, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
+            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
     }
 
     /// Restore simulation's state from serialized data.
@@ -648,7 +648,7 @@ impl Simulation {
         EVENT_KEY_REG.set(&event_key_reg, || {
             let state: SimulationState =
                 bincode::serde::decode_from_slice(state, serialization_config())
-                    .map_err(|_| ExecutionError::SerializationError)?
+                    .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?
                     .0;
 
             self.time.write(state.time);
@@ -772,9 +772,12 @@ pub enum ExecutionError {
     ///
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
-    /// Simulation serialization or deserialization has failed.
-    SerializationError,
+    /// Non-existent SourceId has been used.
     InvalidEvent(SourceIdErased),
+    /// Simulation serialization has failed.
+    SaveError(String),
+    /// Simulation deserialization has failed.
+    RestoreError(String),
 }
 
 impl fmt::Display for ExecutionError {
@@ -842,8 +845,9 @@ impl fmt::Display for ExecutionError {
                     time
                 )
             }
-            Self::SerializationError => f.write_str("serialization or deserialization of the simulation data has failed"),
-            Self::InvalidEvent(e) => write!(f, "event not found {:?}", e)
+            Self::InvalidEvent(e) => write!(f, "event not found {:?}", e),
+            Self::SaveError(o) => write!(f, "serialization has failed when processing: {}", o),
+            Self::RestoreError(o) => write!(f, "deserialization has failed when processing: {}", o),
         }
     }
 }

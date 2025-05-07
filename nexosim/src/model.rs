@@ -193,6 +193,7 @@
 //! }
 //! impl Model for ChildModel {}
 //! ```
+use std::any::type_name;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -356,7 +357,7 @@ impl std::fmt::Debug for RegisteredModel {
 
 async fn serialize_model<M: Model>(model: &mut M) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config())
-        .map_err(|_| ExecutionError::SerializationError)
+        .map_err(|_| ExecutionError::SaveError(format!("Model {}", type_name::<M>())))
 }
 
 async fn deserialize_model<M: Model>(
@@ -367,11 +368,14 @@ async fn deserialize_model<M: Model>(
     let restored = PORT_REG
         .set(&Arc::new(Mutex::new(VecDeque::new())), || {
             EVENT_KEY_REG.set(&state.1, || {
-                bincode::serde::encode_to_vec(&model, serialization_config())
-                    .map_err(|_| ExecutionError::SerializationError)?;
+                bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|_| {
+                    ExecutionError::RestoreError(format!("Model {}", type_name::<M>()))
+                })?;
 
                 bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
-                    .map_err(|_| ExecutionError::SerializationError)
+                    .map_err(|_| {
+                        ExecutionError::RestoreError(format!("Model {}", type_name::<M>()))
+                    })
             })
         })?
         .0;

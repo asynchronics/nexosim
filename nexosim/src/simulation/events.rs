@@ -138,18 +138,10 @@ where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        let value = arg
-            .downcast_ref::<T>()
-            .ok_or(ExecutionError::SerializationError)?;
-        bincode::serde::encode_to_vec(value, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
+        serialize_event_arg::<T>(arg)
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        Ok(Box::new(
-            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
-                .0,
-        ))
+        deserialize_event_arg::<T>(arg)
     }
     fn into_future(
         &self,
@@ -192,18 +184,10 @@ where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        let value = arg
-            .downcast_ref::<T>()
-            .ok_or(ExecutionError::SerializationError)?;
-        bincode::serde::encode_to_vec(value, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
+        serialize_event_arg::<T>(arg)
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        Ok(Box::new(
-            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
-                .0,
-        ))
+        deserialize_event_arg::<T>(arg)
     }
     fn into_future(
         &self,
@@ -279,7 +263,10 @@ impl ScheduledEvent {
     ) -> Result<Vec<u8>, ExecutionError> {
         let source = registry
             .get(&self.source_id)
-            .ok_or(ExecutionError::SerializationError)?;
+            .ok_or(ExecutionError::SaveError(format!(
+                "ScheduledEvent({}) (id not found)",
+                self.source_id.0
+            )))?;
         let arg = source.serialize_arg(&*self.arg)?;
 
         bincode::serde::encode_to_vec(
@@ -291,7 +278,7 @@ impl ScheduledEvent {
             },
             serialization_config(),
         )
-        .map_err(|_| ExecutionError::SerializationError)
+        .map_err(|_| ExecutionError::SaveError(format!("ScheduledEvent({})", self.source_id.0)))
     }
 
     pub(crate) fn deserialize(
@@ -300,12 +287,15 @@ impl ScheduledEvent {
     ) -> Result<Self, ExecutionError> {
         let mut event: SerializableEvent =
             bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
+                .map_err(|_| ExecutionError::RestoreError(format!("ScheduledEvent")))?
                 .0;
 
         let source = registry
             .get(&event.source_id)
-            .ok_or(ExecutionError::SerializationError)?;
+            .ok_or(ExecutionError::RestoreError(format!(
+                "ScheduledEvent({}) (id not found)",
+                event.source_id.0,
+            )))?;
         let arg = source.deserialize_arg(&event.arg)?;
 
         Ok(Self {
@@ -324,6 +314,28 @@ struct SerializableEvent {
     arg: Vec<u8>,
     period: Option<Duration>,
     key: Option<EventKey>,
+}
+
+fn serialize_event_arg<T: Serialize + Send + 'static>(
+    arg: &dyn Any,
+) -> Result<Vec<u8>, ExecutionError> {
+    let value = arg
+        .downcast_ref::<T>()
+        .ok_or(ExecutionError::SaveError(format!(
+            "Event arg ({})",
+            type_name::<T>()
+        )))?;
+    bincode::serde::encode_to_vec(value, serialization_config())
+        .map_err(|_| ExecutionError::SaveError(format!("Event arg: {}", type_name::<T>())))
+}
+fn deserialize_event_arg<T: for<'de> Deserialize<'de> + Send + 'static>(
+    arg: &[u8],
+) -> Result<Box<dyn Any + Send>, ExecutionError> {
+    Ok(Box::new(
+        bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
+            .map_err(|_| ExecutionError::RestoreError(format!("Event arg ({})", type_name::<T>())))?
+            .0,
+    ))
 }
 
 /// Managed handle to a scheduled action.
@@ -386,7 +398,7 @@ impl PartialEq for EventKey {
     /// Implements equality by considering clones to be equivalent, rather than
     /// keys with the same `is_cancelled` value.
     fn eq(&self, other: &Self) -> bool {
-        ptr::eq(&*self.is_cancelled, &*other.is_cancelled)
+        Arc::ptr_eq(&self.is_cancelled, &other.is_cancelled)
     }
 }
 
