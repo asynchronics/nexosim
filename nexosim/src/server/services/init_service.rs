@@ -4,13 +4,13 @@ use ciborium;
 use serde::de::DeserializeOwned;
 
 use crate::registry::EndpointRegistry;
-use crate::simulation::{Scheduler, Simulation, SimulationError};
+use crate::simulation::{SimInit, Simulation, SimulationError};
 
-use super::{map_simulation_error, to_error};
+use super::{map_simulation_error, timestamp_to_monotonic, to_error};
 
 use super::super::codegen::simulation::*;
 
-type InitResult = Result<(Simulation, EndpointRegistry), SimulationError>;
+type InitResult = Result<(SimInit, EndpointRegistry), SimulationError>;
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SimGen = Box<dyn FnMut(&[u8]) -> Result<InitResult, DeserializationError> + Send + 'static>;
 
@@ -31,7 +31,7 @@ impl InitService {
     /// registry that exposes the public event and query interface.
     pub(crate) fn new<F, I>(mut sim_gen: F) -> Self
     where
-        F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+        F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
         I: DeserializeOwned,
     {
         // Wrap `sim_gen` so it accepts a serialized init configuration.
@@ -50,7 +50,19 @@ impl InitService {
     pub(crate) fn init(
         &mut self,
         request: InitRequest,
-    ) -> (InitReply, Option<(Simulation, Scheduler, EndpointRegistry)>) {
+    ) -> (InitReply, Option<(Simulation, EndpointRegistry)>) {
+        let Some(start_time) = request.time.and_then(|t| timestamp_to_monotonic(t)) else {
+            return (
+                InitReply {
+                    result: Some(init_reply::Result::Error(to_error(
+                        ErrorCode::InvalidTime,
+                        "simulation start time not provided",
+                    ))),
+                },
+                None,
+            );
+        };
+
         let reply = panic::catch_unwind(AssertUnwindSafe(|| (self.sim_gen)(&request.cfg)))
             .map_err(|payload| {
                 let panic_msg: Option<&str> = if let Some(s) = payload.downcast_ref::<&str>() {
@@ -86,12 +98,20 @@ impl InitService {
             });
 
         let (reply, bench) = match reply {
-            Ok((simulation, registry)) => {
-                let scheduler = simulation.scheduler();
-                (
-                    init_reply::Result::Empty(()),
-                    Some((simulation, scheduler, registry)),
-                )
+            Ok((mut sim_init, mut registry)) => {
+                registry
+                    .event_source_registry
+                    .register_scheduler(&mut sim_init.scheduler_registry());
+                match sim_init.init(start_time) {
+                    Ok(simu) => (init_reply::Result::Empty(()), Some((simu, registry))),
+                    Err(e) => (
+                        init_reply::Result::Error(to_error(
+                            ErrorCode::InitializerPanic,
+                            &format!("the simulation initializer has panicked: {}", e),
+                        )),
+                        None,
+                    ),
+                }
             }
             Err(e) => (init_reply::Result::Error(e), None),
         };

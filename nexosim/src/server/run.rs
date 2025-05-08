@@ -12,12 +12,11 @@ use serde::de::DeserializeOwned;
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::registry::EndpointRegistry;
-use crate::simulation::{Simulation, SimulationError};
+use crate::simulation::{SimInit, SimulationError};
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
-use super::services::InitService;
-use super::services::{ControllerService, MonitorService, SchedulerService};
+use super::services::{ControllerService, InitService, MonitorService, SchedulerService};
 
 /// Runs a simulation from a network server.
 ///
@@ -27,7 +26,7 @@ use super::services::{ControllerService, MonitorService, SchedulerService};
 /// public event and query interface.
 pub fn run<F, I>(sim_gen: F, addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
 {
     run_service(GrpcSimulationService::new(sim_gen), addr, None)
@@ -47,7 +46,7 @@ pub fn run_with_shutdown<F, I, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
     for<'a> S: Future<Output = ()> + 'a,
 {
@@ -93,7 +92,7 @@ fn run_service(
 #[cfg(unix)]
 pub fn run_local<F, I, P>(sim_gen: F, path: P) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
 {
@@ -117,7 +116,7 @@ pub fn run_local_with_shutdown<F, I, P, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+    F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
     for<'a> S: Future<Output = ()> + 'a,
@@ -209,7 +208,7 @@ impl GrpcSimulationService {
     /// the public event and query interface.
     pub(crate) fn new<F, I>(sim_gen: F) -> Self
     where
-        F: FnMut(I) -> Result<(Simulation, EndpointRegistry), SimulationError> + Send + 'static,
+        F: FnMut(I) -> Result<(SimInit, EndpointRegistry), SimulationError> + Send + 'static,
         I: DeserializeOwned,
     {
         Self {
@@ -295,7 +294,9 @@ impl simulation_server::Simulation for GrpcSimulationService {
 
         let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
-        if let Some((simulation, scheduler, endpoint_registry)) = bench {
+        if let Some((simulation, endpoint_registry)) = bench {
+            let scheduler = simulation.scheduler();
+
             let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
             let query_source_registry = endpoint_registry.query_source_registry;
             let event_sink_registry = endpoint_registry.event_sink_registry;
@@ -317,6 +318,12 @@ impl simulation_server::Simulation for GrpcSimulationService {
 
         Ok(Response::new(reply))
     }
+    async fn restore(
+        &self,
+        request: Request<RestoreRequest>,
+    ) -> Result<Response<RestoreReply>, Status> {
+        todo!()
+    }
     async fn terminate(
         &self,
         _request: Request<TerminateRequest>,
@@ -333,6 +340,9 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
 
         self.execute_scheduler_fn(request, SchedulerService::halt)
+    }
+    async fn save(&self, request: Request<SaveRequest>) -> Result<Response<SaveReply>, Status> {
+        todo!()
     }
     async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
         let request = request.into_inner();

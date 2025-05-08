@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -47,6 +46,14 @@ impl EventSourceRegistry {
         match self.0.get(name) {
             Some(RegistrySource::Registered(source)) => Some(source.as_ref()),
             _ => None,
+        }
+    }
+
+    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
+        for entry in self.0.values_mut() {
+            if let RegistrySource::Unregistered(source) = entry {
+                *entry = source.register(registry)
+            }
         }
     }
 }
@@ -104,15 +111,15 @@ pub(crate) trait RegisteredSourceAny: Send + Sync + 'static {
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
 trait EventSourceAny: Send + Sync + 'static {
-    fn register(self, registry: &mut SchedulerSourceRegistry) -> RegistrySource;
+    fn register(&self, registry: &mut SchedulerSourceRegistry) -> RegistrySource;
 }
 
 impl<T> EventSourceAny for Arc<EventSource<T>>
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
-    fn register(self, registry: &mut SchedulerSourceRegistry) -> RegistrySource {
-        let source_id = registry.add(self);
+    fn register(&self, registry: &mut SchedulerSourceRegistry) -> RegistrySource {
+        let source_id = registry.add(self.clone());
         RegistrySource::Registered(Box::new(Arc::new(RegisteredEventSource { source_id })))
     }
 }

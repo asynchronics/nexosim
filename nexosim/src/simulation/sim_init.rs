@@ -254,6 +254,10 @@ impl SimInit {
 
         Ok(simulation)
     }
+
+    pub(crate) fn scheduler_registry(&mut self) -> &mut SchedulerSourceRegistry {
+        &mut self.scheduler_registry
+    }
 }
 
 impl Default for SimInit {
