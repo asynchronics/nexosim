@@ -425,7 +425,7 @@ mod tests {
         }
     }
     impl Model for SumModel {
-        type Environment = ();
+        type Env = ();
     }
     impl Serialize for SumModel {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -456,7 +456,7 @@ mod tests {
         }
     }
     impl Model for DoubleModel {
-        type Environment = ();
+        type Env = ();
     }
 
     #[test]

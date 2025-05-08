@@ -30,20 +30,20 @@ impl MyModel {
 }
 
 impl Model for MyModel {
-    type Environment = ();
+    type Env = ();
 
     async fn init(mut self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         self.value = 2;
         cx.schedule_periodic_event(
             Duration::from_secs(2),
             Duration::from_secs(2),
-            self.input_id,
+            &self.input_id,
             13,
         );
 
         // This event is meant to be cancelled after deserialization.
         self.key = Some(
-            cx.schedule_keyed_event(Duration::from_secs(15), self.input_id, 17)
+            cx.schedule_keyed_event(Duration::from_secs(15), &self.input_id, 17)
                 .unwrap(),
         );
 
@@ -57,10 +57,7 @@ struct MyProto {
 impl ProtoModel for MyProto {
     type Model = MyModel;
 
-    fn build(
-        self,
-        cx: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         let input_id = cx.register_input(MyModel::process);
         (
             MyModel {
@@ -100,7 +97,7 @@ fn main() {
     assert_eq!(message.next(), Some(3));
 
     // Store state after one step.
-    let state = simu.serialize_state().unwrap();
+    let state = simu.save().unwrap();
 
     // Execute two more steps.
     simu.step().unwrap();

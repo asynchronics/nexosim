@@ -25,7 +25,7 @@ impl TestModel {
     }
 }
 impl Model for TestModel {
-    type Environment = ();
+    type Env = ();
 }
 
 /// Loose an event.

@@ -10,23 +10,17 @@ use std::time::Duration;
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{Deserialize, Serialize};
 
 use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::events::{
-    EventKey, InputSource, ScheduledEvent, SchedulerSourceRegistry, SourceId,
-};
+use crate::simulation::events::{EventKey, ScheduledEvent, SourceId};
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
-use crate::util::serialization::serialization_config;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
-
-use super::ExecutionError;
 
 // Usize::MAX - 1 is used as plain usize::MAX is used e.g. to mark a missing
 // ModelId.
@@ -75,7 +69,7 @@ impl Scheduler {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -95,7 +89,7 @@ impl Scheduler {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -116,7 +110,7 @@ impl Scheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -143,7 +137,7 @@ impl Scheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -272,62 +266,7 @@ impl fmt::Debug for Action {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub(crate) struct SchedulerQueue {
-    inner: PriorityQueue<SchedulerKey, ScheduledEvent>,
-    pub(crate) registry: SchedulerSourceRegistry,
-}
-impl SchedulerQueue {
-    pub(crate) fn new() -> Self {
-        Self {
-            inner: PriorityQueue::new(),
-            registry: SchedulerSourceRegistry::default(),
-        }
-    }
-
-    pub(crate) fn insert(&mut self, key: SchedulerKey, event: ScheduledEvent) {
-        self.inner.insert(key, event);
-    }
-
-    pub(crate) fn peek(&self) -> Option<(&SchedulerKey, &ScheduledEvent)> {
-        self.inner.peek()
-    }
-
-    pub(crate) fn pull(&mut self) -> Option<(SchedulerKey, ScheduledEvent)> {
-        self.inner.pull()
-    }
-
-    pub(crate) fn serialize(&self) -> Result<Vec<u8>, ExecutionError> {
-        let queue = self
-            .inner
-            .iter()
-            .map(|(k, v)| match v.serialize(&self.registry) {
-                Ok(v) => Ok((*k, v)),
-                Err(e) => Err(e),
-            })
-            .collect::<Result<Vec<_>, ExecutionError>>()?;
-
-        bincode::serde::encode_to_vec(&queue, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
-    }
-
-    pub(crate) fn restore(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
-        let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
-            bincode::serde::decode_from_slice(state, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
-                .0;
-
-        self.inner.clear();
-
-        for entry in deserialized {
-            self.inner.insert(
-                entry.0,
-                ScheduledEvent::deserialize(&entry.1, &self.registry)?,
-            );
-        }
-
-        Ok(())
-    }
-}
+pub type SchedulerQueue = PriorityQueue<SchedulerKey, ScheduledEvent>;
 
 pub(crate) type SchedulerKey = (MonotonicTime, usize);
 
@@ -362,23 +301,11 @@ impl GlobalScheduler {
         self.time.read()
     }
 
-    // TODO docs
-    pub(crate) fn register_source<M, F, S, T>(&self, source: InputSource<M, F, S, T>) -> SourceId<T>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
-        S: Send + Sync + 'static,
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
-    {
-        let mut queue = self.scheduler_queue.lock().unwrap();
-        queue.registry.add(source)
-    }
-
     /// Schedules an event identified by its origin at a future time.
     pub(crate) fn schedule_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
@@ -405,7 +332,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<EventKey, SchedulingError>
@@ -435,7 +362,7 @@ impl GlobalScheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
@@ -467,7 +394,7 @@ impl GlobalScheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: SourceId<T>,
+        source_id: &SourceId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<EventKey, SchedulingError>

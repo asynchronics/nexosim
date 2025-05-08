@@ -6,10 +6,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::executor::{Executor, Signal};
-use crate::ports::{EventSource, InputFn};
+use crate::ports::InputFn;
 use crate::simulation::{
-    self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulingError, SourceId,
-    SourceIdErased,
+    self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulerSourceRegistry,
+    SchedulingError, SourceId, SourceIdErased,
 };
 use crate::time::{Deadline, MonotonicTime};
 
@@ -83,7 +83,7 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
-    pub env: M::Environment,
+    env: M::Env,
     name: String,
     scheduler: GlobalScheduler,
     address: Address<M>,
@@ -94,7 +94,7 @@ impl<M: Model> Context<M> {
     /// Creates a new local context.
     pub(crate) fn new(
         name: String,
-        env: M::Environment,
+        env: M::Env,
         scheduler: GlobalScheduler,
         address: Address<M>,
     ) -> Self {
@@ -124,6 +124,11 @@ impl<M: Model> Context<M> {
     /// Returns the current simulation time.
     pub fn time(&self) -> MonotonicTime {
         self.scheduler.time()
+    }
+
+    /// Returns a mutable reference to model's env.
+    pub fn env(&mut self) -> &mut M::Env {
+        &mut self.env
     }
 
     /// Schedules an event at a future time on this model.
@@ -160,14 +165,14 @@ impl<M: Model> Context<M> {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
         T: Send + Clone + 'static,
     {
         self.scheduler
-            .schedule_event_from(deadline, input_id.into(), arg, self.origin_id)
+            .schedule_event_from(deadline, &input_id.into(), arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -215,7 +220,7 @@ impl<M: Model> Context<M> {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -223,7 +228,7 @@ impl<M: Model> Context<M> {
     {
         let event_key = self.scheduler.schedule_keyed_event_from(
             deadline,
-            input_id.into(),
+            &input_id.into(),
             arg,
             self.origin_id,
         )?;
@@ -272,7 +277,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -281,7 +286,7 @@ impl<M: Model> Context<M> {
         self.scheduler.schedule_periodic_event_from(
             deadline,
             period,
-            input_id.into(),
+            &input_id.into(),
             arg,
             self.origin_id,
         )
@@ -341,7 +346,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: InputId<M, T>,
+        input_id: &InputId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -350,7 +355,7 @@ impl<M: Model> Context<M> {
         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            input_id.into(),
+            &input_id.into(),
             arg,
             self.origin_id,
         )?;
@@ -457,6 +462,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     mailbox: &'a Mailbox<P::Model>,
     name: &'a String,
     scheduler: &'a GlobalScheduler,
+    scheduler_registry: &'a mut SchedulerSourceRegistry,
     executor: &'a Executor,
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
@@ -469,6 +475,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         mailbox: &'a Mailbox<P::Model>,
         name: &'a String,
         scheduler: &'a GlobalScheduler,
+        scheduler_registry: &'a mut SchedulerSourceRegistry,
         executor: &'a Executor,
         abort_signal: &'a Signal,
         registered_models: &'a mut Vec<RegisteredModel>,
@@ -478,6 +485,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             mailbox,
             name,
             scheduler,
+            scheduler_registry,
             executor,
             abort_signal,
             registered_models,
@@ -499,15 +507,14 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     // TODO docs
-    pub fn register_input<F, T, S>(&self, func: F) -> InputId<P::Model, T>
+    pub fn register_input<F, T, S>(&mut self, func: F) -> InputId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        let source_id = self.scheduler.register_source(source);
-        InputId(source_id.0, PhantomData, PhantomData)
+        self.scheduler_registry.add(source).into()
     }
 
     /// Adds a sub-model to the simulation bench.
@@ -521,7 +528,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: impl Into<String>)
     where
         S: ProtoModel,
-        for<'de> <S as ProtoModel>::Model: Serialize + Deserialize<'de>,
     {
         let mut submodel_name = name.into();
         if submodel_name.is_empty() {
@@ -534,6 +540,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             mailbox,
             submodel_name,
             self.scheduler.clone(),
+            &mut self.scheduler_registry,
             self.executor,
             self.abort_signal,
             self.registered_models,
@@ -543,7 +550,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
-impl<M: Model<Environment = ()>> Context<M> {
+impl<M: Model<Env = ()>> Context<M> {
     /// Creates a dummy context for testing purposes.
     pub(crate) fn new_dummy() -> Self {
         let dummy_address = Receiver::new(1).sender();
@@ -572,9 +579,26 @@ impl<M, T> From<InputId<M, T>> for SourceIdErased {
         Self(value.0)
     }
 }
+impl<M, T> From<&InputId<M, T>> for SourceIdErased {
+    fn from(value: &InputId<M, T>) -> Self {
+        Self(value.0)
+    }
+}
 
 impl<M, T> From<InputId<M, T>> for SourceId<T> {
     fn from(value: InputId<M, T>) -> Self {
         Self(value.0, PhantomData)
+    }
+}
+
+impl<M, T> From<&InputId<M, T>> for SourceId<T> {
+    fn from(value: &InputId<M, T>) -> Self {
+        Self(value.0, PhantomData)
+    }
+}
+
+impl<M, T> From<SourceId<T>> for InputId<M, T> {
+    fn from(value: SourceId<T>) -> Self {
+        Self(value.0, PhantomData, PhantomData)
     }
 }

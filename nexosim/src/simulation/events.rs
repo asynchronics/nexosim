@@ -20,6 +20,7 @@ use crate::model::Model;
 use crate::ports::{EventSource, InputFn};
 use crate::simulation::Address;
 use crate::util::serialization::serialization_config;
+use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
 use super::ExecutionError;
 
@@ -46,14 +47,17 @@ impl<T> From<SourceId<T>> for SourceIdErased {
     }
 }
 
-#[derive(Default)]
+impl<T> From<&SourceId<T>> for SourceIdErased {
+    fn from(value: &SourceId<T>) -> Self {
+        Self(value.0)
+    }
+}
+
+#[derive(Default, Debug)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
-    pub(crate) fn add<M, F, S, T>(&mut self, source: InputSource<M, F, S, T>) -> SourceId<T>
+    pub(crate) fn add<T>(&mut self, source: impl TypedEventSource<T>) -> SourceId<T>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
-        S: Send + Sync + 'static,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
         let source_id = SourceId(self.0.len(), PhantomData);
@@ -74,6 +78,8 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
         event_key: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
+
+pub(crate) trait TypedEventSource<T>: SchedulerEventSource {}
 
 pub(crate) struct InputSource<M, F, S, T>
 where
@@ -116,6 +122,14 @@ where
     }
 }
 
+impl<M, F, S, T> TypedEventSource<T> for InputSource<M, F, S, T>
+where
+    M: Model,
+    F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+    S: Send + Sync + 'static,
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+{
+}
 impl<M, F, S, T> SchedulerEventSource for InputSource<M, F, S, T>
 where
     M: Model,
@@ -124,18 +138,10 @@ where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        let value = arg
-            .downcast_ref::<T>()
-            .ok_or(ExecutionError::SerializationError)?;
-        bincode::serde::encode_to_vec(value, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
+        serialize_event_arg::<T>(arg)
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        Ok(Box::new(
-            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
-                .0,
-        ))
+        deserialize_event_arg::<T>(arg)
     }
     fn into_future(
         &self,
@@ -160,11 +166,17 @@ where
                         coerce_box!(RecycleBox::recycle(recycle_box, fut))
                     },
                 )
-                .await;
+                .await
+                .unwrap_or_throw();
         };
 
         Box::pin(fut)
     }
+}
+
+impl<T> TypedEventSource<T> for EventSource<T> where
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
+{
 }
 
 impl<T> SchedulerEventSource for EventSource<T>
@@ -172,18 +184,10 @@ where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        let value = arg
-            .downcast_ref::<T>()
-            .ok_or(ExecutionError::SerializationError)?;
-        bincode::serde::encode_to_vec(value, serialization_config())
-            .map_err(|_| ExecutionError::SerializationError)
+        serialize_event_arg::<T>(arg)
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        Ok(Box::new(
-            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
-                .0,
-        ))
+        deserialize_event_arg::<T>(arg)
     }
     fn into_future(
         &self,
@@ -197,6 +201,10 @@ where
     }
 }
 
+impl<T> TypedEventSource<T> for Arc<EventSource<T>> where
+    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
+{
+}
 impl<T> SchedulerEventSource for Arc<EventSource<T>>
 where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
@@ -226,7 +234,7 @@ pub(crate) struct ScheduledEvent {
     pub key: Option<EventKey>,
 }
 impl ScheduledEvent {
-    pub(crate) fn new<T: Send + 'static>(source_id: SourceId<T>, arg: T) -> Self {
+    pub(crate) fn new<T: Send + 'static>(source_id: &SourceId<T>, arg: T) -> Self {
         Self {
             source_id: source_id.into(),
             arg: Box::new(arg),
@@ -255,7 +263,10 @@ impl ScheduledEvent {
     ) -> Result<Vec<u8>, ExecutionError> {
         let source = registry
             .get(&self.source_id)
-            .ok_or(ExecutionError::SerializationError)?;
+            .ok_or(ExecutionError::SaveError(format!(
+                "ScheduledEvent({}) (id not found)",
+                self.source_id.0
+            )))?;
         let arg = source.serialize_arg(&*self.arg)?;
 
         bincode::serde::encode_to_vec(
@@ -267,7 +278,7 @@ impl ScheduledEvent {
             },
             serialization_config(),
         )
-        .map_err(|_| ExecutionError::SerializationError)
+        .map_err(|_| ExecutionError::SaveError(format!("ScheduledEvent({})", self.source_id.0)))
     }
 
     pub(crate) fn deserialize(
@@ -276,12 +287,15 @@ impl ScheduledEvent {
     ) -> Result<Self, ExecutionError> {
         let mut event: SerializableEvent =
             bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(|_| ExecutionError::SerializationError)?
+                .map_err(|_| ExecutionError::RestoreError(format!("ScheduledEvent")))?
                 .0;
 
         let source = registry
             .get(&event.source_id)
-            .ok_or(ExecutionError::SerializationError)?;
+            .ok_or(ExecutionError::RestoreError(format!(
+                "ScheduledEvent({}) (id not found)",
+                event.source_id.0,
+            )))?;
         let arg = source.deserialize_arg(&event.arg)?;
 
         Ok(Self {
@@ -300,6 +314,28 @@ struct SerializableEvent {
     arg: Vec<u8>,
     period: Option<Duration>,
     key: Option<EventKey>,
+}
+
+fn serialize_event_arg<T: Serialize + Send + 'static>(
+    arg: &dyn Any,
+) -> Result<Vec<u8>, ExecutionError> {
+    let value = arg
+        .downcast_ref::<T>()
+        .ok_or(ExecutionError::SaveError(format!(
+            "Event arg ({})",
+            type_name::<T>()
+        )))?;
+    bincode::serde::encode_to_vec(value, serialization_config())
+        .map_err(|_| ExecutionError::SaveError(format!("Event arg: {}", type_name::<T>())))
+}
+fn deserialize_event_arg<T: for<'de> Deserialize<'de> + Send + 'static>(
+    arg: &[u8],
+) -> Result<Box<dyn Any + Send>, ExecutionError> {
+    Ok(Box::new(
+        bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
+            .map_err(|_| ExecutionError::RestoreError(format!("Event arg ({})", type_name::<T>())))?
+            .0,
+    ))
 }
 
 /// Managed handle to a scheduled action.
@@ -362,7 +398,7 @@ impl PartialEq for EventKey {
     /// Implements equality by considering clones to be equivalent, rather than
     /// keys with the same `is_cancelled` value.
     fn eq(&self, other: &Self) -> bool {
-        ptr::eq(&*self.is_cancelled, &*other.is_cancelled)
+        Arc::ptr_eq(&self.is_cancelled, &other.is_cancelled)
     }
 }
 

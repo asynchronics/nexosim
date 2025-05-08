@@ -193,6 +193,7 @@
 //! }
 //! impl Model for ChildModel {}
 //! ```
+use std::any::type_name;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -218,9 +219,9 @@ mod context;
 /// The `init` function converts the model to the opaque `InitializedModel` type
 /// to prevent an already initialized model from being added to the simulation
 /// bench.
-pub trait Model: Sized + Send + 'static {
+pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static {
     /// TODO
-    type Environment: Send + 'static;
+    type Env: Send + 'static;
 
     /// Performs asynchronous model initialization.
     ///
@@ -308,21 +309,15 @@ pub trait ProtoModel: Sized {
     /// This method is invoked when the
     /// [`SimInit::add_model`](crate::simulation::SimInit::add_model) or
     /// [`BuildContext::add_submodel`] method are called.
-    fn build(
-        self,
-        cx: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment);
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env);
 }
 
 // Every model can be used as a prototype for itself,
 // if it's environment is empty.
-impl<M: Model<Environment = ()>> ProtoModel for M {
+impl<M: Model<Env = ()>> ProtoModel for M {
     type Model = Self;
 
-    fn build(
-        self,
-        _: &mut BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Environment) {
+    fn build(self, _: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         (self, ())
     }
 }
@@ -335,17 +330,21 @@ pub(crate) struct RegisteredModel {
         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
-    pub fn new<M>(name: String, address: Address<M>) -> Self
-    where
-        for<'de> M: Model + Serialize + Deserialize<'de>,
-    {
+    pub fn new<M: Model>(name: String, address: Address<M>) -> Self {
         let ser_address = address.clone();
         let de_address = address.clone();
+        let ser_name = name.clone();
+        let de_name = name.clone();
+
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_query(serialize_model, (), &ser_address)?
+            sim.process_query(serialize_model, ser_name.clone(), &ser_address)?
         });
         let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
-            sim.process_query(deserialize_model, state, &de_address)?
+            sim.process_query(
+                deserialize_model,
+                (state.0, state.1, de_name.clone()),
+                &de_address,
+            )?
         });
         Self {
             name,
@@ -363,27 +362,35 @@ impl std::fmt::Debug for RegisteredModel {
     }
 }
 
-async fn serialize_model<M: Serialize>(model: &mut M) -> Result<Vec<u8>, ExecutionError> {
+async fn serialize_model<M: Model>(model: &mut M, name: String) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config())
-        .map_err(|_| ExecutionError::SerializationError)
+        .map_err(|_| ExecutionError::SaveError(format!("Model: {} ({})", name, type_name::<M>())))
 }
 
-async fn deserialize_model<M>(
+async fn deserialize_model<M: Model>(
     model: &mut M,
-    state: (Vec<u8>, EventKeyReg),
+    state: (Vec<u8>, EventKeyReg, String),
     cx: &mut Context<M>,
-) -> Result<(), ExecutionError>
-where
-    for<'de> M: Model + Serialize + Deserialize<'de>,
-{
+) -> Result<(), ExecutionError> {
     let restored = PORT_REG
         .set(&Arc::new(Mutex::new(VecDeque::new())), || {
             EVENT_KEY_REG.set(&state.1, || {
-                bincode::serde::encode_to_vec(&model, serialization_config())
-                    .map_err(|_| ExecutionError::SerializationError)?;
+                bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|_| {
+                    ExecutionError::RestoreError(format!(
+                        "Model: {} ({})",
+                        state.2,
+                        type_name::<M>()
+                    ))
+                })?;
 
                 bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
-                    .map_err(|_| ExecutionError::SerializationError)
+                    .map_err(|_| {
+                        ExecutionError::RestoreError(format!(
+                            "Model: {} ({})",
+                            state.2,
+                            type_name::<M>()
+                        ))
+                    })
             })
         })?
         .0;

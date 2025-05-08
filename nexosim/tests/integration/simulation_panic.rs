@@ -22,7 +22,7 @@ impl TestModel {
     }
 }
 impl Model for TestModel {
-    type Environment = ();
+    type Env = ();
 }
 
 /// Pass a counter around several models and decrement it each time, panicking
