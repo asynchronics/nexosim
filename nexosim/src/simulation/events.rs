@@ -28,7 +28,7 @@ scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<T>);
+pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<fn(&T)>);
 
 // Manual clone and copy impl. to not enforce bounds on T.
 impl<T> Clone for SourceId<T> {
@@ -56,7 +56,7 @@ impl<T> From<&SourceId<T>> for SourceIdErased {
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
-    pub(crate) fn add<T>(&mut self, source: impl TypedEventSource<T>) -> SourceId<T>
+    pub(crate) fn add<T>(&mut self, source: impl TypedSchedulerSource<T>) -> SourceId<T>
     where
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
     {
@@ -79,7 +79,7 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
-pub(crate) trait TypedEventSource<T>: SchedulerEventSource {}
+pub(crate) trait TypedSchedulerSource<T>: SchedulerEventSource {}
 
 pub(crate) struct InputSource<M, F, S, T>
 where
@@ -122,7 +122,7 @@ where
     }
 }
 
-impl<M, F, S, T> TypedEventSource<T> for InputSource<M, F, S, T>
+impl<M, F, S, T> TypedSchedulerSource<T> for InputSource<M, F, S, T>
 where
     M: Model,
     F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
@@ -174,7 +174,7 @@ where
     }
 }
 
-impl<T> TypedEventSource<T> for EventSource<T> where
+impl<T> TypedSchedulerSource<T> for EventSource<T> where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
 {
 }
@@ -201,7 +201,7 @@ where
     }
 }
 
-impl<T> TypedEventSource<T> for Arc<EventSource<T>> where
+impl<T> TypedSchedulerSource<T> for Arc<EventSource<T>> where
     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
 {
 }
@@ -227,13 +227,13 @@ where
 
 /// Struct representing a single scheduled event on the queue.
 #[derive(Debug)]
-pub(crate) struct ScheduledEvent {
+pub(crate) struct Event {
     pub source_id: SourceIdErased,
     pub arg: Box<dyn Any + Send>,
     pub period: Option<Duration>,
     pub key: Option<EventKey>,
 }
-impl ScheduledEvent {
+impl Event {
     pub(crate) fn new<T: Send + 'static>(source_id: &SourceId<T>, arg: T) -> Self {
         Self {
             source_id: source_id.into(),
@@ -242,6 +242,9 @@ impl ScheduledEvent {
             key: None,
         }
     }
+
+    // #[cfg(feature = "server")]
+    // pub(crate) fn new_erased
 
     pub(crate) fn with_period(mut self, period: Duration) -> Self {
         self.period = Some(period);

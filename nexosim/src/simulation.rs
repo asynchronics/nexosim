@@ -90,7 +90,7 @@ pub use scheduler::{Action, Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{
-    EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased, EVENT_KEY_REG,
+    Event, EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased, EVENT_KEY_REG,
 };
 
 use std::any::{Any, TypeId};
@@ -110,7 +110,6 @@ use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 use serde::{Deserialize, Serialize};
 
-use events::ScheduledEvent;
 use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
@@ -268,13 +267,27 @@ impl Simulation {
         self.step_until_unchecked(None)
     }
 
-    /// Processes an action immediately, blocking until completion.
+    /// Processes an event immediately, blocking until completion.
     ///
-    /// Simulation time remains unchanged. The periodicity of the action, if
+    /// Simulation time remains unchanged. The periodicity of the event, if
     /// any, is ignored.
-    pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
+    pub(crate) fn process(&mut self, event: Event) -> Result<(), ExecutionError> {
+        let source = self
+            .scheduler_registry
+            .get(&event.source_id)
+            .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
+
+        let fut = source.into_future(&*event.arg, event.key.as_ref().map(|a| a.clone()));
+        self.process_future(fut)
+    }
+
+    /// Processes a future immediately, blocking until completion.
+    pub(crate) fn process_future(
+        &mut self,
+        fut: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), ExecutionError> {
         self.take_halt_flag()?;
-        action.spawn_and_forget(&self.executor);
+        self.executor.spawn_and_forget(fut);
         self.run()
     }
 
@@ -625,7 +638,7 @@ impl Simulation {
         for entry in deserialized {
             scheduler_queue.insert(
                 entry.0,
-                ScheduledEvent::deserialize(&entry.1, &self.scheduler_registry)?,
+                Event::deserialize(&entry.1, &self.scheduler_registry)?,
             );
         }
         Ok(())

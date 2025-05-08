@@ -213,7 +213,9 @@ impl ControllerService {
                     )
                 })?;
 
-                simulation.process(query).map_err(map_execution_error)?;
+                simulation
+                    .process_future(query)
+                    .map_err(map_execution_error)?;
 
                 let replies = promise.take_collect().ok_or(to_error(
                     ErrorCode::SimulationBadQuery,

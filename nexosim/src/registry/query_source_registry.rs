@@ -1,13 +1,14 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 
 use ciborium;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
-use crate::simulation::Action;
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -65,7 +66,13 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     fn query(
         &self,
         arg: &[u8],
-    ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError>;
+    ) -> Result<
+        (
+            Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+            Box<dyn ReplyReceiverAny>,
+        ),
+        DeserializationError,
+    >;
 
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
@@ -84,12 +91,18 @@ where
     fn query(
         &self,
         arg: &[u8],
-    ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError> {
+    ) -> Result<
+        (
+            Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+            Box<dyn ReplyReceiverAny>,
+        ),
+        DeserializationError,
+    > {
         ciborium::from_reader(arg).map(|arg| {
-            let (action, reply_recv) = self.query(arg);
+            let (fut, reply_recv) = self.query(arg);
             let reply_recv: Box<dyn ReplyReceiverAny> = Box::new(reply_recv);
 
-            (action, reply_recv)
+            (fut, reply_recv)
         })
     }
 

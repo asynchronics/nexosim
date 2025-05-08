@@ -72,7 +72,7 @@ impl SchedulerService {
                     "no event source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let (action, action_key) = match (with_key, period) {
+                let (event, event_key) = match (with_key, period) {
                     (false, None) => source.event(event).map(|action| (action, None)),
                     (false, Some(period)) => source
                         .periodic_event(period, event)
@@ -116,18 +116,18 @@ impl SchedulerService {
                     }
                 };
 
-                let key_id = action_key.map(|action_key| {
+                let key_id = event_key.map(|event_key| {
                     key_registry.remove_expired_keys(scheduler.time());
 
                     if period.is_some() {
-                        key_registry.insert_eternal_key(action_key)
+                        key_registry.insert_eternal_key(event_key)
                     } else {
-                        key_registry.insert_key(action_key, deadline)
+                        key_registry.insert_key(event_key, deadline)
                     }
                 });
 
                 scheduler
-                    .schedule(deadline, action)
+                    .schedule(deadline, event)
                     .map_err(map_scheduling_error)?;
 
                 Ok(key_id)

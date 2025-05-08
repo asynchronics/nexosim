@@ -15,7 +15,7 @@ use crate::channel::Sender;
 use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::events::{EventKey, ScheduledEvent, SourceId};
+use crate::simulation::events::{Event, EventKey, SourceId};
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
@@ -57,6 +57,23 @@ impl Scheduler {
     /// ```
     pub fn time(&self) -> MonotonicTime {
         self.0.time()
+    }
+
+    /// Schedules an action at a future time.
+    ///
+    /// An error is returned if the specified time is not in the future of the
+    /// current simulation time.
+    ///
+    /// If multiple actions send events at the same simulation time to the same
+    /// model, these events are guaranteed to be processed according to the
+    /// scheduling order of the actions.
+    pub(crate) fn schedule(
+        &self,
+        deadline: impl Deadline,
+        event: Event,
+    ) -> Result<(), SchedulingError> {
+        self.0
+            .schedule_from(deadline, event, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules an event at a future time.
@@ -266,7 +283,7 @@ impl fmt::Debug for Action {
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub type SchedulerQueue = PriorityQueue<SchedulerKey, ScheduledEvent>;
+pub type SchedulerQueue = PriorityQueue<SchedulerKey, Event>;
 
 pub(crate) type SchedulerKey = (MonotonicTime, usize);
 
@@ -301,6 +318,33 @@ impl GlobalScheduler {
         self.time.read()
     }
 
+    /// Schedules an action identified by its origin at a future time.
+    pub(crate) fn schedule_from(
+        &self,
+        deadline: impl Deadline,
+        event: Event,
+        origin_id: usize,
+    ) -> Result<(), SchedulingError> {
+        // The scheduler queue must always be locked when reading the time,
+        // otherwise the following race could occur:
+        // 1) this method reads the time and concludes that it is not too late to
+        //    schedule the action,
+        // 2) the `Simulation` object takes the lock, increments simulation time and
+        //    runs the simulation step,
+        // 3) this method takes the lock and schedules the now-outdated action.
+        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+
+        let now = self.time();
+        let time = deadline.into_time(now);
+        if now >= time {
+            return Err(SchedulingError::InvalidScheduledTime);
+        }
+
+        scheduler_queue.insert((time, origin_id), event);
+
+        Ok(())
+    }
+
     /// Schedules an event identified by its origin at a future time.
     pub(crate) fn schedule_event_from<T>(
         &self,
@@ -321,7 +365,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::new(source_id, arg);
+        let event = Event::new(source_id, arg);
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
@@ -350,7 +394,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::new(source_id, arg).with_key(event_key.clone());
+        let event = Event::new(source_id, arg).with_key(event_key.clone());
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(event_key)
@@ -382,7 +426,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::new(source_id, arg).with_period(period);
+        let event = Event::new(source_id, arg).with_period(period);
         scheduler_queue.insert((time, origin_id), event);
 
         Ok(())
@@ -415,7 +459,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = ScheduledEvent::new(source_id, arg)
+        let event = Event::new(source_id, arg)
             .with_period(period)
             .with_key(event_key.clone());
         scheduler_queue.insert((time, origin_id), event);

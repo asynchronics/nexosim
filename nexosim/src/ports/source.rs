@@ -3,6 +3,7 @@ mod sender;
 
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -300,7 +301,13 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
 
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
-    pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
+    pub fn query(
+        &self,
+        arg: T,
+    ) -> (
+        Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+        ReplyReceiver<R>,
+    ) {
         let (writer, reader) = slot::slot();
         let fut = self.broadcaster.broadcast(arg);
         let fut = async move {
@@ -308,9 +315,7 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
             let _ = writer.write(replies);
         };
 
-        let action = Action::new(OnceAction::new(fut));
-
-        (action, ReplyReceiver::<R>(reader))
+        (Box::pin(fut), ReplyReceiver::<R>(reader))
     }
 }
 
