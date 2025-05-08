@@ -14,7 +14,7 @@ use crate::util::sync_cell::SyncCell;
 
 use super::{
     add_model, Address, ExecutionError, GlobalScheduler, InputSource, Mailbox, SchedulerQueue,
-    SchedulerSourceRegistry, Signal, Simulation, SourceId,
+    SchedulerSourceRegistry, Signal, Simulation, SimulationError, SourceId,
 };
 
 /// Builder for a multi-threaded, discrete-event simulation.
@@ -31,8 +31,8 @@ pub struct SimInit {
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
     registered_models: Vec<RegisteredModel>,
-    post_init_callback: Option<Box<dyn FnMut(&mut Simulation)>>,
-    post_restore_callback: Option<Box<dyn FnMut(&mut Simulation)>>,
+    post_init_callback: Option<Box<dyn FnMut(&mut Simulation) -> Result<(), SimulationError>>>,
+    post_restore_callback: Option<Box<dyn FnMut(&mut Simulation) -> Result<(), SimulationError>>>,
 }
 
 impl SimInit {
@@ -165,12 +165,18 @@ impl SimInit {
         self
     }
 
-    pub fn with_post_init(mut self, callback: impl FnMut(&mut Simulation) + 'static) -> Self {
+    pub fn with_post_init(
+        mut self,
+        callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
+    ) -> Self {
         self.post_init_callback = Some(Box::new(callback));
         self
     }
 
-    pub fn with_post_restore(mut self, callback: impl FnMut(&mut Simulation) + 'static) -> Self {
+    pub fn with_post_restore(
+        mut self,
+        callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
+    ) -> Self {
         self.post_restore_callback = Some(Box::new(callback));
         self
     }
@@ -218,12 +224,12 @@ impl SimInit {
     ///
     /// The simulation object and its associated scheduler are returned upon
     /// success.
-    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, ExecutionError> {
+    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
                 if &lag > tolerance {
-                    return Err(ExecutionError::OutOfSync(lag));
+                    return Err(ExecutionError::OutOfSync(lag).into());
                 }
             }
         }
@@ -231,14 +237,14 @@ impl SimInit {
         let callback = self.post_init_callback.take();
         let mut simulation = self.build();
         if let Some(mut callback) = callback {
-            callback(&mut simulation);
+            callback(&mut simulation)?;
         }
         simulation.run()?;
 
         Ok(simulation)
     }
 
-    pub fn restore(mut self, state: &[u8]) -> Result<Simulation, ExecutionError> {
+    pub fn restore(mut self, state: &[u8]) -> Result<Simulation, SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();
@@ -247,7 +253,7 @@ impl SimInit {
         simulation.restore(state)?;
 
         if let Some(mut callback) = callback {
-            callback(&mut simulation);
+            callback(&mut simulation)?;
         }
         // TODO should run?
         simulation.run()?;
