@@ -294,7 +294,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
 
         let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
-        if let Some((simulation, endpoint_registry)) = bench {
+        if let Some((simulation, endpoint_registry, cfg)) = bench {
             let scheduler = simulation.scheduler();
 
             let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
@@ -302,6 +302,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             let event_sink_registry = endpoint_registry.event_sink_registry;
 
             *self.controller_service.lock().unwrap() = ControllerService::Started {
+                cfg,
                 simulation,
                 event_source_registry: event_source_registry.clone(),
                 query_source_registry,
@@ -322,7 +323,34 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         request: Request<RestoreRequest>,
     ) -> Result<Response<RestoreReply>, Status> {
-        todo!()
+        let request = request.into_inner();
+
+        let (reply, bench) = self.init_service.lock().unwrap().restore(request);
+
+        if let Some((simulation, endpoint_registry, cfg)) = bench {
+            let scheduler = simulation.scheduler();
+
+            let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
+            let query_source_registry = endpoint_registry.query_source_registry;
+            let event_sink_registry = endpoint_registry.event_sink_registry;
+
+            *self.controller_service.lock().unwrap() = ControllerService::Started {
+                cfg,
+                simulation,
+                event_source_registry: event_source_registry.clone(),
+                query_source_registry,
+            };
+            *self.monitor_service.write().unwrap() = MonitorService::Started {
+                event_sink_registry,
+            };
+            *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
+                scheduler,
+                event_source_registry,
+                key_registry: KeyRegistry::default(),
+            };
+        }
+
+        Ok(Response::new(reply))
     }
     async fn terminate(
         &self,
@@ -342,7 +370,10 @@ impl simulation_server::Simulation for GrpcSimulationService {
         self.execute_scheduler_fn(request, SchedulerService::halt)
     }
     async fn save(&self, request: Request<SaveRequest>) -> Result<Response<SaveReply>, Status> {
-        todo!()
+        let request = request.into_inner();
+
+        self.execute_controller_fn(request, ControllerService::save)
+            .await
     }
     async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
         let request = request.into_inner();

@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 
 use crate::registry::EndpointRegistry;
 use crate::simulation::{SimInit, Simulation, SimulationError};
+use crate::util::serialization::serialization_config;
 
 use super::{map_simulation_error, timestamp_to_monotonic, to_error};
 
@@ -50,7 +51,7 @@ impl InitService {
     pub(crate) fn init(
         &mut self,
         request: InitRequest,
-    ) -> (InitReply, Option<(Simulation, EndpointRegistry)>) {
+    ) -> (InitReply, Option<(Simulation, EndpointRegistry, Vec<u8>)>) {
         let Some(start_time) = request.time.and_then(|t| timestamp_to_monotonic(t)) else {
             return (
                 InitReply {
@@ -103,7 +104,10 @@ impl InitService {
                     .event_source_registry
                     .register_scheduler(&mut sim_init.scheduler_registry());
                 match sim_init.init(start_time) {
-                    Ok(simu) => (init_reply::Result::Empty(()), Some((simu, registry))),
+                    Ok(simu) => (
+                        init_reply::Result::Empty(()),
+                        Some((simu, registry, request.cfg)),
+                    ),
                     Err(e) => (
                         init_reply::Result::Error(to_error(
                             ErrorCode::InitializerPanic,
@@ -118,6 +122,98 @@ impl InitService {
 
         (
             InitReply {
+                result: Some(reply),
+            },
+            bench,
+        )
+    }
+
+    /// Restore the simulation based on the serialized state.
+    pub(crate) fn restore(
+        &mut self,
+        request: RestoreRequest,
+    ) -> (
+        RestoreReply,
+        Option<(Simulation, EndpointRegistry, Vec<u8>)>,
+    ) {
+        let Ok((stored_cfg, state)) = bincode::serde::decode_from_slice::<(Vec<u8>, Vec<u8>), _>(
+            &request.state,
+            serialization_config(),
+        )
+        .and_then(|res| Ok(res.0)) else {
+            return (
+                RestoreReply {
+                    result: Some(restore_reply::Result::Error(to_error(
+                        ErrorCode::InvalidMessage,
+                        "simulation state cannot be deserialized",
+                    ))),
+                },
+                None,
+            );
+        };
+        let cfg = match request.cfg {
+            Some(cfg) => cfg,
+            _ => stored_cfg,
+        };
+
+        let reply = panic::catch_unwind(AssertUnwindSafe(|| (self.sim_gen)(&cfg)))
+            .map_err(|payload| {
+                let panic_msg: Option<&str> = if let Some(s) = payload.downcast_ref::<&str>() {
+                    Some(s)
+                } else if let Some(s) = payload.downcast_ref::<String>() {
+                    Some(s)
+                } else {
+                    None
+                };
+
+                let error_msg = if let Some(panic_msg) = panic_msg {
+                    format!(
+                        "the simulation initializer has panicked with the message `{}`",
+                        panic_msg
+                    )
+                } else {
+                    String::from("the simulation initializer has panicked")
+                };
+
+                to_error(ErrorCode::InitializerPanic, error_msg)
+            })
+            .and_then(|res| {
+                res.map_err(|e| {
+                    to_error(
+                        ErrorCode::InvalidMessage,
+                        format!(
+                            "the initializer configuration could not be deserialized: {}",
+                            e
+                        ),
+                    )
+                })
+                .and_then(|init_result| init_result.map_err(map_simulation_error))
+            });
+
+        let (reply, bench) = match reply {
+            Ok((mut sim_init, mut registry)) => {
+                registry
+                    .event_source_registry
+                    .register_scheduler(&mut sim_init.scheduler_registry());
+                match sim_init.restore(&state) {
+                    Ok(simu) => (
+                        restore_reply::Result::Empty(()),
+                        Some((simu, registry, cfg)),
+                    ),
+                    Err(e) => (
+                        restore_reply::Result::Error(to_error(
+                            ErrorCode::InitializerPanic,
+                            &format!("the simulation initializer has panicked: {}", e),
+                        )),
+                        None,
+                    ),
+                }
+            }
+            Err(e) => (restore_reply::Result::Error(e), None),
+        };
+
+        (
+            RestoreReply {
                 result: Some(reply),
             },
             bench,
