@@ -30,6 +30,8 @@ enum ErrorCode {
   SIMULATION_TIME_OUT_OF_RANGE = 21;
   SOURCE_NOT_FOUND = 30;
   SINK_NOT_FOUND = 31;
+  SAVE_ERROR = 40;
+  RESTORE_ERROR = 41;
 }
 
 message Error {

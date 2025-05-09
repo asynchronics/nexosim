@@ -251,25 +251,35 @@ impl ControllerService {
     }
 
     pub(crate) fn save(&mut self, _: SaveRequest) -> SaveReply {
-        if let ControllerService::Started {
+        let ControllerService::Started {
             cfg, simulation, ..
         } = self
-        {
-            // TODO error handling
-            let simulation_state = simulation.save().unwrap();
-            let state =
-                bincode::serde::encode_to_vec((cfg, simulation_state), serialization_config())
-                    .unwrap();
+        else {
             return SaveReply {
-                result: Some(save_reply::Result::State(state)),
+                result: Some(save_reply::Result::Error(to_error(
+                    ErrorCode::SimulationNotStarted,
+                    "the simulation has not been started",
+                ))),
             };
-        }
+        };
+
+        let state = simulation.save().and_then(|simulation_state| {
+            bincode::serde::encode_to_vec((cfg, simulation_state), serialization_config()).map_err(
+                |_| {
+                    crate::simulation::ExecutionError::SaveError(
+                        "Simulation config serialization has failed.".to_string(),
+                    )
+                },
+            )
+        });
+
+        let result = match state {
+            Err(e) => save_reply::Result::Error(map_execution_error(e)),
+            Ok(s) => save_reply::Result::State(s),
+        };
 
         SaveReply {
-            result: Some(save_reply::Result::Error(to_error(
-                ErrorCode::SimulationPanic,
-                "simulation serialization has failed",
-            ))),
+            result: Some(result),
         }
     }
 }

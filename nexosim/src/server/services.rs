@@ -46,9 +46,8 @@ fn map_execution_error(error: ExecutionError) -> Error {
         ExecutionError::Terminated => ErrorCode::SimulationTerminated,
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
         ExecutionError::InvalidEvent(_) => ErrorCode::SourceNotFound,
-        // TODO add error codes?
-        ExecutionError::SaveError(_) => ErrorCode::SimulationPanic,
-        ExecutionError::RestoreError(_) => ErrorCode::InitializerPanic,
+        ExecutionError::SaveError(_) => ErrorCode::SaveError,
+        ExecutionError::RestoreError(_) => ErrorCode::RestoreError,
     };
 
     let error_message = error.to_string();

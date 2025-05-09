@@ -497,6 +497,8 @@ pub enum ErrorCode {
     SimulationTimeOutOfRange = 21,
     SourceNotFound = 30,
     SinkNotFound = 31,
+    SaveError = 40,
+    RestoreError = 41,
 }
 impl ErrorCode {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -527,6 +529,8 @@ impl ErrorCode {
             Self::SimulationTimeOutOfRange => "SIMULATION_TIME_OUT_OF_RANGE",
             Self::SourceNotFound => "SOURCE_NOT_FOUND",
             Self::SinkNotFound => "SINK_NOT_FOUND",
+            Self::SaveError => "SAVE_ERROR",
+            Self::RestoreError => "RESTORE_ERROR",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -554,6 +558,8 @@ impl ErrorCode {
             "SIMULATION_TIME_OUT_OF_RANGE" => Some(Self::SimulationTimeOutOfRange),
             "SOURCE_NOT_FOUND" => Some(Self::SourceNotFound),
             "SINK_NOT_FOUND" => Some(Self::SinkNotFound),
+            "SAVE_ERROR" => Some(Self::SaveError),
+            "RESTORE_ERROR" => Some(Self::RestoreError),
             _ => None,
         }
     }
