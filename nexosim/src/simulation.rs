@@ -80,13 +80,11 @@ mod mailbox;
 mod scheduler;
 mod sim_init;
 
-pub(crate) use scheduler::{
-    GlobalScheduler, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
-};
+pub(crate) use scheduler::GlobalScheduler;
 
 pub use events::{AutoEventKey, EventKey, SourceId};
 pub use mailbox::{Address, Mailbox};
-pub use scheduler::{Action, Scheduler, SchedulingError};
+pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{
@@ -267,6 +265,16 @@ impl Simulation {
         self.step_until_unchecked(None)
     }
 
+    /// Processes a future immediately, blocking until completion.
+    pub(crate) fn process_future(
+        &mut self,
+        fut: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), ExecutionError> {
+        self.take_halt_flag()?;
+        self.executor.spawn_and_forget(fut);
+        self.run()
+    }
+
     /// Processes an event immediately, blocking until completion.
     ///
     /// Simulation time remains unchanged. The periodicity of the event, if
@@ -277,18 +285,8 @@ impl Simulation {
             .get(&event.source_id)
             .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
 
-        let fut = source.into_future(&*event.arg, event.key.as_ref().map(|a| a.clone()));
+        let fut = source.into_future(&*event.arg, event.key.clone());
         self.process_future(fut)
-    }
-
-    /// Processes a future immediately, blocking until completion.
-    pub(crate) fn process_future(
-        &mut self,
-        fut: impl Future<Output = ()> + Send + 'static,
-    ) -> Result<(), ExecutionError> {
-        self.take_halt_flag()?;
-        self.executor.spawn_and_forget(fut);
-        self.run()
     }
 
     /// Processes an event immediately, blocking until completion.
@@ -305,7 +303,6 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
-        self.take_halt_flag()?;
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -323,8 +320,7 @@ impl Simulation {
                 .await;
         };
 
-        self.executor.spawn_and_forget(fut);
-        self.run()
+        self.process_future(fut)
     }
 
     /// Processes a query immediately, blocking until completion.
@@ -344,7 +340,6 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
-        self.take_halt_flag()?;
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -367,8 +362,7 @@ impl Simulation {
                 .await;
         };
 
-        self.executor.spawn_and_forget(fut);
-        self.run()?;
+        self.process_future(fut)?;
 
         reply_reader
             .try_read()
@@ -480,7 +474,7 @@ impl Simulation {
                     .scheduler_registry
                     .get(&event.source_id)
                     .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
-                let fut = source.into_future(&*event.arg, event.key.as_ref().map(|a| a.clone()));
+                let fut = source.into_future(&*event.arg, event.key.clone());
 
                 if let Some(period) = event.period {
                     scheduler_queue.insert((time + period, channel_id), event);
