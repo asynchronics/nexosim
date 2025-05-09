@@ -28,7 +28,7 @@ scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<fn(&T)>);
+pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
 
 // Manual clone and copy impl. to not enforce bounds on T.
 impl<T> Clone for SourceId<T> {
