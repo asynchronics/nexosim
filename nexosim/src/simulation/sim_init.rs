@@ -17,6 +17,8 @@ use super::{
     SchedulerSourceRegistry, Signal, Simulation, SimulationError, SourceId,
 };
 
+type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static;
+
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
     executor: Executor,
@@ -31,8 +33,8 @@ pub struct SimInit {
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
     registered_models: Vec<RegisteredModel>,
-    post_init_callback: Option<Box<dyn FnMut(&mut Simulation) -> Result<(), SimulationError>>>,
-    post_restore_callback: Option<Box<dyn FnMut(&mut Simulation) -> Result<(), SimulationError>>>,
+    post_init_callback: Option<Box<PostCallback>>,
+    post_restore_callback: Option<Box<PostCallback>>,
 }
 
 impl SimInit {
