@@ -23,7 +23,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
-use nexosim::ports::{EventQueue, EventSource, Output};
+use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 

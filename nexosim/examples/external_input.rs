@@ -24,7 +24,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, sleep, JoinHandle};
 use std::time::Duration;
 
-use nexosim::model::{BuildContext, Context, InitializedModel, Model, ProtoModel};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
@@ -58,46 +60,44 @@ impl ProtoModel for ProtoListener {
     type Model = Listener;
 
     /// Start the UDP Server immediately upon model construction.
-    fn build(self, _: &mut BuildContext<Self>) -> Listener {
+    fn build(self, cx: &mut BuildContext<Self>) -> (Listener, ListenerEnv) {
         let (tx, rx) = channel();
 
         let external_handle = thread::spawn(move || {
             Listener::listen(tx, self.start);
         });
 
-        Listener::new(self.message, rx, external_handle)
+        let input_id = cx.register_input(Listener::process);
+
+        (
+            Listener::new(self.message, input_id),
+            ListenerEnv::new(rx, external_handle),
+        )
     }
 }
 
 /// Model that asynchronously receives messages external to the simulation.
+#[derive(Serialize, Deserialize)]
 pub struct Listener {
     /// Received message.
     message: Output<String>,
 
-    /// Receiver of external messages.
-    rx: Receiver<String>,
-
-    /// Handle to UDP Server.
-    server_handle: Option<JoinHandle<()>>,
+    /// Scheduler InputId
+    process_input_id: InputId<Self, ()>,
 }
 
 impl Listener {
     /// Creates a Listener.
-    pub fn new(
-        message: Output<String>,
-        rx: Receiver<String>,
-        server_handle: JoinHandle<()>,
-    ) -> Self {
+    pub fn new(message: Output<String>, process_input_id: InputId<Self, ()>) -> Self {
         Self {
             message,
-            rx,
-            server_handle: Some(server_handle),
+            process_input_id,
         }
     }
 
     /// Periodically scheduled function that processes external events.
-    async fn process(&mut self) {
-        while let Ok(message) = self.rx.try_recv() {
+    async fn process(&mut self, _: (), cx: &mut Context<Self>) {
+        while let Ok(message) = cx.env().rx.try_recv() {
             self.message.send(message).await;
         }
     }
@@ -135,17 +135,34 @@ impl Listener {
 }
 
 impl Model for Listener {
+    type Env = ListenerEnv;
+
     /// Initialize model.
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         // Schedule periodic function that processes external events.
-        cx.schedule_periodic_event(DELTA, PERIOD, Listener::process, ())
+        cx.schedule_periodic_event(DELTA, PERIOD, &self.process_input_id, ())
             .unwrap();
 
         self.into()
     }
 }
 
-impl Drop for Listener {
+pub struct ListenerEnv {
+    /// Receiver of external messages.
+    rx: Receiver<String>,
+
+    /// Handle to UDP Server.
+    server_handle: Option<JoinHandle<()>>,
+}
+impl ListenerEnv {
+    pub fn new(rx: Receiver<String>, server_handle: JoinHandle<()>) -> Self {
+        Self {
+            rx,
+            server_handle: Some(server_handle),
+        }
+    }
+}
+impl Drop for ListenerEnv {
     /// Wait for UDP Server shutdown.
     fn drop(&mut self) {
         if let Some(handle) = self.server_handle.take() {
@@ -211,8 +228,7 @@ fn main() -> Result<(), SimulationError> {
     let mut simu = SimInit::new()
         .add_model(listener, listener_mbox, "listener")
         .set_clock(AutoSystemClock::new())
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     // ----------
     // Simulation.

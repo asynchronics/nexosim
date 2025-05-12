@@ -82,6 +82,7 @@ fn get_bench() -> (SimInit, EventQueueReader<u32>) {
 
     let bench = SimInit::new()
         .add_model(model, mbox, "myModel")
+        .with_post_init(|simu| Ok(()))
         .set_clock(NoClock::new());
     (bench, message.into_reader())
 }

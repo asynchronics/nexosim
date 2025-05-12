@@ -33,12 +33,15 @@
 
 use std::time::Duration;
 
-use nexosim::model::{Context, InitializedModel, Model};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventSlot, Output};
-use nexosim::simulation::{ActionKey, Mailbox, SimInit, SimulationError};
+use nexosim::simulation::{EventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 /// Water pump.
+#[derive(Serialize, Deserialize)]
 pub struct Pump {
     /// Actual volumetric flow rate [m³·s⁻¹] -- output port.
     pub flow_rate: Output<f64>,
@@ -67,9 +70,34 @@ impl Pump {
     }
 }
 
-impl Model for Pump {}
+impl Model for Pump {
+    type Env = ();
+}
+
+struct ProtoController {
+    pub pump_cmd: Output<PumpCommand>,
+}
+impl ProtoController {
+    pub fn new() -> Self {
+        Self {
+            pump_cmd: Output::default(),
+        }
+    }
+}
+impl ProtoModel for ProtoController {
+    type Model = Controller;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Controller::stop_brew);
+        (Controller::new(self.pump_cmd, input_id), ())
+    }
+}
 
 /// Espresso machine controller.
+#[derive(Serialize, Deserialize)]
 pub struct Controller {
     /// Pump command -- output port.
     pub pump_cmd: Output<PumpCommand>,
@@ -80,7 +108,9 @@ pub struct Controller {
     water_sense: WaterSenseState,
     /// Event key, which if present indicates that the machine is currently
     /// brewing -- internal state.
-    stop_brew_key: Option<ActionKey>,
+    stop_brew_key: Option<EventKey>,
+    // Scheduler input id
+    stop_brew_input_id: InputId<Self, ()>,
 }
 
 impl Controller {
@@ -88,12 +118,13 @@ impl Controller {
     const DEFAULT_BREW_TIME: Duration = Duration::new(25, 0);
 
     /// Creates an espresso machine controller.
-    pub fn new() -> Self {
+    pub fn new(pump_cmd: Output<PumpCommand>, stop_brew_input_id: InputId<Self, ()>) -> Self {
         Self {
+            pump_cmd,
             brew_time: Self::DEFAULT_BREW_TIME,
-            pump_cmd: Output::default(),
             stop_brew_key: None,
             water_sense: WaterSenseState::Empty, // will be overridden during init
+            stop_brew_input_id,
         }
     }
 
@@ -139,7 +170,7 @@ impl Controller {
 
         // Schedule the `stop_brew()` method and turn on the pump.
         self.stop_brew_key = Some(
-            cx.schedule_keyed_event(self.brew_time, Self::stop_brew, ())
+            cx.schedule_keyed_event(self.brew_time, &self.stop_brew_input_id, ())
                 .unwrap(),
         );
         self.pump_cmd.send(PumpCommand::On).await;
@@ -153,7 +184,9 @@ impl Controller {
     }
 }
 
-impl Model for Controller {}
+impl Model for Controller {
+    type Env = ();
+}
 
 /// ON/OFF pump command.
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -162,7 +195,32 @@ pub enum PumpCommand {
     Off,
 }
 
+struct ProtoTank {
+    volume: f64,
+    pub water_sense: Output<WaterSenseState>,
+}
+impl ProtoTank {
+    pub fn new(water_volume: f64) -> Self {
+        Self {
+            volume: water_volume,
+            water_sense: Output::default(),
+        }
+    }
+}
+impl ProtoModel for ProtoTank {
+    type Model = Tank;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Tank::set_empty);
+        (Tank::new(self.water_sense, self.volume, input_id), ())
+    }
+}
+
 /// Water tank.
+#[derive(Serialize, Deserialize)]
 pub struct Tank {
     /// Water sensor -- output port.
     pub water_sense: Output<WaterSenseState>,
@@ -171,18 +229,25 @@ pub struct Tank {
     volume: f64,
     /// State that exists when the mass flow rate is non-zero -- internal state.
     dynamic_state: Option<TankDynamicState>,
+
+    set_empty_input_id: InputId<Self, ()>,
 }
 impl Tank {
     /// Creates a new tank with the specified amount of water [m³].
     ///
     /// The initial flow rate is assumed to be zero.
-    pub fn new(water_volume: f64) -> Self {
+    pub fn new(
+        water_sense: Output<WaterSenseState>,
+        water_volume: f64,
+        set_empty_input_id: InputId<Self, ()>,
+    ) -> Self {
         assert!(water_volume >= 0.0);
 
         Self {
             volume: water_volume,
             dynamic_state: None,
-            water_sense: Output::default(),
+            water_sense,
+            set_empty_input_id,
         }
     }
 
@@ -272,7 +337,7 @@ impl Tank {
         let duration_until_empty = Duration::from_secs_f64(duration_until_empty);
 
         // Schedule the next update.
-        match cx.schedule_keyed_event(duration_until_empty, Self::set_empty, ()) {
+        match cx.schedule_keyed_event(duration_until_empty, &self.set_empty_input_id, ()) {
             Ok(set_empty_key) => {
                 let state = TankDynamicState {
                     last_volume_update: time,
@@ -298,6 +363,8 @@ impl Tank {
 }
 
 impl Model for Tank {
+    type Env = ();
+
     /// Broadcasts the initial state of the water sense.
     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.water_sense
@@ -314,14 +381,15 @@ impl Model for Tank {
 
 /// Dynamic state of the tank that exists when and only when the mass flow rate
 /// is non-zero.
+#[derive(Serialize, Deserialize)]
 struct TankDynamicState {
     last_volume_update: MonotonicTime,
-    set_empty_key: ActionKey,
+    set_empty_key: EventKey,
     flow_rate: f64,
 }
 
 /// Water level in the tank.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum WaterSenseState {
     Empty,
     NotEmpty,
@@ -342,8 +410,8 @@ fn main() -> Result<(), SimulationError> {
     let init_tank_volume = 1.5e-3;
 
     let mut pump = Pump::new(pump_flow_rate);
-    let mut controller = Controller::new();
-    let mut tank = Tank::new(init_tank_volume);
+    let mut controller = ProtoController::new();
+    let mut tank = ProtoTank::new(init_tank_volume);
 
     // Mailboxes.
     let pump_mbox = Mailbox::new();
@@ -366,11 +434,16 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let (mut simu, scheduler) = SimInit::new()
+    let mut bench = SimInit::new()
         .add_model(controller, controller_mbox, "controller")
         .add_model(pump, pump_mbox, "pump")
-        .add_model(tank, tank_mbox, "tank")
-        .init(t0)?;
+        .add_model(tank, tank_mbox, "tank");
+
+    let brew_input_id = bench.register_model_input(Controller::brew_cmd, &controller_addr);
+
+    let mut simu = bench.init(t0)?;
+
+    let scheduler = simu.scheduler();
 
     // ----------
     // Simulation.
@@ -426,12 +499,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Interrupt the brew after 15s by pressing again the brew button.
     scheduler
-        .schedule_event(
-            Duration::from_secs(15),
-            Controller::brew_cmd,
-            (),
-            &controller_addr,
-        )
+        .schedule_event(Duration::from_secs(15), &brew_input_id, ())
         .unwrap();
     simu.process_event(Controller::brew_cmd, (), &controller_addr)?;
     assert_eq!(flow_rate.next(), Some(pump_flow_rate));
