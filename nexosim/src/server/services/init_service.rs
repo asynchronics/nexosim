@@ -100,11 +100,7 @@ impl InitService {
         RestoreReply,
         Option<(Simulation, EndpointRegistry, Vec<u8>)>,
     ) {
-        let Ok((stored_cfg, state)) = bincode::serde::decode_from_slice::<(Vec<u8>, Vec<u8>), _>(
-            &request.state,
-            serialization_config(),
-        )
-        .map(|res| res.0) else {
+        let Ok(Some(stored_cfg)) = Simulation::restore_cfg(&request.state) else {
             return (
                 RestoreReply {
                     result: Some(restore_reply::Result::Error(to_error(
@@ -115,6 +111,7 @@ impl InitService {
                 None,
             );
         };
+
         let cfg = match request.cfg {
             Some(cfg) => cfg,
             _ => stored_cfg,
@@ -125,7 +122,9 @@ impl InitService {
                 registry
                     .event_source_registry
                     .register_scheduler(sim_init.scheduler_registry());
-                sim_init.restore(&state).map(|simu| (simu, registry))
+                sim_init
+                    .restore(&request.state)
+                    .map(|simu| (simu, registry))
             })
         }))
         .map_err(map_panic)

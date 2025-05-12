@@ -644,6 +644,19 @@ impl Simulation {
             models: self.save_models()?,
             scheduler_queue: self.save_queue()?,
             time: self.time(),
+            cfg: None,
+        };
+        bincode::serde::encode_to_vec(state, serialization_config())
+            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+    }
+
+    /// Serialize with bench builder cfg
+    pub(crate) fn save_with_cfg(&mut self, cfg: Vec<u8>) -> Result<Vec<u8>, ExecutionError> {
+        let state = SimulationState {
+            models: self.save_models()?,
+            scheduler_queue: self.save_queue()?,
+            time: self.time(),
+            cfg: Some(cfg),
         };
         bincode::serde::encode_to_vec(state, serialization_config())
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
@@ -665,6 +678,15 @@ impl Simulation {
         })?;
         Ok(())
     }
+
+    /// Extract bench builder cfg from the serialized simulation state.
+    pub fn restore_cfg(state: &[u8]) -> Result<Option<Vec<u8>>, ExecutionError> {
+        let state: SimulationState =
+            bincode::serde::decode_from_slice(state, serialization_config())
+                .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?
+                .0;
+        Ok(state.cfg)
+    }
 }
 
 impl fmt::Debug for Simulation {
@@ -678,6 +700,7 @@ impl fmt::Debug for Simulation {
 /// Internal helper struct organizing parts of persisted simulation state.
 #[derive(Serialize, Deserialize)]
 struct SimulationState {
+    cfg: Option<Vec<u8>>,
     models: Vec<Vec<u8>>,
     scheduler_queue: Vec<u8>,
     time: MonotonicTime,

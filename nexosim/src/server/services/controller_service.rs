@@ -263,13 +263,9 @@ impl ControllerService {
             };
         };
 
-        let state = simulation.save().and_then(|simulation_state| {
-            bincode::serde::encode_to_vec((cfg, simulation_state), serialization_config()).map_err(
-                |_| {
-                    crate::simulation::ExecutionError::SaveError(
-                        "Simulation config serialization has failed.".to_string(),
-                    )
-                },
+        let state = simulation.save_with_cfg(cfg.clone()).map_err(|_| {
+            crate::simulation::ExecutionError::SaveError(
+                "Simulation config serialization has failed.".to_string(),
             )
         });
 
