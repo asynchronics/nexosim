@@ -18,14 +18,17 @@
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use nexosim_util::observables::ObservableValue;
 
-use nexosim::model::{Context, InitializedModel, Model};
+use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output, UniRequestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 /// Sensor model
+#[derive(Serialize, Deserialize)]
 pub struct Sensor {
     /// Temperature [deg C] -- requestor port.
     pub temp: UniRequestor<(), f64>,
@@ -38,22 +41,30 @@ pub struct Sensor {
 
     /// Overheat detection [-] -- observable state.
     oh: ObservableValue<bool>,
+
+    /// Tick InputId
+    tick_input_id: InputId<Self, ()>,
 }
 
 impl Sensor {
     /// Creates new Sensor with overheat threshold set [deg C].
-    pub fn new(threshold: f64, temp: UniRequestor<(), f64>) -> Self {
-        let overheat = Output::new();
+    pub fn new(
+        threshold: f64,
+        temp: UniRequestor<(), f64>,
+        overheat: Output<bool>,
+        tick_input_id: InputId<Self, ()>,
+    ) -> Self {
         Self {
             temp,
             overheat: overheat.clone(),
             threshold,
             oh: ObservableValue::new(overheat),
+            tick_input_id,
         }
     }
 
     /// Cyclically scheduled method that reads data from environment and
-    /// avaluates overheat state.
+    /// evaluates overheat state.
     pub async fn tick(&mut self) {
         let temp = self.temp.send(()).await.unwrap();
         if temp > self.threshold {
@@ -67,6 +78,8 @@ impl Sensor {
 }
 
 impl Model for Sensor {
+    type Env = ();
+
     /// Propagate state and schedule cyclic method.
     async fn init(mut self, context: &mut Context<Self>) -> InitializedModel<Self> {
         self.oh.propagate().await;
@@ -75,7 +88,7 @@ impl Model for Sensor {
             .schedule_periodic_event(
                 Duration::from_millis(500),
                 Duration::from_millis(500),
-                Self::tick,
+                &self.tick_input_id,
                 (),
             )
             .unwrap();
@@ -84,7 +97,40 @@ impl Model for Sensor {
     }
 }
 
+struct ProtoSensor {
+    /// Temperature [deg C] -- requestor port.
+    pub temp: UniRequestor<(), f64>,
+    /// Overheat detection [-] -- output port.
+    pub overheat: Output<bool>,
+    /// Temperature threshold [deg C] -- parameter.
+    threshold: f64,
+}
+impl ProtoSensor {
+    pub fn new(threshold: f64, temp: UniRequestor<(), f64>) -> Self {
+        Self {
+            temp,
+            overheat: Output::new(),
+            threshold,
+        }
+    }
+}
+impl ProtoModel for ProtoSensor {
+    type Model = Sensor;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Sensor::tick);
+        (
+            Sensor::new(self.threshold, self.temp, self.overheat, input_id),
+            (),
+        )
+    }
+}
+
 /// Environment model.
+#[derive(Serialize, Deserialize)]
 pub struct Env {
     /// Temperature [deg F] -- internal state.
     temp: f64,
@@ -107,7 +153,9 @@ impl Env {
     }
 }
 
-impl Model for Env {}
+impl Model for Env {
+    type Env = ();
+}
 
 /// Converts Fahrenheit to Celsius.
 pub fn fahr_to_cels(t: f64) -> f64 {
@@ -127,7 +175,7 @@ fn main() -> Result<(), SimulationError> {
     let temp_req = UniRequestor::with_map(|x| *x, fahr_to_cels, Env::get_temp, &env_mbox);
 
     // Models.
-    let mut sensor = Sensor::new(100.0, temp_req);
+    let mut sensor = ProtoSensor::new(100.0, temp_req);
     let env = Env::new(0.0);
 
     // Model handles for simulation.
@@ -141,10 +189,14 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let (mut simu, scheduler) = SimInit::new()
+    let mut bench = SimInit::new()
         .add_model(sensor, sensor_mbox, "sensor")
-        .add_model(env, env_mbox, "env")
-        .init(t0)?;
+        .add_model(env, env_mbox, "env");
+
+    let set_temp_input_id = bench.register_model_input(Env::set_temp, &env_addr);
+
+    let mut simu = bench.init(t0)?;
+    let scheduler = simu.scheduler();
 
     // ----------
     // Simulation.
@@ -157,12 +209,12 @@ fn main() -> Result<(), SimulationError> {
 
     // Change temperature in 2s.
     scheduler
-        .schedule_event(Duration::from_secs(2), Env::set_temp, 105.0, &env_addr)
+        .schedule_event(Duration::from_secs(2), &set_temp_input_id, 105.0)
         .unwrap();
 
     // Change temperature in 4s.
     scheduler
-        .schedule_event(Duration::from_secs(4), Env::set_temp, 213.0, &env_addr)
+        .schedule_event(Duration::from_secs(4), &set_temp_input_id, 213.0)
         .unwrap();
 
     simu.step_until(Duration::from_secs(3))?;

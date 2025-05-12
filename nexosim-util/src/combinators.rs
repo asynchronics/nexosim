@@ -1,9 +1,10 @@
 //! Connector combinators.
 //!
 //! This module contains combinator types useful for simulation bench assembly.
-//!
 
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
 use nexosim::ports::{Output, Requestor};
@@ -15,6 +16,7 @@ use nexosim::ports::{Output, Requestor};
 ///
 /// Model input is propagated to all the connected replier ports and their
 /// answers are written to the model output.
+#[derive(Serialize, Deserialize)]
 pub struct ReplierAdaptor<T: Clone + Send + 'static, R: Clone + Send + 'static> {
     /// Requestor port to be connected to replier port.
     pub requestor: Requestor<T, R>,
@@ -37,7 +39,13 @@ impl<T: Clone + Send + 'static, R: Clone + Send + 'static> ReplierAdaptor<T, R> 
     }
 }
 
-impl<T: Clone + Send + 'static, R: Clone + Send + 'static> Model for ReplierAdaptor<T, R> {}
+impl<T, R> Model for ReplierAdaptor<T, R>
+where
+    T: Serialize + for<'de> Deserialize<'de> + Clone + Send + 'static,
+    R: Serialize + for<'de> Deserialize<'de> + Clone + Send + 'static,
+{
+    type Env = ();
+}
 
 impl<T: Clone + Send + 'static, R: Clone + Send + 'static> Default for ReplierAdaptor<T, R> {
     fn default() -> Self {

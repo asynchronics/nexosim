@@ -2,9 +2,10 @@
 //!
 //! This module contains types used to implement states automatically propagated
 //! to output on change.
-//!
 
 use std::ops::Deref;
+
+use serde::{Deserialize, Serialize};
 
 use nexosim::ports::Output;
 
@@ -27,7 +28,7 @@ where
 ///
 /// This object encapsulates state. Every state change access is propagated to
 /// the output.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ObservableState<S, T>
 where
     S: Observable<T> + Default,
