@@ -17,14 +17,16 @@
 
 use std::time::Duration;
 
-use nexosim::model::{Context, InitializedModel, Model};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
-use nexosim::simulation::{AutoActionKey, Mailbox, SimInit, SimulationError};
+use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 use nexosim_util::observables::{Observable, ObservableState, ObservableValue};
 
 /// House keeping TM.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hk {
     pub voltage: f64,
     pub current: f64,
@@ -40,7 +42,7 @@ impl Default for Hk {
 }
 
 /// Processor mode ID.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ModeId {
     #[default]
     Off,
@@ -49,12 +51,12 @@ pub enum ModeId {
 }
 
 /// Processor state.
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub enum State {
     #[default]
     Off,
     Idle,
-    Processing(AutoActionKey),
+    Processing(AutoEventKey),
 }
 
 impl Observable<ModeId> for State {
@@ -68,6 +70,7 @@ impl Observable<ModeId> for State {
 }
 
 /// Processor model.
+#[derive(Serialize, Deserialize)]
 pub struct Processor {
     /// Mode output.
     pub mode: Output<ModeId>,
@@ -86,14 +89,18 @@ pub struct Processor {
 
     /// Electrical data.
     elc: ObservableValue<Hk>,
+    /// Scheduler input id
+    finish_processing_input_id: InputId<Self, ()>,
 }
 
 impl Processor {
     /// Create a new processor.
-    pub fn new() -> Self {
-        let mode = Output::new();
-        let value = Output::new();
-        let hk = Output::new();
+    pub fn new(
+        mode: Output<ModeId>,
+        value: Output<u16>,
+        hk: Output<Hk>,
+        finish_processing_input_id: InputId<Self, ()>,
+    ) -> Self {
         Self {
             mode: mode.clone(),
             value: value.clone(),
@@ -101,6 +108,7 @@ impl Processor {
             state: ObservableState::new(mode),
             acc: ObservableValue::new(value),
             elc: ObservableValue::new(hk),
+            finish_processing_input_id,
         }
     }
 
@@ -127,9 +135,13 @@ impl Processor {
         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
             self.state
                 .set(State::Processing(
-                    cx.schedule_keyed_event(Duration::from_millis(dt), Self::finish_processing, ())
-                        .unwrap()
-                        .into_auto(),
+                    cx.schedule_keyed_event(
+                        Duration::from_millis(dt),
+                        &self.finish_processing_input_id,
+                        (),
+                    )
+                    .unwrap()
+                    .into_auto(),
                 ))
                 .await;
             self.elc.modify(|hk| hk.current = 1.0).await;
@@ -145,6 +157,8 @@ impl Processor {
 }
 
 impl Model for Processor {
+    type Env = ();
+
     /// Propagate all internal states.
     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.state.propagate().await;
@@ -154,13 +168,39 @@ impl Model for Processor {
     }
 }
 
+pub struct ProtoProcessor {
+    pub mode: Output<ModeId>,
+    pub value: Output<u16>,
+    pub hk: Output<Hk>,
+}
+impl ProtoProcessor {
+    pub fn new() -> Self {
+        Self {
+            mode: Output::default(),
+            value: Output::default(),
+            hk: Output::default(),
+        }
+    }
+}
+impl ProtoModel for ProtoProcessor {
+    type Model = Processor;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Processor::finish_processing);
+        (Processor::new(self.mode, self.value, self.hk, input_id), ())
+    }
+}
+
 fn main() -> Result<(), SimulationError> {
     // ---------------
     // Bench assembly.
     // ---------------
 
     // Models.
-    let mut proc = Processor::new();
+    let mut proc = ProtoProcessor::new();
 
     // Mailboxes.
     let proc_mbox = Mailbox::new();
@@ -182,10 +222,7 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let mut simu = SimInit::new()
-        .add_model(proc, proc_mbox, "proc")
-        .init(t0)?
-        .0;
+    let mut simu = SimInit::new().add_model(proc, proc_mbox, "proc").init(t0)?;
 
     // ----------
     // Simulation.

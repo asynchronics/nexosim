@@ -345,8 +345,9 @@ fn deserialize_event_arg<T: for<'de> Deserialize<'de> + Send + 'static>(
 ///
 /// An `AutoEventKey` is a managed handle to a scheduled action that cancels
 /// its associated action on drop.
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
 #[must_use = "dropping this key immediately cancels the associated action"]
+#[serde(from = "EventKey")]
 pub struct AutoEventKey {
     is_cancelled: Arc<AtomicBool>,
 }
@@ -354,6 +355,27 @@ pub struct AutoEventKey {
 impl Drop for AutoEventKey {
     fn drop(&mut self) {
         self.is_cancelled.store(true, Ordering::Relaxed);
+    }
+}
+
+// Required for auto deserialization
+impl From<EventKey> for AutoEventKey {
+    fn from(value: EventKey) -> Self {
+        value.into_auto()
+    }
+}
+
+// Auto serialization via serde(into) seems not possible because of the drop
+// implementation.
+impl Serialize for AutoEventKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let key = EventKey {
+            is_cancelled: self.is_cancelled.clone(),
+        };
+        key.serialize(serializer)
     }
 }
 
@@ -462,5 +484,38 @@ impl<'de> Deserialize<'de> for EventKey {
         }
 
         deserializer.deserialize_tuple_struct("EventKey", 2, KeyVisitor)
+    }
+}
+
+mod tests {
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[test]
+    fn serialize_auto_key() {
+        let event_key = EventKey::new();
+        let auto = event_key.clone().into_auto();
+
+        let state = bincode::serde::encode_to_vec((&auto, &event_key), bincode::config::standard())
+            .unwrap();
+
+        // Check if serializing does not auto cancel
+        assert!(!event_key.is_cancelled());
+
+        // Check connection after deserialization
+        let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
+        let (auto, event_key): (AutoEventKey, EventKey) = EVENT_KEY_REG
+            .set::<_, Result<(AutoEventKey, EventKey), ExecutionError>>(&event_key_reg, || {
+                Ok(
+                    bincode::serde::decode_from_slice(&state, bincode::config::standard())
+                        .unwrap()
+                        .0,
+                )
+            })
+            .unwrap();
+
+        assert!(!event_key.is_cancelled());
+        drop(auto);
+        assert!(event_key.is_cancelled());
     }
 }

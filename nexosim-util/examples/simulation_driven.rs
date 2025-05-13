@@ -27,12 +27,13 @@ use std::thread;
 use std::time::Duration;
 
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, Model};
+use nexosim::model::{Context, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
-use nexosim::simulation::{ActionKey, ExecutionError, Mailbox, SimInit, SimulationError};
+use nexosim::simulation::{EventKey, ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim_util::helper_models::Ticker;
+use nexosim_util::helper_models::ProtoTicker;
 use nexosim_util::joiners::SimulationJoiner;
 use nexosim_util::observables::ObservableValue;
 
@@ -42,7 +43,7 @@ const TICK: Duration = Duration::from_millis(100);
 const N: u64 = 10;
 
 /// Counter mode.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Mode {
     #[default]
     Off,
@@ -50,13 +51,14 @@ pub enum Mode {
 }
 
 /// Simulation event.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Event {
     Mode(Mode),
     Count(u64),
 }
 
 /// The `Counter` Model.
+#[derive(Serialize, Deserialize)]
 pub struct Counter {
     /// Operation mode.
     pub mode: Output<Mode>,
@@ -69,18 +71,20 @@ pub struct Counter {
 
     /// Counter.
     acc: ObservableValue<u64>,
+
+    /// Scheduler input id
+    switch_on_input_id: InputId<Self, ()>,
 }
 
 impl Counter {
     /// Creates a new `Counter` model.
-    fn new() -> Self {
-        let mode = Output::default();
-        let count = Output::default();
+    fn new(mode: Output<Mode>, count: Output<u64>, switch_on_input_id: InputId<Self, ()>) -> Self {
         Self {
             mode: mode.clone(),
             count: count.clone(),
             state: ObservableValue::new(mode),
             acc: ObservableValue::new(count),
+            switch_on_input_id,
         }
     }
 
@@ -88,7 +92,7 @@ impl Counter {
     pub async fn power_in(&mut self, on: bool, cx: &mut Context<Self>) {
         match *self.state {
             Mode::Off if on => cx
-                .schedule_event(SWITCH_ON_DELAY, Self::switch_on, ())
+                .schedule_event(SWITCH_ON_DELAY, &self.switch_on_input_id, ())
                 .unwrap(),
             Mode::On if !on => self.switch_off().await,
             _ => (),
@@ -111,23 +115,54 @@ impl Counter {
     }
 }
 
-impl Model for Counter {}
+impl Model for Counter {
+    type Env = ();
+}
+
+pub struct ProtoCounter {
+    pub mode: Output<Mode>,
+    pub count: Output<u64>,
+}
+impl ProtoCounter {
+    pub fn new() -> Self {
+        Self {
+            mode: Output::default(),
+            count: Output::default(),
+        }
+    }
+}
+impl ProtoModel for ProtoCounter {
+    type Model = Counter;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Counter::switch_on);
+        (Counter::new(self.mode, self.count, input_id), ())
+    }
+}
 
 /// Detector model that produces pulses.
+#[derive(Serialize, Deserialize)]
 pub struct Detector {
     /// Output pulse.
     pub pulse: Output<()>,
 
     /// `ActionKey` of the next scheduled detection.
-    next: Option<ActionKey>,
+    next: Option<EventKey>,
+
+    /// Scheduler input id
+    pulse_input_id: InputId<Self, ()>,
 }
 
 impl Detector {
     /// Creates a new `Detector` model.
-    pub fn new() -> Self {
+    pub fn new(pulse: Output<()>, pulse_input_id: InputId<Self, ()>) -> Self {
         Self {
-            pulse: Output::default(),
+            pulse,
             next: None,
+            pulse_input_id,
         }
     }
 
@@ -163,13 +198,37 @@ impl Detector {
             rng.gen_range(1..MAX_PULSE_PERIOD)
         };
         self.next = Some(
-            cx.schedule_keyed_event(Duration::from_millis(next), Self::pulse, ())
+            cx.schedule_keyed_event(Duration::from_millis(next), &self.pulse_input_id, ())
                 .unwrap(),
         );
     }
 }
 
-impl Model for Detector {}
+impl Model for Detector {
+    type Env = ();
+}
+
+pub struct ProtoDetector {
+    pub pulse: Output<()>,
+}
+impl ProtoDetector {
+    pub fn new() -> Self {
+        Self {
+            pulse: Output::default(),
+        }
+    }
+}
+impl ProtoModel for ProtoDetector {
+    type Model = Detector;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Detector::pulse);
+        (Detector::new(self.pulse, input_id), ())
+    }
+}
 
 fn main() -> Result<(), SimulationError> {
     // ---------------
@@ -179,13 +238,13 @@ fn main() -> Result<(), SimulationError> {
     // Models.
 
     // The detector model that produces pulses.
-    let mut detector = Detector::new();
+    let mut detector = ProtoDetector::new();
 
     // The counter model.
-    let mut counter = Counter::new();
+    let mut counter = ProtoCounter::new();
 
     // The ticker model that keeps simulation alive.
-    let ticker = Ticker::new(TICK);
+    let ticker = ProtoTicker::new(TICK);
 
     // Mailboxes.
     let detector_mbox = Mailbox::new();
@@ -211,12 +270,18 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let (mut simu, scheduler) = SimInit::new()
+    let mut bench = SimInit::new()
         .add_model(detector, detector_mbox, "detector")
         .add_model(counter, counter_mbox, "counter")
         .add_model(ticker, ticker_mbox, "ticker")
-        .set_clock(AutoSystemClock::new())
-        .init(t0)?;
+        .set_clock(AutoSystemClock::new());
+
+    let power_in_input_id = bench.register_model_input(Counter::power_in, &counter_addr);
+    let switch_on_input_id = bench.register_model_input(Detector::switch_on, &detector_addr);
+
+    let mut simu = bench.init(t0)?;
+
+    let scheduler = simu.scheduler();
 
     // Simulation thread.
     let simulation_handle = SimulationJoiner::new_with_drop_action(
@@ -232,12 +297,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Switch the counter on.
-    scheduler.schedule_event(
-        Duration::from_millis(1),
-        Counter::power_in,
-        true,
-        counter_addr,
-    )?;
+    scheduler.schedule_event(Duration::from_millis(1), &power_in_input_id, true)?;
 
     // Wait until counter mode is `On`.
     loop {
@@ -252,12 +312,7 @@ fn main() -> Result<(), SimulationError> {
     }
 
     // Switch the detector on.
-    scheduler.schedule_event(
-        Duration::from_millis(100),
-        Detector::switch_on,
-        (),
-        detector_addr,
-    )?;
+    scheduler.schedule_event(Duration::from_millis(100), &switch_on_input_id, ())?;
 
     // Wait until `N` detections.
     loop {

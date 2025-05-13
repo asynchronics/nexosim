@@ -16,7 +16,9 @@
 use std::fmt::Debug;
 use std::time::Duration;
 
-use nexosim::model::{Context, InitializedModel, Model};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
@@ -26,20 +28,21 @@ const DELTA: Duration = Duration::from_millis(2);
 const PERIOD: Duration = Duration::from_secs(1);
 
 /// Sensor TC.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SensorTc {
     GetTemp,
     GetIllum,
 }
 
 /// Sensor TM.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SensorTm {
     Temp(f64),
     Illum(f64),
 }
 
 /// Sensor model.
+#[derive(Serialize, Deserialize)]
 pub struct Sensor {
     /// Temperature [deg C] -- internal state.
     temp: f64,
@@ -76,10 +79,12 @@ impl Sensor {
     }
 }
 
-impl Model for Sensor {}
+impl Model for Sensor {
+    type Env = ();
+}
 
 /// Internal TM field.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TmField<T>
 where
     T: Clone + Debug + PartialEq,
@@ -102,6 +107,7 @@ pub struct RiuTm {
 }
 
 /// RIU model.
+#[derive(Serialize, Deserialize)]
 pub struct Riu {
     /// Sensor TC -- output port.
     pub sensor_tc: Output<SensorTc>,
@@ -114,14 +120,21 @@ pub struct Riu {
 
     /// Illuminance [lx] -- internal state.
     illum: TmField<f64>,
+
+    /// Scheduler input id
+    acquire_input_id: InputId<Self, ()>,
 }
 
 impl Riu {
     /// Creates an RIU model.
-    pub fn new() -> Self {
+    pub fn new(
+        sensor_tc: Output<SensorTc>,
+        tm: Output<RiuTm>,
+        acquire_input_id: InputId<Self, ()>,
+    ) -> Self {
         Self {
-            sensor_tc: Output::new(),
-            tm: Output::new(),
+            sensor_tc,
+            tm,
             temp: TmField {
                 value: 0.0,
                 ready: true,
@@ -130,6 +143,7 @@ impl Riu {
                 value: 0.0,
                 ready: true,
             },
+            acquire_input_id,
         }
     }
 
@@ -175,13 +189,39 @@ impl Riu {
 }
 
 impl Model for Riu {
+    type Env = ();
+
     /// Initializes model.
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         // Schedule periodic acquisition.
-        cx.schedule_periodic_event(DELTA, PERIOD, Riu::acquire, ())
+        cx.schedule_periodic_event(DELTA, PERIOD, &self.acquire_input_id, ())
             .unwrap();
 
         self.into()
+    }
+}
+
+pub struct ProtoRiu {
+    pub sensor_tc: Output<SensorTc>,
+    pub tm: Output<RiuTm>,
+}
+impl ProtoRiu {
+    pub fn new() -> Self {
+        Self {
+            sensor_tc: Output::default(),
+            tm: Output::default(),
+        }
+    }
+}
+impl ProtoModel for ProtoRiu {
+    type Model = Riu;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as Model>::Env) {
+        let input_id = cx.register_input(Riu::acquire);
+        (Riu::new(self.sensor_tc, self.tm, input_id), ())
     }
 }
 
@@ -192,7 +232,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Models.
     let sensor = Sensor::new();
-    let mut riu = Riu::new();
+    let mut riu = ProtoRiu::new();
     let mut sensor_adaptor = ReplierAdaptor::new();
 
     // Mailboxes.
@@ -223,8 +263,7 @@ fn main() -> Result<(), SimulationError> {
         .add_model(sensor, sensor_mbox, "sensor")
         .add_model(riu, riu_mbox, "riu")
         .add_model(sensor_adaptor, sensor_adaptor_mbox, "sensor_adaptor")
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     // ----------
     // Simulation.

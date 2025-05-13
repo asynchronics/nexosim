@@ -330,7 +330,7 @@ pub(crate) struct RegisteredModel {
         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
-    pub fn new<M: Model>(name: String, address: Address<M>) -> Self {
+    pub(crate) fn new<M: Model>(name: String, address: Address<M>) -> Self {
         let ser_address = address.clone();
         let de_address = address.clone();
         let ser_name = name.clone();
