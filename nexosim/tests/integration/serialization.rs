@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{Address, EventKey, Mailbox, SimInit, SourceId};
-use nexosim::time::{MonotonicTime, NoClock};
+use nexosim::time::MonotonicTime;
 
 #[derive(Default, Serialize, Deserialize)]
 struct ModelWithOutput {

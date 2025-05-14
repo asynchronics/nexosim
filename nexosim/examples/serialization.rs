@@ -4,18 +4,25 @@ use serde::{Deserialize, Serialize};
 
 use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
-use nexosim::simulation::{EventKey, Mailbox, SimInit};
+use nexosim::simulation::{AutoEventKey, EventKey, Mailbox, SimInit};
 use nexosim::time::{MonotonicTime, NoClock};
 
 #[derive(Serialize, Deserialize)]
 pub struct MyModel {
     input_id: InputId<Self, u32>,
     key: Option<EventKey>,
+    auto_key: Option<AutoEventKey>,
     msg: Output<u32>,
     value: u32,
 }
 impl MyModel {
-    pub async fn process(&mut self, input: u32, cx: &mut Context<Self>) {
+    pub async fn process(&mut self, input: u32) {
+        // Auto key event.
+        if input == 27 {
+            self.msg.send(27).await;
+            return;
+        }
+
         self.value += 1;
         self.msg.send(self.value).await;
 
@@ -47,6 +54,12 @@ impl Model for MyModel {
                 .unwrap(),
         );
 
+        self.auto_key = Some(
+            cx.schedule_keyed_event(Duration::from_secs(5), &self.input_id, 27)
+                .unwrap()
+                .into_auto(),
+        );
+
         self.into()
     }
 }
@@ -64,6 +77,7 @@ impl ProtoModel for MyProto {
                 input_id,
                 value: 0,
                 key: None,
+                auto_key: None,
                 msg: self.msg,
             },
             (),
@@ -104,8 +118,9 @@ fn main() {
     simu.step().unwrap();
     assert_eq!(message.next(), Some(4));
 
+    // Assert auto key didn't drop when serializing.
     simu.step().unwrap();
-    assert_eq!(message.next(), Some(5));
+    assert_eq!(message.next(), Some(27));
 
     // Restore state from the first step.
     let (bench, mut message) = get_bench();
@@ -114,6 +129,10 @@ fn main() {
     simu.step().unwrap();
     // Back to `4` as this is the second step again.
     assert_eq!(message.next(), Some(4));
+
+    // Assert auto key didn't drop after deserializing either.
+    simu.step().unwrap();
+    assert_eq!(message.next(), Some(27));
 
     // Run in the loop for a while to verify that the cancelled event won't fire.
     for _ in 0..20 {
