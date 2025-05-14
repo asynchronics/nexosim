@@ -5,7 +5,6 @@ use prost_types::Timestamp;
 
 use crate::registry::{EventSourceRegistry, QuerySourceRegistry};
 use crate::simulation::Simulation;
-use crate::util::serialization::serialization_config;
 
 use super::super::codegen::simulation::*;
 use super::{
@@ -263,15 +262,18 @@ impl ControllerService {
             };
         };
 
-        let state = simulation.save_with_cfg(cfg.clone()).map_err(|_| {
-            crate::simulation::ExecutionError::SaveError(
-                "Simulation config serialization has failed.".to_string(),
-            )
-        });
+        let mut state = Vec::new();
+        let result = simulation
+            .save_with_cfg(cfg.clone(), &mut state)
+            .map_err(|_| {
+                crate::simulation::ExecutionError::SaveError(
+                    "Simulation config serialization has failed.".to_string(),
+                )
+            });
 
-        let result = match state {
+        let result = match result {
             Err(e) => save_reply::Result::Error(map_execution_error(e)),
-            Ok(s) => save_reply::Result::State(s),
+            Ok(_) => save_reply::Result::State(state),
         };
 
         SaveReply {

@@ -6,13 +6,12 @@ use serde::de::DeserializeOwned;
 
 use crate::registry::EndpointRegistry;
 use crate::simulation::{SimInit, Simulation, SimulationError};
-use crate::util::serialization::serialization_config;
 
 use super::{map_simulation_error, timestamp_to_monotonic, to_error};
 
 use super::super::codegen::simulation::*;
 
-type InitResult = (SimInit, EndpointRegistry);
+pub(crate) type InitResult = (SimInit, EndpointRegistry);
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SimGen = Box<dyn FnMut(&[u8]) -> Result<InitResult, DeserializationError> + Send + 'static>;
 
@@ -100,7 +99,7 @@ impl InitService {
         RestoreReply,
         Option<(Simulation, EndpointRegistry, Vec<u8>)>,
     ) {
-        let Ok(Some(stored_cfg)) = Simulation::restore_cfg(&request.state) else {
+        let Ok(Some(stored_cfg)) = Simulation::restore_cfg(&request.state[..]) else {
             return (
                 RestoreReply {
                     result: Some(restore_reply::Result::Error(to_error(
@@ -123,7 +122,7 @@ impl InitService {
                     .event_source_registry
                     .register_scheduler(sim_init.scheduler_registry());
                 sim_init
-                    .restore(&request.state)
+                    .restore(&request.state[..])
                     .map(|simu| (simu, registry))
             })
         }))

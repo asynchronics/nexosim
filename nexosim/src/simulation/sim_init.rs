@@ -246,7 +246,7 @@ impl SimInit {
         Ok(simulation)
     }
 
-    pub fn restore(mut self, state: &[u8]) -> Result<Simulation, SimulationError> {
+    pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();

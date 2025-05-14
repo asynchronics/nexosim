@@ -16,7 +16,9 @@ use crate::simulation::{SimInit, Simulation};
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
-use super::services::{ControllerService, InitService, MonitorService, SchedulerService};
+use super::services::{
+    ControllerService, InitResult, InitService, MonitorService, SchedulerService,
+};
 
 /// Runs a simulation from a network server.
 ///
@@ -26,7 +28,7 @@ use super::services::{ControllerService, InitService, MonitorService, SchedulerS
 /// public event and query interface.
 pub fn run<F, I>(sim_gen: F, addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> (SimInit, EndpointRegistry) + Send + 'static,
+    F: FnMut(I) -> InitResult + Send + 'static,
     I: DeserializeOwned,
 {
     run_service(GrpcSimulationService::new(sim_gen), addr, None)
@@ -46,7 +48,7 @@ pub fn run_with_shutdown<F, I, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> (SimInit, EndpointRegistry) + Send + 'static,
+    F: FnMut(I) -> InitResult + Send + 'static,
     I: DeserializeOwned,
     for<'a> S: Future<Output = ()> + 'a,
 {
@@ -92,7 +94,7 @@ fn run_service(
 #[cfg(unix)]
 pub fn run_local<F, I, P>(sim_gen: F, path: P) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> (SimInit, EndpointRegistry) + Send + 'static,
+    F: FnMut(I) -> InitResult + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
 {
@@ -116,7 +118,7 @@ pub fn run_local_with_shutdown<F, I, P, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> (SimInit, EndpointRegistry) + Send + 'static,
+    F: FnMut(I) -> InitResult + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
     for<'a> S: Future<Output = ()> + 'a,
@@ -208,7 +210,7 @@ impl GrpcSimulationService {
     /// the public event and query interface.
     pub(crate) fn new<F, I>(sim_gen: F) -> Self
     where
-        F: FnMut(I) -> (SimInit, EndpointRegistry) + Send + 'static,
+        F: FnMut(I) -> InitResult + Send + 'static,
         I: DeserializeOwned,
     {
         Self {

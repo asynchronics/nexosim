@@ -638,7 +638,7 @@ impl Simulation {
         Ok(())
     }
     /// Serialize simulation state to bytes.
-    pub fn save(&mut self) -> Result<Vec<u8>, ExecutionError> {
+    pub fn save<W: std::io::Write>(&mut self, writer: &mut W) -> Result<usize, ExecutionError> {
         // TODO should call halt first?
         let state = SimulationState {
             models: self.save_models()?,
@@ -646,30 +646,34 @@ impl Simulation {
             time: self.time(),
             cfg: None,
         };
-        bincode::serde::encode_to_vec(state, serialization_config())
+        bincode::serde::encode_into_std_write(state, writer, serialization_config())
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
     }
 
     /// Serialize with bench builder cfg
-    pub(crate) fn save_with_cfg(&mut self, cfg: Vec<u8>) -> Result<Vec<u8>, ExecutionError> {
+    #[cfg(feature = "server")]
+    pub fn save_with_cfg<W: std::io::Write>(
+        &mut self,
+        cfg: Vec<u8>,
+        writer: &mut W,
+    ) -> Result<usize, ExecutionError> {
         let state = SimulationState {
             models: self.save_models()?,
             scheduler_queue: self.save_queue()?,
             time: self.time(),
             cfg: Some(cfg),
         };
-        bincode::serde::encode_to_vec(state, serialization_config())
+        bincode::serde::encode_into_std_write(state, writer, serialization_config())
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
     }
 
     /// Restore simulation's state from serialized data.
-    pub(crate) fn restore(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
+    pub(crate) fn restore<R: std::io::Read>(&mut self, mut state: R) -> Result<(), ExecutionError> {
         let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
         EVENT_KEY_REG.set(&event_key_reg, || {
             let state: SimulationState =
-                bincode::serde::decode_from_slice(state, serialization_config())
-                    .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?
-                    .0;
+                bincode::serde::decode_from_std_read(&mut state, serialization_config())
+                    .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
 
             self.time.write(state.time);
             self.restore_models(state.models, &event_key_reg)?;
@@ -680,11 +684,12 @@ impl Simulation {
     }
 
     /// Extract bench builder cfg from the serialized simulation state.
-    pub fn restore_cfg(state: &[u8]) -> Result<Option<Vec<u8>>, ExecutionError> {
+    pub(crate) fn restore_cfg<R: std::io::Read>(
+        mut state: R,
+    ) -> Result<Option<Vec<u8>>, ExecutionError> {
         let state: SimulationState =
-            bincode::serde::decode_from_slice(state, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?
-                .0;
+            bincode::serde::decode_from_std_read(&mut state, serialization_config())
+                .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
         Ok(state.cfg)
     }
 }
