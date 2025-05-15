@@ -44,8 +44,8 @@
 //!   yielding the replies from all connected replier ports,
 //! * _input ports_, which are synchronous or asynchronous methods that
 //!   implement the [`InputFn`](ports::InputFn) trait and take an `&mut self`
-//!   argument, a message argument, and an optional
-//!   [`&mut Context`](model::Context) argument,
+//!   argument, a message argument, and an optional [`&mut
+//!   Context`](model::Context) argument,
 //! * _replier ports_, which are similar to input ports but implement the
 //!   [`ReplierFn`](ports::ReplierFn) trait and return a reply.
 //!
@@ -68,7 +68,8 @@
 //! trait. The [`ProtoModel::build`](model::ProtoModel::build) method makes it
 //! possible to:
 //!
-//! * build the final [`Model`](model::Model) from a builder (the *model prototype*),
+//! * build the final [`Model`](model::Model) from a builder (the *model
+//!   prototype*),
 //! * perform possibly blocking actions when the model is added to the
 //!   simulation rather than when the simulation starts, such as establishing a
 //!   network connection or configuring hardware devices,
@@ -255,8 +256,8 @@
 //! 1. by advancing time, either until the next scheduled event with
 //!    [`Simulation::step`](simulation::Simulation::step), until a specific
 //!    deadline with
-//!    [`Simulation::step_until`](simulation::Simulation::step_until), or
-//!    until there are no more scheduled events with
+//!    [`Simulation::step_until`](simulation::Simulation::step_until), or until
+//!    there are no more scheduled events with
 //!    [`Simulation::step_unbounded`](simulation::Simulation::step_unbounded).
 //! 2. by sending events or queries without advancing simulation time, using
 //!    [`Simulation::process_event`](simulation::Simulation::process_event) or
@@ -409,8 +410,8 @@
 //!
 //! ## Server
 //!
-//! The `server` feature provides a gRPC server for remote control and monitoring,
-//! e.g. from a Python client. It can be activated with:
+//! The `server` feature provides a gRPC server for remote control and
+//! monitoring, e.g. from a Python client. It can be activated with:
 //!
 //! ```toml
 //! [dependencies]
@@ -460,7 +461,6 @@
 //!   timestamp object and **simulation clocks**.
 //! * the [`tracing`] module discusses time-stamping and filtering of `tracing`
 //!   events.
-//!
 #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide))]
 #![cfg_attr(docsrs, doc(cfg_hide(feature = "dev-hooks")))]
@@ -474,6 +474,8 @@ pub mod ports;
 pub mod simulation;
 pub mod time;
 pub(crate) mod util;
+
+pub use nexosim_macros::Model;
 
 #[cfg(feature = "server")]
 pub mod registry;

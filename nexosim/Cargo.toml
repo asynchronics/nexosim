@@ -46,6 +46,8 @@ tracing = ["dep:tracing", "dep:tracing-subscriber"]
 dev-hooks = []
 
 [dependencies]
+# Internal dependencies
+nexosim-macros = { path = "../nexosim-macros" }
 # Mandatory dependencies.
 async-event = "0.2.1"
 bincode = { version = "2.0", features = ["serde"] }
