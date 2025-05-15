@@ -273,6 +273,8 @@ pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static 
     fn restore(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
+
+    fn register(&mut self, _: &mut BuildContext<impl ProtoModel<Model = Self>>) {}
 }
 
 /// Opaque type containing an initialized model.
