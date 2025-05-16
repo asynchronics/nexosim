@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-nexosim = { version = "0.3.2", path = "../nexosim" }
+nexosim = { version = "0.3.3", path = "../nexosim" }
 
 [dev-dependencies]
 rand = "0.8"

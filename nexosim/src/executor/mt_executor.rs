@@ -513,6 +513,11 @@ fn run_local_worker(worker: &Worker, id: usize, parker: Parker, abort_signal: Si
 
         loop {
             // Signal barrier: park until notified to continue or terminate.
+
+            // Update the message count. This must be done before calling
+            // `try_set_worker_inactive` to ensure that all updates to the
+            // message count are visible after the last active worker calls
+            // `try_set_worker_inactive`.
             update_msg_count();
 
             // Try to deactivate the worker.

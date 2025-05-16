@@ -1,3 +1,9 @@
+# 0.3.3 (2025-05-16)
+
+- Fix spurious `ExecutionError::MessageLoss` error ([#106])
+
+[#106]: https://github.com/asynchronics/nexosim/pull/106
+
 # 0.3.2 (2025-04-23)
 
 - Enable gRPC server to handle concurrent requests ([#87])
@@ -19,7 +25,6 @@
 - Sinks added to the `EndPointRegistry` must now implement `EventSinkReader`
   instead of `EventSinkStream` (#[88])
 
-
 [#87]: https://github.com/asynchronics/nexosim/pull/87
 [#88]: https://github.com/asynchronics/nexosim/pull/88
 [#90]: https://github.com/asynchronics/nexosim/pull/90
@@ -27,20 +32,18 @@
 [#96]: https://github.com/asynchronics/nexosim/pull/96
 [#101]: https://github.com/asynchronics/nexosim/pull/101
 
-
 # 0.3.1 (2025-01-28)
 
 - Add a blocking event queue ([#82])
 
 [#82]: https://github.com/asynchronics/nexosim/pull/82
 
-
 # 0.3.0 (2025-01-20)
 
 The final 0.3.0 release features a very large number of improvements and API
 changes, including all those in the beta release and a couple more.
 
-This release is not compatible with the 0.2.* releases, but porting models and benches should be relatively straightforward.
+This release is not compatible with the 0.2.\* releases, but porting models and benches should be relatively straightforward.
 
 ### Added (mostly API-breaking changes)
 
@@ -76,7 +79,6 @@ This release is not compatible with the 0.2.* releases, but porting models and b
 [#77]: https://github.com/asynchronics/nexosim/pull/77
 [#78]: https://github.com/asynchronics/nexosim/pull/78
 [#79]: https://github.com/asynchronics/nexosim/pull/79
-
 
 # 0.3.0-beta.0 (2024-11-16)
 
@@ -173,7 +175,6 @@ including:
 [#5]: https://github.com/asynchronics/nexosim/pull/5
 [#6]: https://github.com/asynchronics/nexosim/pull/6
 [#7]: https://github.com/asynchronics/nexosim/pull/7
-
 
 # 0.1.0 (2023-01-16)
 
