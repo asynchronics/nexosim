@@ -88,6 +88,7 @@ pub struct Context<M: Model> {
     scheduler: GlobalScheduler,
     address: Address<M>,
     origin_id: usize,
+    schedulable_ids: Vec<SourceIdErased>,
 }
 
 impl<M: Model> Context<M> {
@@ -97,6 +98,7 @@ impl<M: Model> Context<M> {
         env: M::Env,
         scheduler: GlobalScheduler,
         address: Address<M>,
+        schedulable_ids: Vec<SourceIdErased>,
     ) -> Self {
         // The only requirement for the origin ID is that it must be (i)
         // specific to each model and (ii) different from 0 (which is reserved
@@ -110,6 +112,7 @@ impl<M: Model> Context<M> {
             scheduler,
             address,
             origin_id,
+            schedulable_ids,
         }
     }
 
@@ -173,6 +176,23 @@ impl<M: Model> Context<M> {
     {
         self.scheduler
             .schedule_event_from(deadline, &input_id.into(), arg, self.origin_id)
+    }
+
+    pub fn schedule_test<F, T, S>(
+        &self,
+        deadline: impl Deadline,
+        local_id: (usize, F),
+        arg: T,
+    ) -> Result<(), SchedulingError>
+    where
+        F: for<'f> InputFn<'f, M, T, S> + Clone + Sync,
+        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+        S: Send + Sync + 'static,
+    {
+        let id_erased = self.schedulable_ids[local_id.0];
+        let source_id = SourceId(id_erased.0, PhantomData::<fn(T)>);
+        self.scheduler
+            .schedule_event_from(deadline, &source_id, arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -467,6 +487,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
     is_resumed: Arc<AtomicBool>,
+    pub(crate) schedulable_ids: Vec<SourceIdErased>,
 }
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
@@ -490,6 +511,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             abort_signal,
             registered_models,
             is_resumed,
+            schedulable_ids: Vec::new(),
         }
     }
 
@@ -507,14 +529,15 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     // TODO docs
-    pub fn register_input<F, T, S>(&mut self, func: F) -> InputId<P::Model, T>
+    pub fn register_input<F, T, S>(&mut self, func: F)
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        self.scheduler_registry.add(source).into()
+        let id = self.scheduler_registry.add(source).into();
+        self.schedulable_ids.push(id);
     }
 
     /// Adds a sub-model to the simulation bench.

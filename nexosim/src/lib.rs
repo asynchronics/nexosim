@@ -475,7 +475,7 @@ pub mod simulation;
 pub mod time;
 pub(crate) mod util;
 
-pub use nexosim_macros::{model, schedulable};
+pub use nexosim_macros::{init, model, schedulable};
 
 #[cfg(feature = "server")]
 pub mod registry;

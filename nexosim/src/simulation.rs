@@ -958,10 +958,18 @@ pub(crate) fn add_model<P>(
     let (mut model, env) = model.build(&mut build_cx);
     model.register(&mut build_cx);
 
+    let schedulable_ids = build_cx.schedulable_ids.clone();
+
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
-    let mut cx = Context::new(name.clone(), env, scheduler, address.clone());
+    let mut cx = Context::new(
+        name.clone(),
+        env,
+        scheduler,
+        address.clone(),
+        schedulable_ids,
+    );
     let fut = async move {
         let mut model = if !is_resumed.load(Ordering::Relaxed) {
             model.init(&mut cx).await.0

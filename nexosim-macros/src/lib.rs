@@ -11,6 +11,11 @@ pub fn schedulable(attr: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
+pub fn init(attr: TokenStream, input: TokenStream) -> TokenStream {
+    input
+}
+
+#[proc_macro_attribute]
 pub fn model(attr: TokenStream, input: TokenStream) -> TokenStream {
     let ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
     let attr = syn::parse(attr).expect("Model: Can't parse macro attributes!");
@@ -29,6 +34,16 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
         panic!();
     };
 
+    let init = ast
+        .items
+        .iter()
+        .filter_map(|a| match a {
+            ImplItem::Fn(f) => Some(f),
+            _ => None,
+        })
+        .find(|f| f.attrs.iter().any(|a| a.meta.path().is_ident("init")))
+        .map(|a| a.sig.ident.clone());
+
     let funcs = ast
         .items
         .iter()
@@ -41,6 +56,7 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
                 .iter()
                 .any(|a| a.meta.path().is_ident("schedulable"))
         });
+
     let reg_funcs = funcs.clone().map(|a| {
         let mut segments = Punctuated::new();
         segments.push_value(PathSegment {
@@ -61,16 +77,6 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
             qself: None,
         })
     });
-    // println!(
-    //     "{:?}",
-    //     reg_funcs
-    //         .clone()
-    //         .map(|a| a.to_token_stream())
-    //         .collect::<Vec<_>>()
-    // );
-    // let func_names = funcs
-    //     .map(|a| &a.sig.ident)
-    //     .map(|a| Ident::new(&format!("__{}", a), a.span()));
 
     let mut gen = quote! {
         impl Model for #name {
@@ -79,11 +85,20 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
             fn register(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) {
                 println!("Register");
                 #(
-                    // println!("{:?}", cx.register_input(#name::#reg_funcs.sig.ident));
-                    // println!("{:?}", #reg_funcs);
-                    println!("{:?}", cx.register_input(#reg_funcs));
-                    // println!("{:?}", stringify!(#reg_funcs.sig.ident));
+                    cx.register_input(#reg_funcs);
                 )*
+            }
+
+            fn init(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+                println!("Init");
+                // if let Some(_) = #init {
+                //     println!("{:?}", ());
+                // }
+                // } else {
+                //     async { self.into() }
+                // }
+                // async { self.into() }
+                self.#init(cx)
             }
 
         }
@@ -91,10 +106,13 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
     for (i, func) in funcs.enumerate() {
         let fname = Ident::new(&format!("__{}", func.sig.ident), func.sig.ident.span());
         let vis = &func.vis;
+        // let ty = func.sig;
         gen.extend(quote! {
             impl #name {
-                  #vis fn #fname (&self) {
+                  #vis fn #fname () -> usize
+                  {
                       println!("generated {}", #i);
+                      #i
                   }
             }
         });
