@@ -277,6 +277,9 @@ impl GrpcSimulationService {
     }
 
     /// Executes a method of the scheduler service.
+    // For some reason clippy emits a warning when generic `Response<U>` is
+    // used, while not complaining with a concrete type.
+    #[allow(clippy::result_large_err)]
     fn execute_scheduler_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
     where
         F: Fn(&mut SchedulerService, T) -> U,
