@@ -112,7 +112,7 @@ use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
-use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
+use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel, Schedulable};
 use crate::ports::{InputFn, ReplierFn};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;

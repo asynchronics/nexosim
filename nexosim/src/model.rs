@@ -208,6 +208,10 @@ pub use context::{BuildContext, Context, InputId};
 
 mod context;
 
+pub trait Schedulable {
+    fn register(&mut self, _: &mut BuildContext<impl ProtoModel<Model = Self>>) {}
+}
+
 /// Trait to be implemented by simulation models.
 ///
 /// This trait enables models to perform specific actions during initialization.
@@ -219,7 +223,9 @@ mod context;
 /// The `init` function converts the model to the opaque `InitializedModel` type
 /// to prevent an already initialized model from being added to the simulation
 /// bench.
-pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static {
+pub trait Model:
+    Schedulable + Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static
+{
     /// TODO
     type Env: Send + 'static;
 
@@ -273,8 +279,6 @@ pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static 
     fn restore(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
-
-    fn register(&mut self, _: &mut BuildContext<impl ProtoModel<Model = Self>>) {}
 }
 
 /// Opaque type containing an initialized model.
