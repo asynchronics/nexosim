@@ -12,16 +12,16 @@ use syn::{
 #[proc_macro_attribute]
 pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
     let mut ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
-
     let env_expr = syn::parse(attr).ok();
 
-    let added_tokens = impl_model(&mut ast, env_expr);
+    let added_tokens: TokenStream =
+        impl_model(&mut ast, env_expr).unwrap_or_else(|e| e.to_compile_error().into());
     let mut output: TokenStream = ast.to_token_stream().into();
     output.extend(added_tokens);
     output
 }
 
-fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> TokenStream {
+fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenStream, syn::Error> {
     let name = &ast.self_ty;
 
     let name_ident = if let Type::Path(path) = &**name {
@@ -58,13 +58,13 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> TokenStream {
 
     for item in ast.items.iter_mut() {
         if let ImplItem::Fn(f) = item {
-            if consume_method_attribute(f, "schedulable") {
+            if consume_method_attribute(f, "schedulable")? {
                 schedulables.push(f.clone());
             }
-            if consume_method_attribute(f, "init") {
+            if consume_method_attribute(f, "init")? {
                 init = Some(f.sig.ident.clone());
             }
-            if consume_method_attribute(f, "restore") {
+            if consume_method_attribute(f, "restore")? {
                 restore = Some(f.sig.ident.clone());
             }
         }
@@ -169,12 +169,12 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> TokenStream {
         }
     });
 
-    gen.into()
+    Ok(gen.into())
 }
 
 // Check whether method has an attributte in the form of `nexosim(attr)`. If so
 // remove it.
-fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> bool {
+fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn::Error> {
     let mut idx = None;
     for (i, a) in f.attrs.iter().enumerate() {
         if !a.meta.path().is_ident("nexosim") {
@@ -184,18 +184,29 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> bool {
             let args: Expr = meta.parse_args().expect("Can't parse nexosim attribute!");
             if let Expr::Path(path) = args {
                 if path.path.segments.len() != 1 {
-                    panic!("Attribute `nexosim` should have exactly one argument!");
+                    return Err(syn::Error::new_spanned(
+                        meta,
+                        "attribute `nexosim` should have exactly one argument!",
+                    ));
+                    // panic!("Attribute `nexosim` should have exactly one
+                    // argument!");
                 }
                 if path.path.segments[0].ident == attr {
                     idx = Some(i);
                 }
+            } else {
+                return Err(syn::Error::new_spanned(
+                    meta,
+                    "invalid `nexosim` attribute!",
+                ));
+                // panic!("Invalid `nexosim` attribute!");
             }
         }
     }
 
     if let Some(idx) = idx {
         f.attrs.remove(idx);
-        return true;
+        return Ok(true);
     }
-    false
+    Ok(false)
 }

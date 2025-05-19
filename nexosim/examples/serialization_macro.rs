@@ -30,7 +30,7 @@ impl MyModel {
     }
 
     pub async fn manual(&mut self, arg: i32) {
-        println!("Manual: {:+}", arg);
+        println!("Manual: {:+}", -arg);
     }
 
     #[nexosim(init)]
