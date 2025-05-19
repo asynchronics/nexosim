@@ -1,22 +1,16 @@
-use nexosim::model::{Context, InitializedModel, Model};
+use nexosim::model::{Context, InitializedModel, ProtoModel, SchedulableId};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
-use nexosim::Model;
+use nexosim::{schedulable, Model};
 
 use std::time::Duration;
 
-use paste::paste;
 use serde::{Deserialize, Serialize};
-
-macro_rules! schedulable {
-    ($func:ident) => {
-        paste! { Self::[<__ $func>]() }
-    };
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MyModel {
     state: u32,
+    manual_id: SchedulableId<Self, i32>,
 }
 #[Model]
 impl MyModel {
@@ -31,16 +25,43 @@ impl MyModel {
     }
 
     #[nexosim(schedulable)]
-    pub async fn path_type(&mut self, arg: std::primitive::usize) {
+    pub async fn path_type(&mut self, _: std::primitive::usize) {
         //
+    }
+
+    pub async fn manual(&mut self, arg: i32) {
+        println!("Manual: {:+}", arg);
     }
 
     #[nexosim(init)]
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         println!("Custom init");
-        cx.schedule_event(Duration::from_secs(2), schedulable!(input), 12);
-        cx.schedule_event(Duration::from_secs(2), Self::__tick(), ());
+        cx.schedule_event(Duration::from_secs(2), schedulable!(input), 12)
+            .unwrap();
+        cx.schedule_event(Duration::from_secs(3), schedulable!(tick), ())
+            .unwrap();
+        cx.schedule_event(Duration::from_secs(1), self.manual_id, -5)
+            .unwrap();
         self.into()
+    }
+}
+
+struct MyProto;
+impl ProtoModel for MyProto {
+    type Model = MyModel;
+
+    fn build(
+        self,
+        cx: &mut nexosim::model::BuildContext<Self>,
+    ) -> (Self::Model, <Self::Model as nexosim::model::Model>::Env) {
+        let manual_id = cx.register_schedulable(MyModel::manual);
+        (
+            MyModel {
+                state: 0,
+                manual_id,
+            },
+            (),
+        )
     }
 }
 
@@ -54,8 +75,7 @@ impl OtherModel {
 }
 
 fn main() {
-    let m = MyModel { state: 0 };
-    MyModel::__tick();
+    let m = MyProto;
 
     let mbox = Mailbox::new();
     let t0 = MonotonicTime::EPOCH;
@@ -64,6 +84,7 @@ fn main() {
         .init(t0)
         .unwrap();
 
+    simu.step().unwrap();
     simu.step().unwrap();
     simu.step().unwrap();
 }

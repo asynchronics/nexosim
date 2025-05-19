@@ -510,17 +510,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
-    // TODO docs
-    // pub(crate) fn register_input<F, T, S>(&mut self, func: F)
-    // where
-    //     F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
-    //     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
-    //     S: Send + Sync + 'static,
-    // {
-    //     let source = InputSource::new(func, self.address().clone());
-    //     let id = self.scheduler_registry.add(source).into();
-    // }
-
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
@@ -574,11 +563,12 @@ impl<M: Model<Env = ()>> Context<M> {
             (),
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
+            ModelRegistry::default(),
         )
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ModelRegistry(Vec<SourceIdErased>);
 impl ModelRegistry {
     pub fn add(&mut self, source_id: impl Into<SourceIdErased>) {
@@ -590,6 +580,7 @@ impl ModelRegistry {
     }
 }
 
+#[derive(Debug)]
 pub struct RegistryId<M: Model, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> RegistryId<M, T> {
     pub fn new(id: usize) -> Self {
@@ -644,5 +635,11 @@ pub trait AsSchedulableId<M: Model, T> {
 impl<M: Model, T> AsSchedulableId<M, T> for RegistryId<M, T> {
     fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M, T> {
         registry.get(self)
+    }
+}
+
+impl<M: Model, T> AsSchedulableId<M, T> for SchedulableId<M, T> {
+    fn as_schedulable_id(&self, _: &ModelRegistry) -> SchedulableId<M, T> {
+        *self
     }
 }

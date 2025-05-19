@@ -476,6 +476,8 @@ pub mod time;
 pub(crate) mod util;
 
 pub use nexosim_macros::Model;
+// re-export dependency for the `schedulable!` macro
+pub use paste::paste;
 
 #[cfg(feature = "server")]
 pub mod registry;
