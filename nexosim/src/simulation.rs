@@ -956,9 +956,7 @@ pub(crate) fn add_model<P>(
         is_resumed.clone(),
     );
     let (mut model, env) = model.build(&mut build_cx);
-    model.register(&mut build_cx);
-
-    let schedulable_ids = build_cx.schedulable_ids.clone();
+    let model_registry = model.register_schedulables(&mut build_cx);
 
     let address = mailbox.address();
     let mut receiver = mailbox.0;
@@ -968,7 +966,7 @@ pub(crate) fn add_model<P>(
         env,
         scheduler,
         address.clone(),
-        schedulable_ids,
+        model_registry,
     );
     let fut = async move {
         let mut model = if !is_resumed.load(Ordering::Relaxed) {

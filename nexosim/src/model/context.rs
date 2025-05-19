@@ -88,7 +88,7 @@ pub struct Context<M: Model> {
     scheduler: GlobalScheduler,
     address: Address<M>,
     origin_id: usize,
-    schedulable_ids: Vec<SourceIdErased>,
+    model_registry: ModelRegistry,
 }
 
 impl<M: Model> Context<M> {
@@ -98,7 +98,7 @@ impl<M: Model> Context<M> {
         env: M::Env,
         scheduler: GlobalScheduler,
         address: Address<M>,
-        schedulable_ids: Vec<SourceIdErased>,
+        model_registry: ModelRegistry,
     ) -> Self {
         // The only requirement for the origin ID is that it must be (i)
         // specific to each model and (ii) different from 0 (which is reserved
@@ -112,7 +112,7 @@ impl<M: Model> Context<M> {
             scheduler,
             address,
             origin_id,
-            schedulable_ids,
+            model_registry,
         }
     }
 
@@ -168,31 +168,15 @@ impl<M: Model> Context<M> {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: &InputId<M, T>,
+        id: impl AsSchedulableId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
         T: Send + Clone + 'static,
     {
+        let schedulable_id = id.as_schedulable_id(&self.model_registry);
         self.scheduler
-            .schedule_event_from(deadline, &input_id.into(), arg, self.origin_id)
-    }
-
-    pub fn schedule_test<F, T, S>(
-        &self,
-        deadline: impl Deadline,
-        local_id: (usize, F),
-        arg: T,
-    ) -> Result<(), SchedulingError>
-    where
-        F: for<'f> InputFn<'f, M, T, S> + Clone + Sync,
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
-        S: Send + Sync + 'static,
-    {
-        let id_erased = self.schedulable_ids[local_id.0];
-        let source_id = SourceId(id_erased.0, PhantomData::<fn(T)>);
-        self.scheduler
-            .schedule_event_from(deadline, &source_id, arg, self.origin_id)
+            .schedule_event_from(deadline, &schedulable_id.into(), arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -240,7 +224,7 @@ impl<M: Model> Context<M> {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: &InputId<M, T>,
+        input_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -297,7 +281,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: &InputId<M, T>,
+        input_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -366,7 +350,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: &InputId<M, T>,
+        input_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -487,7 +471,6 @@ pub struct BuildContext<'a, P: ProtoModel> {
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
     is_resumed: Arc<AtomicBool>,
-    pub(crate) schedulable_ids: Vec<SourceIdErased>,
 }
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
@@ -511,7 +494,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             abort_signal,
             registered_models,
             is_resumed,
-            schedulable_ids: Vec::new(),
         }
     }
 
@@ -529,15 +511,25 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     // TODO docs
-    pub fn register_input<F, T, S>(&mut self, func: F)
+    // pub(crate) fn register_input<F, T, S>(&mut self, func: F)
+    // where
+    //     F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
+    //     for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    //     S: Send + Sync + 'static,
+    // {
+    //     let source = InputSource::new(func, self.address().clone());
+    //     let id = self.scheduler_registry.add(source).into();
+    // }
+
+    pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
         for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        let id = self.scheduler_registry.add(source).into();
-        self.schedulable_ids.push(id);
+        let id = self.scheduler_registry.add(source);
+        SchedulableId(id.0, PhantomData, PhantomData)
     }
 
     /// Adds a sub-model to the simulation bench.
@@ -586,42 +578,71 @@ impl<M: Model<Env = ()>> Context<M> {
     }
 }
 
+#[derive(Default)]
+pub struct ModelRegistry(Vec<SourceIdErased>);
+impl ModelRegistry {
+    pub fn add(&mut self, source_id: impl Into<SourceIdErased>) {
+        self.0.push(source_id.into());
+    }
+    pub(crate) fn get<M: Model, T>(&self, reg_id: &RegistryId<M, T>) -> SchedulableId<M, T> {
+        // TODO type checking ?
+        SchedulableId(self.0[reg_id.0].0, PhantomData, PhantomData)
+    }
+}
+
+pub struct RegistryId<M: Model, T>(usize, PhantomData<M>, PhantomData<T>);
+impl<M: Model, T> RegistryId<M, T> {
+    pub fn new(id: usize) -> Self {
+        Self(id, PhantomData, PhantomData)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
-pub struct InputId<M, T>(usize, PhantomData<M>, PhantomData<T>);
+pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 
 // Manual clone and copy impl. to not enforce bounds on M and T.
-impl<M, T> Clone for InputId<M, T> {
+impl<M, T> Clone for SchedulableId<M, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<M, T> Copy for InputId<M, T> {}
+impl<M, T> Copy for SchedulableId<M, T> {}
 
-impl<M, T> From<InputId<M, T>> for SourceIdErased {
-    fn from(value: InputId<M, T>) -> Self {
+impl<M, T> From<SchedulableId<M, T>> for SourceIdErased {
+    fn from(value: SchedulableId<M, T>) -> Self {
         Self(value.0)
     }
 }
-impl<M, T> From<&InputId<M, T>> for SourceIdErased {
-    fn from(value: &InputId<M, T>) -> Self {
+impl<M, T> From<&SchedulableId<M, T>> for SourceIdErased {
+    fn from(value: &SchedulableId<M, T>) -> Self {
         Self(value.0)
     }
 }
 
-impl<M, T> From<InputId<M, T>> for SourceId<T> {
-    fn from(value: InputId<M, T>) -> Self {
+impl<M, T> From<SchedulableId<M, T>> for SourceId<T> {
+    fn from(value: SchedulableId<M, T>) -> Self {
         Self(value.0, PhantomData)
     }
 }
 
-impl<M, T> From<&InputId<M, T>> for SourceId<T> {
-    fn from(value: &InputId<M, T>) -> Self {
+impl<M, T> From<&SchedulableId<M, T>> for SourceId<T> {
+    fn from(value: &SchedulableId<M, T>) -> Self {
         Self(value.0, PhantomData)
     }
 }
 
-impl<M, T> From<SourceId<T>> for InputId<M, T> {
+impl<M, T> From<SourceId<T>> for SchedulableId<M, T> {
     fn from(value: SourceId<T>) -> Self {
         Self(value.0, PhantomData, PhantomData)
+    }
+}
+
+pub trait AsSchedulableId<M: Model, T> {
+    fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M, T>;
+}
+
+impl<M: Model, T> AsSchedulableId<M, T> for RegistryId<M, T> {
+    fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M, T> {
+        registry.get(self)
     }
 }

@@ -1,8 +1,12 @@
-use proc_macro::TokenStream;
+use std::str::FromStr;
+
+use proc_macro::{Span, TokenStream};
 use quote::quote;
 use syn::{
-    punctuated::Punctuated, token::PathSep, Expr, ExprPath, Ident, ImplItem, Path, PathSegment,
-    Type,
+    punctuated::Punctuated,
+    spanned::Spanned,
+    token::{Paren, PathSep},
+    Expr, ExprPath, FnArg, Ident, ImplItem, Path, PathSegment, Type, TypeTuple,
 };
 
 #[proc_macro_attribute]
@@ -16,7 +20,7 @@ pub fn init(attr: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn model(attr: TokenStream, input: TokenStream) -> TokenStream {
+pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
     let ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
     let attr = syn::parse(attr).expect("Model: Can't parse macro attributes!");
     let gen = impl_model(&ast, &attr);
@@ -34,6 +38,7 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
         panic!();
     };
 
+    // Find custom init impl.
     let init = ast
         .items
         .iter()
@@ -43,6 +48,13 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
         })
         .find(|f| f.attrs.iter().any(|a| a.meta.path().is_ident("init")))
         .map(|a| a.sig.ident.clone());
+
+    // Wrap init tokens into an Option.
+    let init = init.and_then(|init| { quote! {
+        fn init(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+            self.#init(cx)
+        }
+    }.into()});
 
     let funcs = ast
         .items
@@ -82,37 +94,50 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
         impl Model for #name {
             type #attr;
 
-            fn register(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) {
-                println!("Register");
+            fn register_schedulables(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) -> nexosim::model::ModelRegistry {
+                let mut registry = nexosim::model::ModelRegistry::default();
                 #(
-                    cx.register_input(#reg_funcs);
+                    registry.add(cx.register_schedulable(#reg_funcs));
                 )*
+                registry
             }
 
-            fn init(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-                println!("Init");
-                // if let Some(_) = #init {
-                //     println!("{:?}", ());
-                // }
-                // } else {
-                //     async { self.into() }
-                // }
-                // async { self.into() }
-                self.#init(cx)
-            }
-
+            #init
         }
     };
     for (i, func) in funcs.enumerate() {
         let fname = Ident::new(&format!("__{}", func.sig.ident), func.sig.ident.span());
         let vis = &func.vis;
-        // let ty = func.sig;
+
+        // Find argument type token.
+        let ty = func
+            .sig
+            .inputs
+            .iter()
+            .filter_map(|a| {
+                if let FnArg::Typed(t) = a {
+                    Some(t)
+                } else {
+                    None
+                }
+            })
+            .map(|a| a.ty.clone())
+            .next();
+
+        let ty = match ty {
+            Some(t) => t,
+            // If no arg is provided, construct a unit type.
+            None => Box::new(Type::Tuple(TypeTuple {
+                paren_token: Paren(func.sig.span()),
+                elems: Punctuated::new(),
+            })),
+        };
+
         gen.extend(quote! {
             impl #name {
-                  #vis fn #fname () -> usize
+                  #vis fn #fname () -> nexosim::model::RegistryId<Self, #ty>
                   {
-                      println!("generated {}", #i);
-                      #i
+                      nexosim::model::RegistryId::new(#i)
                   }
             }
         });

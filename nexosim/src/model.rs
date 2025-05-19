@@ -204,7 +204,7 @@ use crate::ports::PORT_REG;
 use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
 use crate::util::serialization::serialization_config;
 
-pub use context::{BuildContext, Context, InputId};
+pub use context::{BuildContext, Context, ModelRegistry, RegistryId, SchedulableId};
 
 mod context;
 
@@ -274,7 +274,12 @@ pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static 
         async { self.into() }
     }
 
-    fn register(&mut self, _: &mut BuildContext<impl ProtoModel<Model = Self>>) {}
+    fn register_schedulables(
+        &mut self,
+        _: &mut BuildContext<impl ProtoModel<Model = Self>>,
+    ) -> ModelRegistry {
+        ModelRegistry::default()
+    }
 }
 
 /// Opaque type containing an initialized model.
