@@ -1,12 +1,12 @@
 use std::str::FromStr;
 
 use proc_macro::{Span, TokenStream};
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprPath, FnArg, Ident, ImplItem, Path, PathSegment, Type, TypeTuple,
+    Expr, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Path, PathSegment, Type, TypeTuple,
 };
 
 #[proc_macro_attribute]
@@ -21,15 +21,19 @@ pub fn init(attr: TokenStream, input: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
+    let mut ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
     let attr = syn::parse(attr).expect("Model: Can't parse macro attributes!");
-    let gen = impl_model(&ast, &attr);
-    let mut output = input;
-    output.extend(gen);
+    // let gen = impl_model(&ast, &attr);
+    // let mut output = input;
+    // output.extend(gen);
+    // output
+    let added = impl_model(&mut ast, &attr);
+    let mut output: TokenStream = ast.to_token_stream().into();
+    output.extend(added);
     output
 }
 
-fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
+fn impl_model(ast: &mut syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
     let name = &ast.self_ty;
 
     let name_ident = if let Type::Path(path) = &**name {
@@ -38,16 +42,23 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
         panic!();
     };
 
-    // Find custom init impl.
-    let init = ast
-        .items
-        .iter()
-        .filter_map(|a| match a {
-            ImplItem::Fn(f) => Some(f),
-            _ => None,
-        })
-        .find(|f| f.attrs.iter().any(|a| a.meta.path().is_ident("init")))
-        .map(|a| a.sig.ident.clone());
+    let mut init = None;
+    let mut restore = None;
+    let mut schedulables = Vec::new();
+
+    for item in ast.items.iter_mut() {
+        if let ImplItem::Fn(f) = item {
+            if consume_method_attribute(f, "schedulable") {
+                schedulables.push(f.clone());
+            }
+            if consume_method_attribute(f, "init") {
+                init = Some(f.sig.ident.clone());
+            }
+            if consume_method_attribute(f, "restore") {
+                restore = Some(f.sig.ident.clone());
+            }
+        }
+    }
 
     // Wrap init tokens into an Option.
     let init = init.and_then(|init| { quote! {
@@ -56,20 +67,15 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
         }
     }.into()});
 
-    let funcs = ast
-        .items
-        .iter()
-        .filter_map(|a| match a {
-            ImplItem::Fn(f) => Some(f),
-            _ => None,
-        })
-        .filter(|f| {
-            f.attrs
-                .iter()
-                .any(|a| a.meta.path().is_ident("schedulable"))
-        });
+    // Wrap restore tokens into an Option.
+    let restore = restore.and_then(|restore| { quote! {
+        fn restore(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+            self.#restore(cx)
+        }
+    }.into()});
 
-    let reg_funcs = funcs.clone().map(|a| {
+    // Get MyModel::input method paths from scheduled inputs.
+    let registered_methods = schedulables.iter().map(|a| {
         let mut segments = Punctuated::new();
         segments.push_value(PathSegment {
             ident: name_ident.clone(),
@@ -97,15 +103,20 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
             fn register_schedulables(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) -> nexosim::model::ModelRegistry {
                 let mut registry = nexosim::model::ModelRegistry::default();
                 #(
-                    registry.add(cx.register_schedulable(#reg_funcs));
+                    registry.add(cx.register_schedulable(#registered_methods));
                 )*
                 registry
             }
 
             #init
+
+            #restore
         }
     };
-    for (i, func) in funcs.enumerate() {
+
+    let mut hidden_methods = Vec::new();
+
+    for (i, func) in schedulables.iter().enumerate() {
         let fname = Ident::new(&format!("__{}", func.sig.ident), func.sig.ident.span());
         let vis = &func.vis;
 
@@ -124,23 +135,39 @@ fn impl_model(ast: &syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
             .map(|a| a.ty.clone())
             .next();
 
+        // If no arg is provided, construct a unit type.
         let ty = match ty {
             Some(t) => t,
-            // If no arg is provided, construct a unit type.
             None => Box::new(Type::Tuple(TypeTuple {
                 paren_token: Paren(func.sig.span()),
                 elems: Punctuated::new(),
             })),
         };
 
-        gen.extend(quote! {
-            impl #name {
-                  #vis fn #fname () -> nexosim::model::RegistryId<Self, #ty>
-                  {
-                      nexosim::model::RegistryId::new(#i)
-                  }
+        hidden_methods.push(quote! {
+            #vis fn #fname () -> nexosim::model::RegistryId<Self, #ty>
+            {
+              nexosim::model::RegistryId::new(#i)
             }
         });
     }
+
+    // Write hidden methods block.
+    gen.extend(quote! {
+        impl #name {
+            #( #hidden_methods )*
+        }
+    });
+
     gen.into()
+}
+
+// Check whether method has an attributte. If so remove it.
+fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> bool {
+    if f.attrs.iter().any(|a| a.meta.path().is_ident(attr)) {
+        // remove attr
+        f.attrs.retain(|a| !a.meta.path().is_ident(attr));
+        return true;
+    }
+    false
 }

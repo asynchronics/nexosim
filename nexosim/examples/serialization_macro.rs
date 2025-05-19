@@ -1,7 +1,7 @@
 use nexosim::model::{Context, InitializedModel, Model};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
-use nexosim::{init, schedulable, Model};
+use nexosim::Model;
 
 use std::time::Duration;
 
@@ -46,6 +46,7 @@ impl MyModel {
 
 fn main() {
     let m = MyModel { state: 0 };
+    MyModel::__tick();
 
     let mbox = Mailbox::new();
     let t0 = MonotonicTime::EPOCH;
