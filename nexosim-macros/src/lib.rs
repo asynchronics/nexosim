@@ -1,45 +1,55 @@
-use std::str::FromStr;
-
-use proc_macro::{Span, TokenStream};
+use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Path, PathSegment, Type, TypeTuple,
+    Expr, ExprAssign, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path, PathSegment, Type,
+    TypeTuple,
 };
 
-#[proc_macro_attribute]
-pub fn schedulable(attr: TokenStream, input: TokenStream) -> TokenStream {
-    input
-}
-
-#[proc_macro_attribute]
-pub fn init(attr: TokenStream, input: TokenStream) -> TokenStream {
-    input
-}
-
+#[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
     let mut ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
-    let attr = syn::parse(attr).expect("Model: Can't parse macro attributes!");
-    // let gen = impl_model(&ast, &attr);
-    // let mut output = input;
-    // output.extend(gen);
-    // output
-    let added = impl_model(&mut ast, &attr);
+
+    let env_expr = syn::parse(attr).ok();
+
+    let added_tokens = impl_model(&mut ast, env_expr);
     let mut output: TokenStream = ast.to_token_stream().into();
-    output.extend(added);
+    output.extend(added_tokens);
     output
 }
 
-fn impl_model(ast: &mut syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
+fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> TokenStream {
     let name = &ast.self_ty;
 
     let name_ident = if let Type::Path(path) = &**name {
         path.path.get_ident().unwrap()
     } else {
         panic!();
+    };
+
+    let env_expr = match env_expr {
+        Some(e) => e,
+        None => {
+            // TODO use better span ?
+            let unit = Expr::Verbatim(
+                TypeTuple {
+                    paren_token: Paren(name.span()),
+                    elems: Punctuated::new(),
+                }
+                .to_token_stream(),
+            );
+            Expr::Assign(ExprAssign {
+                attrs: Vec::new(),
+                left: Box::new(Expr::Verbatim(
+                    Ident::new("Env", name.span()).to_token_stream(),
+                )),
+                eq_token: syn::Token![=](name.span()),
+                right: Box::new(unit),
+            })
+        }
     };
 
     let mut init = None;
@@ -97,8 +107,8 @@ fn impl_model(ast: &mut syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
     });
 
     let mut gen = quote! {
-        impl Model for #name {
-            type #attr;
+        impl nexosim::model::Model for #name {
+            type #env_expr;
 
             fn register_schedulables(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) -> nexosim::model::ModelRegistry {
                 let mut registry = nexosim::model::ModelRegistry::default();
@@ -162,11 +172,29 @@ fn impl_model(ast: &mut syn::ItemImpl, attr: &syn::Expr) -> TokenStream {
     gen.into()
 }
 
-// Check whether method has an attributte. If so remove it.
+// Check whether method has an attributte in the form of `nexosim(attr)`. If so
+// remove it.
 fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> bool {
-    if f.attrs.iter().any(|a| a.meta.path().is_ident(attr)) {
-        // remove attr
-        f.attrs.retain(|a| !a.meta.path().is_ident(attr));
+    let mut idx = None;
+    for (i, a) in f.attrs.iter().enumerate() {
+        if !a.meta.path().is_ident("nexosim") {
+            continue;
+        }
+        if let Meta::List(meta) = &a.meta {
+            let args: Expr = meta.parse_args().expect("Can't parse nexosim attribute!");
+            if let Expr::Path(path) = args {
+                if path.path.segments.len() != 1 {
+                    panic!("Attribute `nexosim` should have exactly one argument!");
+                }
+                if path.path.segments[0].ident == attr {
+                    idx = Some(i);
+                }
+            }
+        }
+    }
+
+    if let Some(idx) = idx {
+        f.attrs.remove(idx);
         return true;
     }
     false
