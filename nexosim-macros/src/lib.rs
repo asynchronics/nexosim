@@ -27,16 +27,39 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
     let name_ident = if let Type::Path(path) = &**name {
         path.path.get_ident().unwrap()
     } else {
-        panic!();
+        return Err(syn::Error::new_spanned(
+            name,
+            "invalid impl. block name identifier",
+        ));
     };
 
-    let env_expr = match env_expr {
+    let env_expr = parse_env_expr(env_expr);
+
+    let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
+
+    let registered_methods = get_registered_method_paths(name_ident, &schedulables);
+    let mut gen = get_impl_model_trait(name, &env_expr, init, restore, registered_methods);
+    let hidden_methods = get_hidden_method_impls(&schedulables);
+
+    // Write hidden methods block.
+    gen.extend(quote! {
+        impl #name {
+            #( #hidden_methods )*
+        }
+    });
+
+    Ok(gen.into())
+}
+
+/// Checks whether Env type is provided by the user.
+/// If not uses `()` as a default.
+fn parse_env_expr(expr: Option<Expr>) -> Expr {
+    match expr {
         Some(e) => e,
         None => {
-            // TODO use better span ?
             let unit = Expr::Verbatim(
                 TypeTuple {
-                    paren_token: Paren(name.span()),
+                    paren_token: Paren(expr.span()),
                     elems: Punctuated::new(),
                 }
                 .to_token_stream(),
@@ -44,48 +67,21 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
             Expr::Assign(ExprAssign {
                 attrs: Vec::new(),
                 left: Box::new(Expr::Verbatim(
-                    Ident::new("Env", name.span()).to_token_stream(),
+                    Ident::new("Env", expr.span()).to_token_stream(),
                 )),
-                eq_token: syn::Token![=](name.span()),
+                eq_token: syn::Token![=](expr.span()),
                 right: Box::new(unit),
             })
         }
-    };
-
-    let mut init = None;
-    let mut restore = None;
-    let mut schedulables = Vec::new();
-
-    for item in ast.items.iter_mut() {
-        if let ImplItem::Fn(f) = item {
-            if consume_method_attribute(f, "schedulable")? {
-                schedulables.push(f.clone());
-            }
-            if consume_method_attribute(f, "init")? {
-                init = Some(f.sig.ident.clone());
-            }
-            if consume_method_attribute(f, "restore")? {
-                restore = Some(f.sig.ident.clone());
-            }
-        }
     }
+}
 
-    // Wrap init tokens into an Option.
-    let init = init.and_then(|init| { quote! {
-        fn init(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-            self.#init(cx)
-        }
-    }.into()});
-
-    // Wrap restore tokens into an Option.
-    let restore = restore.and_then(|restore| { quote! {
-        fn restore(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-            self.#restore(cx)
-        }
-    }.into()});
-
-    // Get MyModel::input method paths from scheduled inputs.
-    let registered_methods = schedulables.iter().map(|a| {
+/// Get MyModel::input method paths from scheduled inputs.
+fn get_registered_method_paths<'a>(
+    name_ident: &'a Ident,
+    schedulables: &'a [ImplItemFn],
+) -> impl Iterator<Item = Expr> + use<'a> {
+    schedulables.iter().map(|a| {
         let mut segments = Punctuated::new();
         segments.push_value(PathSegment {
             ident: name_ident.clone(),
@@ -104,11 +100,67 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
             attrs: Vec::new(),
             qself: None,
         })
-    });
+    })
+}
 
-    let mut gen = quote! {
+/// Finds methods tagged as `init`, `restore` or `schedulable`.
+/// Clears found tags from the original token stream.
+fn parse_tagged_methods(
+    items: &mut [ImplItem],
+) -> Result<
+    (
+        Option<proc_macro2::TokenStream>,
+        Option<proc_macro2::TokenStream>,
+        Vec<ImplItemFn>,
+    ),
+    syn::Error,
+> {
+    let mut init = None;
+    let mut restore = None;
+    let mut schedulables = Vec::new();
+
+    // Find tagged methods.
+    for item in items.iter_mut() {
+        if let ImplItem::Fn(f) = item {
+            if consume_method_attribute(f, "schedulable")? {
+                schedulables.push(f.clone());
+            }
+            if consume_method_attribute(f, "init")? {
+                init = Some(f.sig.ident.clone());
+            }
+            if consume_method_attribute(f, "restore")? {
+                restore = Some(f.sig.ident.clone());
+            }
+        }
+    }
+
+    // Wrap init and restore tokens into Options for conditional rendering.
+    let init = init.and_then(|init| { quote! {
+        fn init(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+            self.#init(cx)
+        }
+    }.into()});
+
+    let restore = restore.and_then(|restore| { quote! {
+        fn restore(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+            self.#restore(cx)
+        }
+    }.into()});
+
+    Ok((init, restore, schedulables))
+}
+
+/// Renders the impl Model for MyModel block.
+fn get_impl_model_trait(
+    name: &Type,
+    env: &Expr,
+    init: Option<proc_macro2::TokenStream>,
+    restore: Option<proc_macro2::TokenStream>,
+    registered_methods: impl Iterator<Item = Expr>,
+) -> proc_macro2::TokenStream {
+    quote! {
         impl nexosim::model::Model for #name {
-            type #env_expr;
+            type #env;
 
             fn register_schedulables(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) -> nexosim::model::ModelRegistry {
                 let mut registry = nexosim::model::ModelRegistry::default();
@@ -122,8 +174,11 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
 
             #restore
         }
-    };
+    }
+}
 
+/// Renders MyModel::__input hidden methods.
+fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::TokenStream> {
     let mut hidden_methods = Vec::new();
 
     for (i, func) in schedulables.iter().enumerate() {
@@ -161,19 +216,11 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
             }
         });
     }
-
-    // Write hidden methods block.
-    gen.extend(quote! {
-        impl #name {
-            #( #hidden_methods )*
-        }
-    });
-
-    Ok(gen.into())
+    hidden_methods
 }
 
-// Check whether method has an attributte in the form of `nexosim(attr)`. If so
-// remove it.
+/// Check whether method has an attributte in the form of `nexosim(attr)`. If so
+/// remove it.
 fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn::Error> {
     let mut idx = None;
     for (i, a) in f.attrs.iter().enumerate() {
@@ -181,15 +228,15 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn:
             continue;
         }
         if let Meta::List(meta) = &a.meta {
-            let args: Expr = meta.parse_args().expect("Can't parse nexosim attribute!");
+            let args: Expr = meta
+                .parse_args()
+                .map_err(|_| syn::Error::new_spanned(meta, "Can't parse nexosim attribute!"))?;
             if let Expr::Path(path) = args {
                 if path.path.segments.len() != 1 {
                     return Err(syn::Error::new_spanned(
                         meta,
                         "attribute `nexosim` should have exactly one argument!",
                     ));
-                    // panic!("Attribute `nexosim` should have exactly one
-                    // argument!");
                 }
                 if path.path.segments[0].ident == attr {
                     idx = Some(i);
@@ -199,7 +246,6 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn:
                     meta,
                     "invalid `nexosim` attribute!",
                 ));
-                // panic!("Invalid `nexosim` attribute!");
             }
         }
     }
