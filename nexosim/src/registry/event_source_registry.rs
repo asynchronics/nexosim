@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -8,14 +9,14 @@ use ciborium;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::EventSource;
-use crate::simulation::{Event, EventKey, SchedulerSourceRegistry, SourceId};
+use crate::simulation::{Event, EventKey, SchedulerSourceRegistry, SourceId, SourceIdErased};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
 /// A registry that holds all sources and sinks meant to be accessed through
 /// remote procedure calls.
 #[derive(Default)]
-pub(crate) struct EventSourceRegistry(HashMap<String, RegistryEntry>);
+pub struct EventSourceRegistry(HashMap<String, RegistryEntry>);
 
 impl EventSourceRegistry {
     /// Adds an event source to the registry.
@@ -42,7 +43,8 @@ impl EventSourceRegistry {
 
     /// Returns a mutable reference to the specified event source if it is in
     /// the registry.
-    pub(crate) fn get(&self, name: &str) -> Option<&dyn EventSourceAny> {
+    pub fn get(&self, name: &str) -> Option<&dyn EventSourceAny> {
+        // TODO generic get for non-server use
         match self.0.get(name) {
             Some(RegistryEntry::Registered(source)) => Some(source.as_ref()),
             _ => None,
@@ -70,44 +72,38 @@ enum RegistryEntry {
 }
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
-pub(crate) trait EventSourceAny: Send + Sync + 'static {
+pub trait EventSourceAny: Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError>;
+    fn event(&self, arg: Box<dyn Any + Send>) -> Event;
 
     /// Returns a cancellable action and a cancellation key; when processed, the
     /// action broadcasts an event to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn keyed_event(&self, serialized_arg: &[u8])
-        -> Result<(Event, EventKey), DeserializationError>;
+    fn keyed_event(&self, arg: Box<dyn Any + Send>) -> (Event, EventKey);
 
     /// Returns a periodically recurring action which, when processed,
     /// broadcasts an event to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn periodic_event(
-        &self,
-        period: Duration,
-        serialized_arg: &[u8],
-    ) -> Result<Event, DeserializationError>;
+    fn periodic_event(&self, period: Duration, arg: Box<dyn Any + Send>) -> Event;
 
     /// Returns a cancellable, periodically recurring action and a cancellation
     /// key; when processed, the action broadcasts an event to all connected
     /// input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn keyed_periodic_event(
-        &self,
-        period: Duration,
-        serialized_arg: &[u8],
-    ) -> Result<(Event, EventKey), DeserializationError>;
+    fn keyed_periodic_event(&self, period: Duration, arg: Box<dyn Any + Send>)
+        -> (Event, EventKey);
 
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
+
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, DeserializationError>;
 }
 
 trait UnregisteredSource: Send + Sync + 'static {
@@ -132,33 +128,25 @@ where
     /// connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(self, arg))
+    fn event(&self, arg: Box<dyn Any + Send>) -> Event {
+        Event::new_erased(self, arg)
     }
 
     /// Returns a cancellable action and a cancellation key; when processed, the
     /// action broadcasts an event to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn keyed_event(
-        &self,
-        serialized_arg: &[u8],
-    ) -> Result<(Event, EventKey), DeserializationError> {
+    fn keyed_event(&self, arg: Box<dyn Any + Send>) -> (Event, EventKey) {
         let key = EventKey::new();
-        ciborium::from_reader(serialized_arg)
-            .map(|arg| (Event::new(self, arg).with_key(key.clone()), key))
+        (Event::new_erased(self, arg).with_key(key.clone()), key)
     }
 
     /// Returns a periodically recurring action which, when processed,
     /// broadcasts an event to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn periodic_event(
-        &self,
-        period: Duration,
-        serialized_arg: &[u8],
-    ) -> Result<Event, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(self, arg).with_period(period))
+    fn periodic_event(&self, period: Duration, arg: Box<dyn Any + Send>) -> Event {
+        Event::new_erased(self, arg).with_period(period)
     }
 
     /// Returns a cancellable, periodically recurring action and a cancellation
@@ -169,22 +157,24 @@ where
     fn keyed_periodic_event(
         &self,
         period: Duration,
-        serialized_arg: &[u8],
-    ) -> Result<(Event, EventKey), DeserializationError> {
+        arg: Box<dyn Any + Send>,
+    ) -> (Event, EventKey) {
         let key = EventKey::new();
-        ciborium::from_reader(serialized_arg).map(|arg| {
-            (
-                Event::new(self, arg)
-                    .with_period(period)
-                    .with_key(key.clone()),
-                key,
-            )
-        })
+        (
+            Event::new_erased(self, arg)
+                .with_period(period)
+                .with_key(key.clone()),
+            key,
+        )
     }
 
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
+    }
+
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, DeserializationError> {
+        ciborium::from_reader::<T, _>(arg).map(|arg| Box::new(arg) as Box<dyn Any + Send>)
     }
 }

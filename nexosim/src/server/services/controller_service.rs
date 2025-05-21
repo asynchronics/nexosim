@@ -160,7 +160,7 @@ impl ControllerService {
                     "no source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let event = source.event(event).map_err(|e| {
+                let arg = source.deserialize_arg(event).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -171,6 +171,7 @@ impl ControllerService {
                     )
                 })?;
 
+                let event = source.event(arg);
                 simulation.process(event).map_err(map_execution_error)
             }(),
             Self::NotStarted => Err(simulation_not_started_error()),

@@ -33,13 +33,17 @@ impl MyModel {
         println!("Manual: {:+}", -arg);
     }
 
+    const fn b() -> bool {
+        false
+    }
+
     #[nexosim(init)]
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         println!("Custom init");
-        cx.schedule_event(Duration::from_secs(2), schedulable!(input), 12)
+        cx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), 12)
             .unwrap();
-        cx.schedule_event(Duration::from_secs(3), schedulable!(tick), ())
-            .unwrap();
+        // cx.schedule_event(Duration::from_secs(3), schedulable!(Self::manual), ())
+        //     .unwrap();
         cx.schedule_event(Duration::from_secs(1), self.manual_id, -5)
             .unwrap();
         self.into()
@@ -69,20 +73,29 @@ impl ProtoModel for MyProto {
 struct OtherModel;
 #[Model(Env=u8)]
 impl OtherModel {
-    pub fn non_input_method(&mut self, cx: &mut Context<Self>) {
+    #[nexosim(schedulable)]
+    pub fn non_input_method(&mut self, _: (), cx: &mut Context<Self>) {
         *cx.env() + 12;
     }
 }
 
 fn main() {
+    // const _: () = const { panic!() };
+    std::any::type_name_of_val(&MyModel::input);
+
     let m = MyProto;
 
     let mbox = Mailbox::new();
+    let addr = mbox.address();
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::new()
-        .add_model(m, mbox, "my_model")
-        .init(t0)
-        .unwrap();
+    let mut bench = SimInit::new().add_model(m, mbox, "my_model");
+
+    let source_id = bench.register_input(MyModel::input, &addr);
+
+    let mut simu = bench.init(t0).unwrap();
+    let scheduler = simu.scheduler();
+
+    scheduler.schedule_event(Duration::from_secs(1), &source_id, 37);
 
     simu.step().unwrap();
     simu.step().unwrap();

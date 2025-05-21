@@ -571,11 +571,10 @@ impl<M: Model<Env = ()>> Context<M> {
 #[derive(Debug, Default)]
 pub struct ModelRegistry(Vec<SourceIdErased>);
 impl ModelRegistry {
-    pub fn add(&mut self, source_id: impl Into<SourceIdErased>) {
-        self.0.push(source_id.into());
+    pub fn add<M: Model, T>(&mut self, schedulable_id: SchedulableId<M, T>) {
+        self.0.push(schedulable_id.into());
     }
     pub(crate) fn get<M: Model, T>(&self, reg_id: &RegistryId<M, T>) -> SchedulableId<M, T> {
-        // TODO type checking ?
         SchedulableId(self.0[reg_id.0].0, PhantomData, PhantomData)
     }
 }

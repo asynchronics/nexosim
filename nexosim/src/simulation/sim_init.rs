@@ -190,7 +190,7 @@ impl SimInit {
         self.scheduler_registry.add(source)
     }
 
-    pub fn register_model_input<M, F, S, T>(
+    pub fn register_input<M, F, S, T>(
         &mut self,
         input: F,
         address: impl Into<Address<M>>,

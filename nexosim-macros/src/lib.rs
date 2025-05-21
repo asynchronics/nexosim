@@ -4,9 +4,51 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprAssign, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path, PathSegment, Type,
-    TypeTuple,
+    Expr, ExprAssign, ExprCall, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path,
+    PathSegment, Type, TypeTuple,
 };
+
+#[proc_macro]
+pub fn schedulable(input: TokenStream) -> TokenStream {
+    let ast = syn::parse(input).unwrap();
+    impl_schedulable(&ast).unwrap_or_else(|e| e.to_compile_error().into())
+}
+
+fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
+    if ast.segments.len() != 2 {
+        return Err(syn::Error::new_spanned(
+            ast,
+            "invalid associated method path",
+        ));
+    }
+    let hidden_name = Ident::new(&format!("__{}", ast.segments[1].ident), ast.span());
+    let mut segments = ast.segments.clone();
+    segments[1].ident = hidden_name.clone();
+    let path = Path {
+        leading_colon: None,
+        segments,
+    };
+    let call = Expr::Call(ExprCall {
+        attrs: Vec::new(),
+        func: Box::new(Expr::Path(ExprPath {
+            attrs: Vec::new(),
+            qself: None,
+            path,
+        })),
+        paren_token: Paren(ast.span()),
+        args: Punctuated::new(),
+    });
+
+    let gen = quote! {
+        {
+            // const _: () = { if Self::__is_schedulable(stringify!(#hidden_name)) { panic!() } };
+            // const _: [(); 0 - {const ASSERT: bool = MyModel::__is_schedulable("input"); ASSERT } as usize] = [];
+            let _: [(); 0 - {Self::__is_schedulable("input")} ] = [];
+            #call
+        }
+    };
+    Ok(gen.into())
+}
 
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
@@ -180,6 +222,7 @@ fn get_impl_model_trait(
 /// Renders MyModel::__input hidden methods.
 fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::TokenStream> {
     let mut hidden_methods = Vec::new();
+    let mut all_schedulables = Vec::new();
 
     for (i, func) in schedulables.iter().enumerate() {
         let fname = Ident::new(&format!("__{}", func.sig.ident), func.sig.ident.span());
@@ -215,7 +258,19 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
               nexosim::model::RegistryId::new(#i)
             }
         });
+        all_schedulables.push(fname);
     }
+
+    hidden_methods.push(quote! {
+        const fn __is_schedulable(f: &'static str) -> usize {
+            match f {
+                #(stringify!(#all_schedulables) => 1,)*
+                _ => 0
+            }
+            0
+        }
+    });
+
     hidden_methods
 }
 
