@@ -42,8 +42,8 @@ impl MyModel {
         println!("Custom init");
         cx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), 12)
             .unwrap();
-        // cx.schedule_event(Duration::from_secs(3), schedulable!(Self::manual), ())
-        //     .unwrap();
+        cx.schedule_event(Duration::from_secs(3), schedulable!(Self::manual), ())
+            .unwrap();
         cx.schedule_event(Duration::from_secs(1), self.manual_id, -5)
             .unwrap();
         self.into()
@@ -80,7 +80,6 @@ impl OtherModel {
 }
 
 fn main() {
-    // const _: () = const { panic!() };
     std::any::type_name_of_val(&MyModel::input);
 
     let m = MyProto;

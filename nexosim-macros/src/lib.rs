@@ -4,8 +4,8 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprAssign, ExprCall, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path,
-    PathSegment, Type, TypeTuple,
+    Expr, ExprAssign, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path, PathSegment, Type,
+    TypeTuple,
 };
 
 #[proc_macro]
@@ -29,26 +29,16 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
         leading_colon: None,
         segments,
     };
-    let call = Expr::Call(ExprCall {
-        attrs: Vec::new(),
-        func: Box::new(Expr::Path(ExprPath {
-            attrs: Vec::new(),
-            qself: None,
-            path,
-        })),
-        paren_token: Paren(ast.span()),
-        args: Punctuated::new(),
-    });
-
     let err_name = ast.segments[1].ident.to_string();
 
     let gen = quote! {
         {
-            // Call a hidden method in the array type definition to cast a custom error during a type-checking compilation phase.
+            // Call a hidden method in the array type definition
+            // to cast a custom error during a type-checking compilation phase.
             let _: [(); { if !Self::____is_schedulable(stringify!(#hidden_name)) {
                 panic!("method `{}` is not marked as nexosim(schedulable)", #err_name)
             }; 0} ] = [];
-            #call
+            #path
         }
     };
     Ok(gen.into())
@@ -181,17 +171,27 @@ fn parse_tagged_methods(
     }
 
     // Wrap init and restore tokens into Options for conditional rendering.
-    let init = init.and_then(|init| { quote! {
-        fn init(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-            self.#init(cx)
+    let init = init.and_then(|init| {
+        quote! {
+            fn init(
+                self, cx: &mut nexosim::model::Context<Self>
+            ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+                self.#init(cx)
+            }
         }
-    }.into()});
+        .into()
+    });
 
-    let restore = restore.and_then(|restore| { quote! {
-        fn restore(self, cx: &mut nexosim::model::Context<Self>) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-            self.#restore(cx)
+    let restore = restore.and_then(|restore| {
+        quote! {
+            fn restore(
+                self, cx: &mut nexosim::model::Context<Self>
+            ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+                self.#restore(cx)
+            }
         }
-    }.into()});
+        .into()
+    });
 
     Ok((init, restore, schedulables))
 }
@@ -208,7 +208,9 @@ fn get_impl_model_trait(
         impl nexosim::model::Model for #name {
             type #env;
 
-            fn register_schedulables(&mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>) -> nexosim::model::ModelRegistry {
+            fn register_schedulables(
+                &mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>
+            ) -> nexosim::model::ModelRegistry {
                 let mut registry = nexosim::model::ModelRegistry::default();
                 #(
                     registry.add(cx.register_schedulable(#registered_methods));
@@ -255,13 +257,10 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
             })),
         };
 
-        // Add a MyModel::__input hidden method, used for model's internal scheduling.
         hidden_methods.push(quote! {
             #[doc(hidden)]
-            fn #fname () -> nexosim::model::RegistryId<Self, #ty>
-            {
-              nexosim::model::RegistryId::new(#i)
-            }
+            #[allow(non_upper_case_globals)]
+            const #fname: nexosim::model::RegistryId<Self, #ty> = nexosim::model::RegistryId::new(#i);
         });
         registered_schedulables.push(fname);
     }

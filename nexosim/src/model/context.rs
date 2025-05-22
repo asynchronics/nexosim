@@ -582,7 +582,7 @@ impl ModelRegistry {
 #[derive(Debug)]
 pub struct RegistryId<M: Model, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> RegistryId<M, T> {
-    pub fn new(id: usize) -> Self {
+    pub const fn new(id: usize) -> Self {
         Self(id, PhantomData, PhantomData)
     }
 }
