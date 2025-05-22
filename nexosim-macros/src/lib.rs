@@ -36,7 +36,12 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
             // Call a hidden method in the array type definition
             // to cast a custom error during a type-checking compilation phase.
             let _: [(); { if !Self::____is_schedulable(stringify!(#hidden_name)) {
-                panic!("method `{}` is not marked as nexosim(schedulable)", #err_name)
+                panic!(
+                    "method `{}` is not a valid schedulable input for the model!
+                    Perhaps you forgot to include the #[nexosim(schedulable)] attribute
+                    or are using a method from another model.",
+                    #err_name
+                )
             }; 0} ] = [];
             #path
         }
