@@ -22,6 +22,7 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
         ));
     }
     let hidden_name = Ident::new(&format!("__{}", ast.segments[1].ident), ast.span());
+
     let mut segments = ast.segments.clone();
     segments[1].ident = hidden_name.clone();
     let path = Path {
@@ -39,11 +40,14 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
         args: Punctuated::new(),
     });
 
+    let err_name = ast.segments[1].ident.to_string();
+
     let gen = quote! {
         {
-            // const _: () = { if Self::__is_schedulable(stringify!(#hidden_name)) { panic!() } };
-            // const _: [(); 0 - {const ASSERT: bool = MyModel::__is_schedulable("input"); ASSERT } as usize] = [];
-            let _: [(); 0 - {Self::__is_schedulable("input")} ] = [];
+            // Call a hidden method in the array type definition to cast a custom error during a type-checking compilation phase.
+            let _: [(); { if !Self::____is_schedulable(stringify!(#hidden_name)) {
+                panic!("method `{}` is not marked as nexosim(schedulable)", #err_name)
+            }; 0} ] = [];
             #call
         }
     };
@@ -222,11 +226,10 @@ fn get_impl_model_trait(
 /// Renders MyModel::__input hidden methods.
 fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::TokenStream> {
     let mut hidden_methods = Vec::new();
-    let mut all_schedulables = Vec::new();
+    let mut registered_schedulables = Vec::new();
 
     for (i, func) in schedulables.iter().enumerate() {
         let fname = Ident::new(&format!("__{}", func.sig.ident), func.sig.ident.span());
-        let vis = &func.vis;
 
         // Find argument type token.
         let ty = func
@@ -252,22 +255,30 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
             })),
         };
 
+        // Add a MyModel::__input hidden method, used for model's internal scheduling.
         hidden_methods.push(quote! {
-            #vis fn #fname () -> nexosim::model::RegistryId<Self, #ty>
+            #[doc(hidden)]
+            fn #fname () -> nexosim::model::RegistryId<Self, #ty>
             {
               nexosim::model::RegistryId::new(#i)
             }
         });
-        all_schedulables.push(fname);
+        registered_schedulables.push(fname);
     }
 
+    let byte_literals = registered_schedulables
+        .iter()
+        .map(|a| proc_macro2::Literal::byte_string(a.to_string().as_bytes()));
+
+    // Add a hidden method used for producing more meaningful compilation errors,
+    // when a user tries to schedule an undecorated method.
     hidden_methods.push(quote! {
-        const fn __is_schedulable(f: &'static str) -> usize {
-            match f {
-                #(stringify!(#all_schedulables) => 1,)*
-                _ => 0
+        #[doc(hidden)]
+        const fn ____is_schedulable(fname: &'static str) -> bool {
+            match fname.as_bytes() {
+                #(#byte_literals => true,)*
+                _ => false
             }
-            0
         }
     });
 
