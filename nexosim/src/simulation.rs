@@ -650,9 +650,9 @@ impl Simulation {
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
     }
 
-    /// Serialize with bench builder cfg
+    /// Serialize with bench builder CBOR serialized cfg
     #[cfg(feature = "server")]
-    pub fn save_with_cfg<W: std::io::Write>(
+    pub(crate) fn save_with_serialized_cfg<W: std::io::Write>(
         &mut self,
         cfg: Vec<u8>,
         writer: &mut W,
@@ -665,6 +665,19 @@ impl Simulation {
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+    }
+
+    #[cfg(feature = "server")]
+    pub fn save_with_cfg<W: std::io::Write, C: Serialize>(
+        &mut self,
+        cfg: C,
+        writer: &mut W,
+    ) -> Result<usize, ExecutionError> {
+        let mut serialized_cfg = Vec::new();
+        ciborium::into_writer(&cfg, &mut serialized_cfg).map_err(|_| {
+            ExecutionError::SaveError("Config serialization has failed!".to_string())
+        })?;
+        self.save_with_serialized_cfg(serialized_cfg, writer)
     }
 
     /// Restore simulation's state from serialized data.

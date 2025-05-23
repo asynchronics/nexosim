@@ -160,7 +160,7 @@ impl ControllerService {
                     "no source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let arg = source.deserialize_arg(event).map_err(|e| {
+                let event = source.event(event).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -171,7 +171,6 @@ impl ControllerService {
                     )
                 })?;
 
-                let event = source.event(arg);
                 simulation.process(event).map_err(map_execution_error)
             }(),
             Self::NotStarted => Err(simulation_not_started_error()),
@@ -265,7 +264,7 @@ impl ControllerService {
 
         let mut state = Vec::new();
         let result = simulation
-            .save_with_cfg(cfg.clone(), &mut state)
+            .save_with_serialized_cfg(cfg.clone(), &mut state)
             .map_err(|_| {
                 crate::simulation::ExecutionError::SaveError(
                     "Simulation config serialization has failed.".to_string(),

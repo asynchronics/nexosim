@@ -42,7 +42,9 @@ impl MyModel {
         println!("Custom init");
         cx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), 12)
             .unwrap();
-        cx.schedule_event(Duration::from_secs(3), schedulable!(Self::manual), ())
+        // cx.schedule_event(Duration::from_secs(3), schedulable!(Self::manual), ())
+        //     .unwrap();
+        cx.schedule_event(Duration::from_secs(2), schedulable!(Self::tick), ())
             .unwrap();
         cx.schedule_event(Duration::from_secs(1), self.manual_id, -5)
             .unwrap();

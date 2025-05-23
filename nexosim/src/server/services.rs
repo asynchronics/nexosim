@@ -6,37 +6,16 @@ mod scheduler_service;
 use std::time::Duration;
 
 use prost_types::Timestamp;
-use serde::de::DeserializeOwned;
 use tai_time::MonotonicTime;
 
 use super::codegen::simulation::{Error, ErrorCode};
-use crate::{
-    registry::EndpointRegistry,
-    simulation::{ExecutionError, SchedulingError, Simulation, SimulationError},
-};
+use crate::simulation::{ExecutionError, SchedulingError, SimulationError};
 
 pub(crate) use controller_service::ControllerService;
+pub use init_service::{init_bench, restore_bench};
 pub(crate) use init_service::{InitResult, InitService};
 pub(crate) use monitor_service::MonitorService;
 pub(crate) use scheduler_service::SchedulerService;
-
-pub fn restore<F, I>(
-    mut sim_gen: F,
-    state: &[u8],
-) -> Result<(Simulation, EndpointRegistry), SimulationError>
-where
-    F: FnMut(I) -> InitResult + Send + 'static,
-    I: DeserializeOwned,
-{
-    let serialized_cfg = Simulation::restore_cfg(state)?.ok_or(ExecutionError::RestoreError(
-        "Bench config not found".to_string(),
-    ))?;
-
-    let cfg = ciborium::from_reader(&serialized_cfg[..]).unwrap();
-    let (sim_init, endpoint_registry) = sim_gen(cfg);
-    let simulation = sim_init.restore(state)?;
-    Ok((simulation, endpoint_registry))
-}
 
 /// Transforms an error code and a message into a Protobuf error.
 fn to_error(code: ErrorCode, message: impl Into<String>) -> Error {

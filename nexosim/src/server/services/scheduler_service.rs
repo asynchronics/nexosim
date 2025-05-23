@@ -72,7 +72,19 @@ impl SchedulerService {
                     "no event source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let arg = source.deserialize_arg(event).map_err(|e| {
+                let (event, event_key) = match (with_key, period) {
+                    (false, None) => source.event(event).map(|action| (action, None)),
+                    (false, Some(period)) => source
+                        .periodic_event(period, event)
+                        .map(|action| (action, None)),
+                    (true, None) => source
+                        .keyed_event(event)
+                        .map(|(action, key)| (action, Some(key))),
+                    (true, Some(period)) => source
+                        .keyed_periodic_event(period, event)
+                        .map(|(action, key)| (action, Some(key))),
+                }
+                .map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -82,19 +94,6 @@ impl SchedulerService {
                         ),
                     )
                 })?;
-
-                let (event, event_key) = match (with_key, period) {
-                    (false, None) => (source.event(arg), None),
-                    (false, Some(period)) => (source.periodic_event(period, arg), None),
-                    (true, None) => {
-                        let (event, key) = source.keyed_event(arg);
-                        (event, Some(key))
-                    }
-                    (true, Some(period)) => {
-                        let (event, key) = source.keyed_periodic_event(period, arg);
-                        (event, Some(key))
-                    }
-                };
 
                 let deadline = request.deadline.ok_or(to_error(
                     ErrorCode::MissingArgument,

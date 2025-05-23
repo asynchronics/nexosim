@@ -5,7 +5,8 @@ use ciborium;
 use serde::de::DeserializeOwned;
 
 use crate::registry::EndpointRegistry;
-use crate::simulation::{SimInit, Simulation, SimulationError};
+use crate::simulation::{ExecutionError, SimInit, Simulation, SimulationError};
+use crate::time::MonotonicTime;
 
 use super::{map_simulation_error, timestamp_to_monotonic, to_error};
 
@@ -181,4 +182,48 @@ fn map_init_error(
             )
         })
         .and_then(|init_result| init_result.map_err(map_simulation_error))
+}
+
+pub fn init_bench<F, I>(
+    mut sim_gen: F,
+    cfg: I,
+    start_time: MonotonicTime,
+) -> Result<(Simulation, EndpointRegistry), SimulationError>
+where
+    F: FnMut(I) -> InitResult + Send + 'static,
+    I: DeserializeOwned,
+{
+    let (mut sim_init, mut endpoint_registry) = sim_gen(cfg);
+    endpoint_registry
+        .event_source_registry
+        .register_scheduler(sim_init.scheduler_registry());
+    let simulation = sim_init.init(start_time)?;
+    Ok((simulation, endpoint_registry))
+}
+
+pub fn restore_bench<F, I>(
+    mut sim_gen: F,
+    state: &[u8],
+    cfg: Option<I>,
+) -> Result<(Simulation, EndpointRegistry), SimulationError>
+where
+    F: FnMut(I) -> InitResult + Send + 'static,
+    I: DeserializeOwned,
+{
+    let cfg = match cfg {
+        Some(a) => a,
+        None => {
+            let serialized_cfg = Simulation::restore_cfg(state)?.ok_or(
+                ExecutionError::RestoreError("Bench config not found".to_string()),
+            )?;
+            ciborium::from_reader(&serialized_cfg[..]).unwrap()
+        }
+    };
+
+    let (mut sim_init, mut endpoint_registry) = sim_gen(cfg);
+    endpoint_registry
+        .event_source_registry
+        .register_scheduler(sim_init.scheduler_registry());
+    let simulation = sim_init.restore(state)?;
+    Ok((simulation, endpoint_registry))
 }

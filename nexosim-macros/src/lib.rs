@@ -230,7 +230,7 @@ fn get_impl_model_trait(
     }
 }
 
-/// Renders MyModel::__input hidden methods.
+/// Renders MyModel::__input associated consts.
 fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::TokenStream> {
     let mut hidden_methods = Vec::new();
     let mut registered_schedulables = Vec::new();
