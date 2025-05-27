@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -9,6 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
+use crate::simulation::Action;
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -81,6 +83,8 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     /// Human-readable name of the reply type, as returned by
     /// `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
+
+    fn action(&self, arg: Box<dyn Any>) -> Action;
 }
 
 impl<T, R> QuerySourceAny for QuerySource<T, R>
@@ -112,6 +116,12 @@ where
 
     fn reply_type_name(&self) -> &'static str {
         std::any::type_name::<R>()
+    }
+
+    fn action(&self, arg: Box<dyn Any>) -> Action {
+        let arg = arg.downcast().unwrap();
+        let (fut, reply_recv) = self.query(*arg);
+        Action::new(fut).with_reply_receiver(Box::new(reply_recv))
     }
 }
 

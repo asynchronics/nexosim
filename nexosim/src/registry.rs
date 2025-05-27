@@ -4,6 +4,8 @@
 //! event sink, event source and query source in a simulation bench to a unique
 //! name.
 
+use std::any::Any;
+
 mod event_sink_registry;
 mod event_source_registry;
 mod query_source_registry;
@@ -11,7 +13,7 @@ mod query_source_registry;
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
-use crate::simulation::SourceId;
+use crate::simulation::{Action, SourceId};
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -76,6 +78,10 @@ impl EndpointRegistry {
 
     pub fn get_source_id<T: 'static>(&self, name: &str) -> Option<SourceId<T>> {
         self.event_source_registry.get_source_id(name)
+    }
+
+    pub fn get_query_action<T: Any + 'static>(&self, name: &str, arg: T) -> Option<Action> {
+        Some(self.query_source_registry.get(name)?.action(Box::new(arg)))
     }
 
     // pub fn

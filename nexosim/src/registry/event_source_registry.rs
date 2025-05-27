@@ -9,7 +9,9 @@ use ciborium;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::EventSource;
-use crate::simulation::{Event, EventKey, SchedulerSourceRegistry, SourceId, SourceIdErased};
+use crate::simulation::{
+    Action, Event, EventKey, SchedulerSourceRegistry, SourceId, SourceIdErased,
+};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
@@ -114,8 +116,6 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
-
-    fn source_id(&self) -> SourceIdErased;
 }
 
 trait UnregisteredSource: Send + Sync + 'static {
@@ -194,9 +194,5 @@ where
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
-    }
-
-    fn source_id(&self) -> SourceIdErased {
-        self.into()
     }
 }

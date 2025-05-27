@@ -1,15 +1,14 @@
 mod broadcaster;
 mod sender;
 
+use std::any::Any;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::time::Duration;
 
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::{Address, EventKey};
+use crate::simulation::{ActionReceiverInner, Address};
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -281,5 +280,11 @@ impl<R> ReplyReceiver<R> {
 impl<R> fmt::Debug for ReplyReceiver<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Replies")
+    }
+}
+
+impl<R: Any + 'static> ActionReceiverInner for ReplyReceiver<R> {
+    fn take(&mut self) -> Option<Box<dyn Iterator<Item = Box<dyn Any>>>> {
+        Some(Box::new(self.take()?.map(|a| Box::new(a) as Box<dyn Any>)))
     }
 }

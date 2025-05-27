@@ -59,6 +59,13 @@ fn main() {
 
     simu.step().unwrap();
 
+    let query = registry.get_query_action("query", ()).unwrap();
+    let mut receiver = simu.process(query).unwrap().unwrap();
+
+    for reply in receiver.replies::<u16>().unwrap() {
+        println!("{:?}", reply);
+    }
+
     let (mut simu, _) = nexosim::server::restore_bench(bench, &state, None).unwrap();
 
     simu.step().unwrap();
