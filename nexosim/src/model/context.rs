@@ -168,15 +168,15 @@ impl<M: Model> Context<M> {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        id: impl AsSchedulableId<M, T>,
+        id: SchedulableId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
         T: Send + Clone + 'static,
     {
-        let schedulable_id = id.as_schedulable_id(&self.model_registry);
+        let source_id = id.source_id(&self.model_registry);
         self.scheduler
-            .schedule_event_from(deadline, &schedulable_id.into(), arg, self.origin_id)
+            .schedule_event_from(deadline, &source_id, arg, self.origin_id)
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -232,7 +232,7 @@ impl<M: Model> Context<M> {
     {
         let event_key = self.scheduler.schedule_keyed_event_from(
             deadline,
-            &input_id.into(),
+            &input_id.source_id(&self.model_registry),
             arg,
             self.origin_id,
         )?;
@@ -290,7 +290,7 @@ impl<M: Model> Context<M> {
         self.scheduler.schedule_periodic_event_from(
             deadline,
             period,
-            &input_id.into(),
+            &input_id.source_id(&self.model_registry),
             arg,
             self.origin_id,
         )
@@ -359,7 +359,7 @@ impl<M: Model> Context<M> {
         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            &input_id.into(),
+            &input_id.source_id(&self.model_registry),
             arg,
             self.origin_id,
         )?;
@@ -572,23 +572,37 @@ impl<M: Model<Env = ()>> Context<M> {
 pub struct ModelRegistry(Vec<SourceIdErased>);
 impl ModelRegistry {
     pub fn add<M: Model, T>(&mut self, schedulable_id: SchedulableId<M, T>) {
-        self.0.push(schedulable_id.into());
+        self.0.push(SourceIdErased(schedulable_id.0));
     }
-    pub(crate) fn get<M: Model, T>(&self, reg_id: &RegistryId<M, T>) -> SchedulableId<M, T> {
-        SchedulableId(self.0[reg_id.0].0, PhantomData, PhantomData)
+    pub(crate) fn get<M: Model, T>(&self, idx: usize) -> SchedulableId<M, T> {
+        SchedulableId(self.0[idx].0, PhantomData, PhantomData)
     }
 }
 
-#[derive(Debug)]
-pub struct RegistryId<M: Model, T>(usize, PhantomData<M>, PhantomData<T>);
-impl<M: Model, T> RegistryId<M, T> {
-    pub const fn new(id: usize) -> Self {
-        Self(id, PhantomData, PhantomData)
-    }
-}
+// #[derive(Debug)]
+// pub struct RegistryId<M: Model, T>(usize, PhantomData<M>, PhantomData<T>);
+// impl<M: Model, T> RegistryId<M, T> {
+//     pub const fn new(id: usize) -> Self {
+//         Self(id, PhantomData, PhantomData)
+//     }
+// }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
+impl<M: Model, T> SchedulableId<M, T> {
+    const MASK: usize = 1 << (usize::BITS - 1);
+
+    // TODO name
+    pub const fn new_registered(id: usize) -> Self {
+        Self(id | Self::MASK, PhantomData, PhantomData)
+    }
+    pub(crate) fn source_id(&self, registry: &ModelRegistry) -> SourceId<T> {
+        match self.0 & Self::MASK {
+            0 => SourceId(self.0, PhantomData),
+            _ => SourceId(registry.get::<M, T>(self.0 ^ Self::MASK).0, PhantomData),
+        }
+    }
+}
 
 // Manual clone and copy impl. to not enforce bounds on M and T.
 impl<M, T> Clone for SchedulableId<M, T> {
@@ -598,47 +612,47 @@ impl<M, T> Clone for SchedulableId<M, T> {
 }
 impl<M, T> Copy for SchedulableId<M, T> {}
 
-impl<M, T> From<SchedulableId<M, T>> for SourceIdErased {
-    fn from(value: SchedulableId<M, T>) -> Self {
-        Self(value.0)
-    }
-}
-impl<M, T> From<&SchedulableId<M, T>> for SourceIdErased {
-    fn from(value: &SchedulableId<M, T>) -> Self {
-        Self(value.0)
-    }
-}
+// impl<M, T> From<SchedulableId<M, T>> for SourceIdErased {
+//     fn from(value: SchedulableId<M, T>) -> Self {
+//         Self(value.0)
+//     }
+// }
+// impl<M, T> From<&SchedulableId<M, T>> for SourceIdErased {
+//     fn from(value: &SchedulableId<M, T>) -> Self {
+//         Self(value.0)
+//     }
+// }
 
-impl<M, T> From<SchedulableId<M, T>> for SourceId<T> {
-    fn from(value: SchedulableId<M, T>) -> Self {
-        Self(value.0, PhantomData)
-    }
-}
+// impl<M, T> From<SchedulableId<M, T>> for SourceId<T> {
+//     fn from(value: SchedulableId<M, T>) -> Self {
+//         Self(value.0, PhantomData)
+//     }
+// }
 
-impl<M, T> From<&SchedulableId<M, T>> for SourceId<T> {
-    fn from(value: &SchedulableId<M, T>) -> Self {
-        Self(value.0, PhantomData)
-    }
-}
+// impl<M, T> From<&SchedulableId<M, T>> for SourceId<T> {
+//     fn from(value: &SchedulableId<M, T>) -> Self {
+//         Self(value.0, PhantomData)
+//     }
+// }
 
-impl<M, T> From<SourceId<T>> for SchedulableId<M, T> {
-    fn from(value: SourceId<T>) -> Self {
-        Self(value.0, PhantomData, PhantomData)
-    }
-}
+// impl<M, T> From<SourceId<T>> for SchedulableId<M, T> {
+//     fn from(value: SourceId<T>) -> Self {
+//         Self(value.0, PhantomData, PhantomData)
+//     }
+// }
 
-pub trait AsSchedulableId<M: Model, T> {
-    fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M, T>;
-}
+// pub trait AsSchedulableId<M: Model, T> {
+//     fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M,
+// T>; }
 
-impl<M: Model, T> AsSchedulableId<M, T> for RegistryId<M, T> {
-    fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M, T> {
-        registry.get(self)
-    }
-}
+// impl<M: Model, T> AsSchedulableId<M, T> for RegistryId<M, T> {
+//     fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M,
+// T> {         registry.get(self)
+//     }
+// }
 
-impl<M: Model, T> AsSchedulableId<M, T> for SchedulableId<M, T> {
-    fn as_schedulable_id(&self, _: &ModelRegistry) -> SchedulableId<M, T> {
-        *self
-    }
-}
+// impl<M: Model, T> AsSchedulableId<M, T> for SchedulableId<M, T> {
+//     fn as_schedulable_id(&self, _: &ModelRegistry) -> SchedulableId<M, T> {
+//         *self
+//     }
+// }

@@ -204,7 +204,7 @@ use crate::ports::PORT_REG;
 use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
 use crate::util::serialization::serialization_config;
 
-pub use context::{BuildContext, Context, ModelRegistry, RegistryId, SchedulableId};
+pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
 
 mod context;
 
