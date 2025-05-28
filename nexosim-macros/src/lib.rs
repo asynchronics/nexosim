@@ -29,19 +29,22 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
         leading_colon: None,
         segments,
     };
+
     let err_name = ast.segments[1].ident.to_string();
+    // Argument formatting not possible in the const context as of Rust >= 1.87
+    let err_msg = format!(
+        "method `{}` is not a valid schedulable input for the model!
+                    Perhaps you forgot to include the #[nexosim(schedulable)] attribute
+                    or are using a method from another model.",
+        err_name
+    );
 
     let gen = quote! {
         {
             // Call a hidden method in the array type definition
             // to cast a custom error during a type-checking compilation phase.
             let _: [(); { if !Self::____is_schedulable(stringify!(#hidden_name)) {
-                panic!(
-                    "method `{}` is not a valid schedulable input for the model!
-                    Perhaps you forgot to include the #[nexosim(schedulable)] attribute
-                    or are using a method from another model.",
-                    #err_name
-                )
+                panic!(#err_msg)
             }; 0} ] = [];
             #path
         }
