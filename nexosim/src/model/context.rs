@@ -168,15 +168,18 @@ impl<M: Model> Context<M> {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        id: SchedulableId<M, T>,
+        schedulable_id: SchedulableId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
         T: Send + Clone + 'static,
     {
-        let source_id = id.source_id(&self.model_registry);
-        self.scheduler
-            .schedule_event_from(deadline, &source_id, arg, self.origin_id)
+        self.scheduler.schedule_event_from(
+            deadline,
+            &schedulable_id.source_id(&self.model_registry),
+            arg,
+            self.origin_id,
+        )
     }
 
     /// Schedules a cancellable event at a future time on this model and returns
@@ -224,7 +227,7 @@ impl<M: Model> Context<M> {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        input_id: &SchedulableId<M, T>,
+        schedulable_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -232,7 +235,7 @@ impl<M: Model> Context<M> {
     {
         let event_key = self.scheduler.schedule_keyed_event_from(
             deadline,
-            &input_id.source_id(&self.model_registry),
+            &schedulable_id.source_id(&self.model_registry),
             arg,
             self.origin_id,
         )?;
@@ -281,7 +284,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: &SchedulableId<M, T>,
+        schedulable_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -290,7 +293,7 @@ impl<M: Model> Context<M> {
         self.scheduler.schedule_periodic_event_from(
             deadline,
             period,
-            &input_id.source_id(&self.model_registry),
+            &schedulable_id.source_id(&self.model_registry),
             arg,
             self.origin_id,
         )
@@ -350,7 +353,7 @@ impl<M: Model> Context<M> {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        input_id: &SchedulableId<M, T>,
+        schedulable_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -359,7 +362,7 @@ impl<M: Model> Context<M> {
         let event_key = self.scheduler.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            &input_id.source_id(&self.model_registry),
+            &schedulable_id.source_id(&self.model_registry),
             arg,
             self.origin_id,
         )?;
@@ -579,27 +582,22 @@ impl ModelRegistry {
     }
 }
 
-// #[derive(Debug)]
-// pub struct RegistryId<M: Model, T>(usize, PhantomData<M>, PhantomData<T>);
-// impl<M: Model, T> RegistryId<M, T> {
-//     pub const fn new(id: usize) -> Self {
-//         Self(id, PhantomData, PhantomData)
-//     }
-// }
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> SchedulableId<M, T> {
-    const MASK: usize = 1 << (usize::BITS - 1);
+    const REGISTRY_MASK: usize = 1 << (usize::BITS - 1);
 
     // TODO name
-    pub const fn new_registered(id: usize) -> Self {
-        Self(id | Self::MASK, PhantomData, PhantomData)
+    pub const fn __from_decorated(id: usize) -> Self {
+        Self(id | Self::REGISTRY_MASK, PhantomData, PhantomData)
     }
     pub(crate) fn source_id(&self, registry: &ModelRegistry) -> SourceId<T> {
-        match self.0 & Self::MASK {
+        match self.0 & Self::REGISTRY_MASK {
             0 => SourceId(self.0, PhantomData),
-            _ => SourceId(registry.get::<M, T>(self.0 ^ Self::MASK).0, PhantomData),
+            _ => SourceId(
+                registry.get::<M, T>(self.0 ^ Self::REGISTRY_MASK).0,
+                PhantomData,
+            ),
         }
     }
 }
@@ -611,48 +609,3 @@ impl<M, T> Clone for SchedulableId<M, T> {
     }
 }
 impl<M, T> Copy for SchedulableId<M, T> {}
-
-// impl<M, T> From<SchedulableId<M, T>> for SourceIdErased {
-//     fn from(value: SchedulableId<M, T>) -> Self {
-//         Self(value.0)
-//     }
-// }
-// impl<M, T> From<&SchedulableId<M, T>> for SourceIdErased {
-//     fn from(value: &SchedulableId<M, T>) -> Self {
-//         Self(value.0)
-//     }
-// }
-
-// impl<M, T> From<SchedulableId<M, T>> for SourceId<T> {
-//     fn from(value: SchedulableId<M, T>) -> Self {
-//         Self(value.0, PhantomData)
-//     }
-// }
-
-// impl<M, T> From<&SchedulableId<M, T>> for SourceId<T> {
-//     fn from(value: &SchedulableId<M, T>) -> Self {
-//         Self(value.0, PhantomData)
-//     }
-// }
-
-// impl<M, T> From<SourceId<T>> for SchedulableId<M, T> {
-//     fn from(value: SourceId<T>) -> Self {
-//         Self(value.0, PhantomData, PhantomData)
-//     }
-// }
-
-// pub trait AsSchedulableId<M: Model, T> {
-//     fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M,
-// T>; }
-
-// impl<M: Model, T> AsSchedulableId<M, T> for RegistryId<M, T> {
-//     fn as_schedulable_id(&self, registry: &ModelRegistry) -> SchedulableId<M,
-// T> {         registry.get(self)
-//     }
-// }
-
-// impl<M: Model, T> AsSchedulableId<M, T> for SchedulableId<M, T> {
-//     fn as_schedulable_id(&self, _: &ModelRegistry) -> SchedulableId<M, T> {
-//         *self
-//     }
-// }
