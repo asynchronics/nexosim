@@ -9,16 +9,14 @@ use ciborium;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::EventSource;
-use crate::simulation::{
-    Action, Event, EventKey, SchedulerSourceRegistry, SourceId, SourceIdErased,
-};
+use crate::simulation::{Action, Event, EventKey, SchedulerSourceRegistry, SourceId};
 
-type DeserializationError = ciborium::de::Error<std::io::Error>;
+use super::RegistryError;
 
 /// A registry that holds all sources and sinks meant to be accessed through
 /// remote procedure calls.
 #[derive(Default)]
-pub(crate) struct EventSourceRegistry(HashMap<String, RegistryEntry>);
+pub(crate) struct EventSourceRegistry(HashMap<String, Box<dyn EventSourceAny>>);
 
 impl EventSourceRegistry {
     /// Adds an event source to the registry.
@@ -35,7 +33,7 @@ impl EventSourceRegistry {
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
-                s.insert(RegistryEntry::Unregistered(Box::new(Arc::new(source))));
+                s.insert(Box::new(Arc::new(source)));
 
                 Ok(())
             }
@@ -43,25 +41,31 @@ impl EventSourceRegistry {
         }
     }
 
-    /// Returns a mutable reference to the specified event source if it is in
+    /// Returns a reference to the specified event source if it is in
     /// the registry.
     pub(crate) fn get(&self, name: &str) -> Option<&dyn EventSourceAny> {
-        match self.0.get(name) {
-            Some(RegistryEntry::Registered(source)) => Some(source.as_ref()),
-            _ => None,
-        }
+        self.0.get(name).map(|s| s.as_ref())
     }
 
-    pub(crate) fn get_source_id<T: 'static>(&self, name: &str) -> Option<SourceId<T>> {
+    pub(crate) fn get_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+    {
         // Downcast_ref used as a runtime type-check.
-        (self.get(name)? as &dyn Any).downcast_ref().copied()
+        (self.get(name).ok_or(RegistryError::NotFound)? as &dyn Any)
+            .downcast_ref::<Arc<EventSource<T>>>()
+            .ok_or(RegistryError::InvalidType(std::any::type_name::<
+                Arc<EventSource<T>>,
+            >()))?
+            .source_id
+            .get()
+            .ok_or(RegistryError::Unregistered)
+            .copied()
     }
 
     pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
         for entry in self.0.values_mut() {
-            if let RegistryEntry::Unregistered(source) = entry {
-                *entry = source.register(registry)
-            }
+            entry.register(registry);
         }
     }
 }
@@ -72,25 +76,21 @@ impl fmt::Debug for EventSourceRegistry {
     }
 }
 
-enum RegistryEntry {
-    Unregistered(Box<dyn UnregisteredSource>),
-    Registered(Box<dyn EventSourceAny>),
-}
-
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
 pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
+    fn action(&self, serialized_arg: &[u8]) -> Result<Action, RegistryError>;
+
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError>;
+    fn event(&self, serialized_arg: &[u8]) -> Result<Event, RegistryError>;
 
     /// Returns a cancellable action and a cancellation key; when processed, the
     /// action broadcasts an event to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn keyed_event(&self, serialized_arg: &[u8])
-        -> Result<(Event, EventKey), DeserializationError>;
+    fn keyed_event(&self, serialized_arg: &[u8]) -> Result<(Event, EventKey), RegistryError>;
 
     /// Returns a periodically recurring action which, when processed,
     /// broadcasts an event to all connected input ports.
@@ -100,7 +100,7 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
         &self,
         period: Duration,
         serialized_arg: &[u8],
-    ) -> Result<Event, DeserializationError>;
+    ) -> Result<Event, RegistryError>;
 
     /// Returns a cancellable, periodically recurring action and a cancellation
     /// key; when processed, the action broadcasts an event to all connected
@@ -111,50 +111,46 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
         &self,
         period: Duration,
         serialized_arg: &[u8],
-    ) -> Result<(Event, EventKey), DeserializationError>;
+    ) -> Result<(Event, EventKey), RegistryError>;
 
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
+
+    fn register(&self, registry: &mut SchedulerSourceRegistry);
 }
 
-trait UnregisteredSource: Send + Sync + 'static {
-    fn register(&self, registry: &mut SchedulerSourceRegistry) -> RegistryEntry;
-}
-
-impl<T> UnregisteredSource for Arc<EventSource<T>>
+impl<T> EventSourceAny for Arc<EventSource<T>>
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
-    fn register(&self, registry: &mut SchedulerSourceRegistry) -> RegistryEntry {
-        let source_id = registry.add(self.clone());
-        RegistryEntry::Registered(Box::new(source_id))
+    fn action(&self, serialized_arg: &[u8]) -> Result<Action, RegistryError> {
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| EventSource::action(&*self, arg))
+            .map_err(RegistryError::DeserializationError)
     }
-}
 
-impl<T> EventSourceAny for SourceId<T>
-where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
-{
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(self, arg))
+    fn event(&self, serialized_arg: &[u8]) -> Result<Event, RegistryError> {
+        let source_id = self.source_id.get().ok_or(RegistryError::Unregistered)?;
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| Event::new(source_id, arg))
+            .map_err(RegistryError::DeserializationError)
     }
 
     /// Returns a cancellable action and a cancellation key; when processed, the
     /// action broadcasts an event to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn keyed_event(
-        &self,
-        serialized_arg: &[u8],
-    ) -> Result<(Event, EventKey), DeserializationError> {
+    fn keyed_event(&self, serialized_arg: &[u8]) -> Result<(Event, EventKey), RegistryError> {
+        let source_id = self.source_id.get().ok_or(RegistryError::Unregistered)?;
         let key = EventKey::new();
         ciborium::from_reader(serialized_arg)
-            .map(|arg| (Event::new(self, arg).with_key(key.clone()), key))
+            .map(|arg| (Event::new(source_id, arg).with_key(key.clone()), key))
+            .map_err(RegistryError::DeserializationError)
     }
 
     /// Returns a periodically recurring action which, when processed,
@@ -165,8 +161,11 @@ where
         &self,
         period: Duration,
         serialized_arg: &[u8],
-    ) -> Result<Event, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(self, arg).with_period(period))
+    ) -> Result<Event, RegistryError> {
+        let source_id = self.source_id.get().ok_or(RegistryError::Unregistered)?;
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| Event::new(source_id, arg).with_period(period))
+            .map_err(RegistryError::DeserializationError)
     }
 
     /// Returns a cancellable, periodically recurring action and a cancellation
@@ -178,21 +177,29 @@ where
         &self,
         period: Duration,
         serialized_arg: &[u8],
-    ) -> Result<(Event, EventKey), DeserializationError> {
+    ) -> Result<(Event, EventKey), RegistryError> {
+        let source_id = self.source_id.get().ok_or(RegistryError::Unregistered)?;
         let key = EventKey::new();
-        ciborium::from_reader(serialized_arg).map(|arg| {
-            (
-                Event::new(self, arg)
-                    .with_period(period)
-                    .with_key(key.clone()),
-                key,
-            )
-        })
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| {
+                (
+                    Event::new(source_id, arg)
+                        .with_period(period)
+                        .with_key(key.clone()),
+                    key,
+                )
+            })
+            .map_err(RegistryError::DeserializationError)
     }
 
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
+    }
+
+    fn register(&self, registry: &mut SchedulerSourceRegistry) {
+        // TODO handle double registration error?
+        let _ = self.source_id.set(registry.add(self.clone()));
     }
 }

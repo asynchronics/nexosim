@@ -82,14 +82,13 @@ mod sim_init;
 
 pub(crate) use scheduler::GlobalScheduler;
 
-pub use events::{Action, ActionReceiver, AutoEventKey, EventKey, SourceId};
+pub use events::{Action, AutoEventKey, EventKey, SourceId};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{
-    ActionReceiverInner, Event, EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased,
-    EVENT_KEY_REG,
+    Event, EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased, EVENT_KEY_REG,
 };
 
 use std::any::{Any, TypeId};
@@ -289,7 +288,7 @@ impl Simulation {
     //     let fut = source.into_future(&*event.arg, event.key.clone());
     //     self.process_future(fut)
     // }
-    pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
+    pub fn process_action(&mut self, action: Action) -> Result<(), ExecutionError> {
         self.process_future(action.consume())
     }
 

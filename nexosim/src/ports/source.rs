@@ -5,10 +5,11 @@ use std::any::Any;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::OnceLock;
 
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::{ActionReceiverInner, Address};
+use crate::simulation::{Action, Address, SourceId};
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -28,6 +29,7 @@ use super::ReplierFn;
 /// simulation control endpoint instantiated during bench assembly.
 pub struct EventSource<T: Clone + Send + 'static> {
     broadcaster: EventBroadcaster<T>,
+    pub(crate) source_id: OnceLock<SourceId<T>>,
 }
 
 impl<T: Clone + Send + 'static> EventSource<T> {
@@ -105,12 +107,17 @@ impl<T: Clone + Send + 'static> EventSource<T> {
             fut.await.unwrap_or_throw();
         }
     }
+
+    pub fn action(&self, arg: T) -> Action {
+        Action::new(Box::pin(self.into_future(arg)))
+    }
 }
 
 impl<T: Clone + Send + 'static> Default for EventSource<T> {
     fn default() -> Self {
         Self {
             broadcaster: EventBroadcaster::default(),
+            source_id: OnceLock::new(),
         }
     }
 }
@@ -228,13 +235,7 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
 
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
-    pub fn query(
-        &self,
-        arg: T,
-    ) -> (
-        Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-        ReplyReceiver<R>,
-    ) {
+    pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
         let (writer, reader) = slot::slot();
         let fut = self.broadcaster.broadcast(arg);
         let fut = async move {
@@ -242,7 +243,7 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
             let _ = writer.write(replies);
         };
 
-        (Box::pin(fut), ReplyReceiver::<R>(reader))
+        (Action::new(Box::pin(fut)), ReplyReceiver::<R>(reader))
     }
 }
 
@@ -280,11 +281,5 @@ impl<R> ReplyReceiver<R> {
 impl<R> fmt::Debug for ReplyReceiver<R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Replies")
-    }
-}
-
-impl<R: Any + 'static> ActionReceiverInner for ReplyReceiver<R> {
-    fn take(&mut self) -> Option<Box<dyn Iterator<Item = Box<dyn Any>>>> {
-        Some(Box::new(self.take()?.map(|a| Box::new(a) as Box<dyn Any>)))
     }
 }

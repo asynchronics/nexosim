@@ -160,7 +160,7 @@ impl ControllerService {
                     "no source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let event = source.event(event).map_err(|e| {
+                let action = source.action(event).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -171,8 +171,9 @@ impl ControllerService {
                     )
                 })?;
 
-                // simulation.process(event).map_err(map_execution_error)
-                Ok(())
+                simulation
+                    .process_action(action)
+                    .map_err(map_execution_error)
             }(),
             Self::NotStarted => Err(simulation_not_started_error()),
         };
@@ -204,7 +205,7 @@ impl ControllerService {
                     "no source is registered with the name '{}'".to_string(),
                 ))?;
 
-                let (query, mut promise) = source.query(request).map_err(|e| {
+                let (action, mut receiver) = source.query(request).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -216,10 +217,10 @@ impl ControllerService {
                 })?;
 
                 simulation
-                    .process_future(query)
+                    .process_action(action)
                     .map_err(map_execution_error)?;
 
-                let replies = promise.take_collect().ok_or(to_error(
+                let replies = receiver.take_collect().ok_or(to_error(
                     ErrorCode::SimulationBadQuery,
                     "a reply to the query was expected but none was available; maybe the target model was not added to the simulation?".to_string(),
                 ))?;

@@ -499,22 +499,6 @@ impl Action {
     }
 }
 
-pub struct ActionReceiver {
-    inner: Box<dyn ActionReceiverInner>,
-}
-impl ActionReceiver {
-    pub(crate) fn new(receiver: Box<dyn ActionReceiverInner>) -> Self {
-        Self { inner: receiver }
-    }
-    pub fn replies<R: Any + 'static>(mut self) -> Option<impl Iterator<Item = R>> {
-        Some(self.inner.take()?.map(|a| *a.downcast().unwrap()))
-    }
-}
-
-pub(crate) trait ActionReceiverInner {
-    fn take(&mut self) -> Option<Box<dyn Iterator<Item = Box<dyn Any>>>>;
-}
-
 mod tests {
     #[allow(unused_imports)]
     use super::*;

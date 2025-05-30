@@ -38,7 +38,7 @@ fn bench(_: usize) -> (SimInit, EndpointRegistry) {
 }
 
 fn main() {
-    let (mut simu, registry) =
+    let (mut simu, mut registry) =
         nexosim::server::init_bench(bench, 12, MonotonicTime::EPOCH).unwrap();
     let source_id: SourceId<u16> = registry.get_source_id("input").unwrap();
 
@@ -59,14 +59,18 @@ fn main() {
 
     simu.step().unwrap();
 
-    let (action, receiver) = registry.get_query("query", 3).unwrap();
-    simu.process(action).unwrap();
+    let query = registry.get_query_source::<u8, u16>("query").unwrap();
+    let event = registry.get_event_source::<u16>("input").unwrap();
 
-    let f = |a: u16| a;
+    let (query_action, mut receiver) = query.query(3);
+    simu.process_action(query_action).unwrap();
 
-    for reply in receiver.replies().unwrap() {
-        println!("R: {:?}", f(reply));
+    for reply in receiver.take().unwrap() {
+        println!("R: {:?}", reply);
     }
+
+    let event_action = event.action(193);
+    simu.process_action(event_action).unwrap();
 
     let (mut simu, _) = nexosim::server::restore_bench(bench, &state, None).unwrap();
 

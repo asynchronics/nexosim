@@ -5,6 +5,8 @@
 //! name.
 
 use std::any::Any;
+use std::fmt::Debug;
+use std::sync::Arc;
 
 mod event_sink_registry;
 mod event_source_registry;
@@ -13,7 +15,7 @@ mod query_source_registry;
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
-use crate::simulation::{Action, ActionReceiver, SourceId};
+use crate::simulation::SourceId;
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -76,15 +78,65 @@ impl EndpointRegistry {
         self.event_sink_registry.add(sink, name)
     }
 
-    pub fn get_source_id<T: 'static>(&self, name: &str) -> Option<SourceId<T>> {
+    pub fn get_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+    {
         self.event_source_registry.get_source_id(name)
     }
 
-    pub fn get_query<T: Any + 'static>(
-        &self,
-        name: &str,
-        arg: T,
-    ) -> Option<(Action, ActionReceiver)> {
-        Some(self.query_source_registry.get(name)?.action(Box::new(arg)))
+    pub fn get_query_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        (self
+            .query_source_registry
+            .get(name)
+            .ok_or(RegistryError::NotFound)? as &dyn Any)
+            .downcast_ref()
+            .ok_or(RegistryError::InvalidType(std::any::type_name::<
+                QuerySource<T, R>,
+            >()))
+    }
+
+    pub fn get_event_source<T>(&self, name: &str) -> Result<&EventSource<T>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+    {
+        Ok((self
+            .event_source_registry
+            .get(name)
+            .ok_or(RegistryError::NotFound)? as &dyn Any)
+            .downcast_ref::<Arc<EventSource<T>>>()
+            .ok_or(RegistryError::InvalidType(std::any::type_name::<
+                Arc<EventSource<T>>,
+            >()))?
+            .as_ref())
     }
 }
+
+#[derive(Debug)]
+pub enum RegistryError {
+    NotFound,
+    Unregistered,
+    InvalidType(&'static str),
+    DeserializationError(ciborium::de::Error<std::io::Error>),
+}
+
+impl std::fmt::Display for RegistryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => f.write_str("the requested resource is not present in the registr"),
+            Self::Unregistered => {
+                f.write_str("the requested resource has not been properly registered")
+            }
+            Self::InvalidType(type_name) => {
+                write!(f, "the requested resource cannot be cast to {}", type_name)
+            }
+            Self::DeserializationError(e) => std::fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl std::error::Error for RegistryError {}

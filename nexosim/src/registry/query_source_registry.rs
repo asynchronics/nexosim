@@ -10,7 +10,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
-use crate::simulation::{Action, ActionReceiver};
+use crate::simulation::Action;
+
+use super::RegistryError;
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -44,7 +46,7 @@ impl QuerySourceRegistry {
         }
     }
 
-    /// Returns a mutable reference to the specified query source if it is in
+    /// Returns a reference to the specified query source if it is in
     /// the registry.
     pub(crate) fn get(&self, name: &str) -> Option<&dyn QuerySourceAny> {
         self.0.get(name).map(|s| s.as_ref())
@@ -59,22 +61,13 @@ impl fmt::Debug for QuerySourceRegistry {
 
 /// A type-erased `QuerySource` that operates on CBOR-encoded serialized queries
 /// and returns CBOR-encoded replies.
-pub(crate) trait QuerySourceAny: Send + Sync + 'static {
+pub(crate) trait QuerySourceAny: Any + Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
     ///
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn query(
-        &self,
-        arg: &[u8],
-    ) -> Result<
-        (
-            Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-            Box<dyn ReplyReceiverAny>,
-        ),
-        DeserializationError,
-    >;
+    fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError>;
 
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
@@ -83,8 +76,6 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     /// Human-readable name of the reply type, as returned by
     /// `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
-
-    fn action(&self, arg: Box<dyn Any>) -> (Action, ActionReceiver);
 }
 
 impl<T, R> QuerySourceAny for QuerySource<T, R>
@@ -92,22 +83,13 @@ where
     T: DeserializeOwned + Clone + Send + 'static,
     R: Serialize + Send + 'static,
 {
-    fn query(
-        &self,
-        arg: &[u8],
-    ) -> Result<
-        (
-            Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
-            Box<dyn ReplyReceiverAny>,
-        ),
-        DeserializationError,
-    > {
-        ciborium::from_reader(arg).map(|arg| {
-            let (fut, reply_recv) = self.query(arg);
-            let reply_recv: Box<dyn ReplyReceiverAny> = Box::new(reply_recv);
-
-            (fut, reply_recv)
-        })
+    fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError> {
+        ciborium::from_reader(arg)
+            .map(|arg| {
+                let (action, receiver) = self.query(arg);
+                (action, Box::new(receiver) as Box<dyn ReplyReceiverAny>)
+            })
+            .map_err(RegistryError::DeserializationError)
     }
 
     fn request_type_name(&self) -> &'static str {
@@ -116,12 +98,6 @@ where
 
     fn reply_type_name(&self) -> &'static str {
         std::any::type_name::<R>()
-    }
-
-    fn action(&self, arg: Box<dyn Any>) -> (Action, ActionReceiver) {
-        let arg = arg.downcast().unwrap();
-        let (fut, reply_recv) = self.query(*arg);
-        (Action::new(fut), ActionReceiver::new(Box::new(reply_recv)))
     }
 }
 
