@@ -2,17 +2,13 @@
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
 use std::time::Duration;
 
-use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
 
 use crate::channel::Sender;
-use crate::executor::Executor;
 use crate::model::Model;
 use crate::ports::InputFn;
 use crate::simulation::events::{Event, EventKey, SourceId};

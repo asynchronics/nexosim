@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::executor::{Executor, Signal};
 use crate::ports::InputFn;
@@ -516,7 +516,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());

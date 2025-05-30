@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
@@ -185,7 +185,7 @@ impl SimInit {
 
     pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.scheduler_registry.add(source)
     }
@@ -199,7 +199,7 @@ impl SimInit {
         M: Model,
         F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
         S: Send + Sync + 'static,
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         let source = InputSource::new(input, address);
         self.scheduler_registry.add(source)

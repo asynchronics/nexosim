@@ -12,7 +12,7 @@ use std::time::Duration;
 use recycle_box::{coerce_box, RecycleBox};
 use serde::de::Visitor;
 use serde::ser::SerializeTuple;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::channel::Sender;
 use crate::macros::scoped_thread_local::scoped_thread_local;
@@ -58,7 +58,7 @@ pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
     pub(crate) fn add<T>(&mut self, source: impl TypedSchedulerSource<T>) -> SourceId<T>
     where
-        for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         let source_id = SourceId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
@@ -127,7 +127,7 @@ where
     M: Model,
     F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
     S: Send + Sync + 'static,
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
 }
 impl<M, F, S, T> SchedulerEventSource for InputSource<M, F, S, T>
@@ -135,7 +135,7 @@ where
     M: Model,
     F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
     S: Send + Sync + 'static,
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
         serialize_event_arg::<T>(arg)
@@ -175,13 +175,13 @@ where
 }
 
 impl<T> TypedSchedulerSource<T> for EventSource<T> where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
+    T: Serialize + DeserializeOwned + Clone + Send + 'static
 {
 }
 
 impl<T> SchedulerEventSource for EventSource<T>
 where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
         serialize_event_arg::<T>(arg)
@@ -202,12 +202,12 @@ where
 }
 
 impl<T> TypedSchedulerSource<T> for Arc<EventSource<T>> where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static
+    T: Serialize + DeserializeOwned + Clone + Send + 'static
 {
 }
 impl<T> SchedulerEventSource for Arc<EventSource<T>>
 where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
         self.as_ref().serialize_arg(arg)
@@ -331,7 +331,7 @@ fn serialize_event_arg<T: Serialize + Send + 'static>(
     bincode::serde::encode_to_vec(value, serialization_config())
         .map_err(|_| ExecutionError::SaveError(format!("Event arg: {}", type_name::<T>())))
 }
-fn deserialize_event_arg<T: for<'de> Deserialize<'de> + Send + 'static>(
+fn deserialize_event_arg<T: DeserializeOwned + Send + 'static>(
     arg: &[u8],
 ) -> Result<Box<dyn Any + Send>, ExecutionError> {
     Ok(Box::new(

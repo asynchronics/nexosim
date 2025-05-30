@@ -198,7 +198,7 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::PORT_REG;
 use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
@@ -219,7 +219,7 @@ mod context;
 /// The `init` function converts the model to the opaque `InitializedModel` type
 /// to prevent an already initialized model from being added to the simulation
 /// bench.
-pub trait Model: Serialize + for<'de> Deserialize<'de> + Sized + Send + 'static {
+pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     /// TODO
     type Env: Send + 'static;
 

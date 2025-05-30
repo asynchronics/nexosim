@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use nexosim::model::Model;
 use nexosim::ports::{Output, Requestor};
@@ -41,8 +41,8 @@ impl<T: Clone + Send + 'static, R: Clone + Send + 'static> ReplierAdaptor<T, R> 
 
 impl<T, R> Model for ReplierAdaptor<T, R>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Clone + Send + 'static,
-    R: Serialize + for<'de> Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     type Env = ();
 }
