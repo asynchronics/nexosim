@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
-use crate::simulation::Action;
+use crate::simulation::{Action, ActionReceiver};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -84,7 +84,7 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     /// `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
 
-    fn action(&self, arg: Box<dyn Any>) -> Action;
+    fn action(&self, arg: Box<dyn Any>) -> (Action, ActionReceiver);
 }
 
 impl<T, R> QuerySourceAny for QuerySource<T, R>
@@ -118,10 +118,10 @@ where
         std::any::type_name::<R>()
     }
 
-    fn action(&self, arg: Box<dyn Any>) -> Action {
+    fn action(&self, arg: Box<dyn Any>) -> (Action, ActionReceiver) {
         let arg = arg.downcast().unwrap();
         let (fut, reply_recv) = self.query(*arg);
-        Action::new(fut).with_reply_receiver(Box::new(reply_recv))
+        (Action::new(fut), ActionReceiver::new(Box::new(reply_recv)))
     }
 }
 

@@ -489,26 +489,13 @@ impl<'de> Deserialize<'de> for EventKey {
 
 pub struct Action {
     future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    reply_receiver: Option<ActionReceiver>,
 }
 impl Action {
     pub(crate) fn new(future: Pin<Box<dyn Future<Output = ()> + Send>>) -> Self {
-        Self {
-            future,
-            reply_receiver: None,
-        }
+        Self { future }
     }
-    pub(crate) fn with_reply_receiver(mut self, receiver: Box<dyn ActionReceiverInner>) -> Self {
-        self.reply_receiver = Some(ActionReceiver { inner: receiver });
-        self
-    }
-    pub(crate) fn consume(
-        self,
-    ) -> (
-        Pin<Box<dyn Future<Output = ()> + Send>>,
-        Option<ActionReceiver>,
-    ) {
-        (self.future, self.reply_receiver)
+    pub(crate) fn consume(self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        self.future
     }
 }
 
@@ -516,7 +503,10 @@ pub struct ActionReceiver {
     inner: Box<dyn ActionReceiverInner>,
 }
 impl ActionReceiver {
-    pub fn replies<R: Any + 'static>(&mut self) -> Option<impl Iterator<Item = R>> {
+    pub(crate) fn new(receiver: Box<dyn ActionReceiverInner>) -> Self {
+        Self { inner: receiver }
+    }
+    pub fn replies<R: Any + 'static>(mut self) -> Option<impl Iterator<Item = R>> {
         Some(self.inner.take()?.map(|a| *a.downcast().unwrap()))
     }
 }

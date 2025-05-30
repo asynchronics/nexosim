@@ -13,7 +13,7 @@ mod query_source_registry;
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
-use crate::simulation::{Action, SourceId};
+use crate::simulation::{Action, ActionReceiver, SourceId};
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -80,9 +80,11 @@ impl EndpointRegistry {
         self.event_source_registry.get_source_id(name)
     }
 
-    pub fn get_query_action<T: Any + 'static>(&self, name: &str, arg: T) -> Option<Action> {
+    pub fn get_query<T: Any + 'static>(
+        &self,
+        name: &str,
+        arg: T,
+    ) -> Option<(Action, ActionReceiver)> {
         Some(self.query_source_registry.get(name)?.action(Box::new(arg)))
     }
-
-    // pub fn
 }

@@ -268,7 +268,7 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
         hidden_methods.push(quote! {
             #[doc(hidden)]
             #[allow(non_upper_case_globals)]
-            const #fname: nexosim::model::SchedulableId<Self, #ty> = nexosim::model::SchedulableId::new_registered(#i);
+            const #fname: nexosim::model::SchedulableId<Self, #ty> = nexosim::model::SchedulableId::__from_decorated(#i);
         });
         registered_schedulables.push(fname);
     }

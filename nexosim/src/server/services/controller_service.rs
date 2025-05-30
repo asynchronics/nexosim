@@ -171,7 +171,8 @@ impl ControllerService {
                     )
                 })?;
 
-                simulation.process(event).map_err(map_execution_error)
+                // simulation.process(event).map_err(map_execution_error)
+                Ok(())
             }(),
             Self::NotStarted => Err(simulation_not_started_error()),
         };

@@ -59,11 +59,13 @@ fn main() {
 
     simu.step().unwrap();
 
-    let query = registry.get_query_action("query", ()).unwrap();
-    let mut receiver = simu.process(query).unwrap().unwrap();
+    let (action, receiver) = registry.get_query("query", 3).unwrap();
+    simu.process(action).unwrap();
 
-    for reply in receiver.replies::<u16>().unwrap() {
-        println!("{:?}", reply);
+    let f = |a: u16| a;
+
+    for reply in receiver.replies().unwrap() {
+        println!("R: {:?}", f(reply));
     }
 
     let (mut simu, _) = nexosim::server::restore_bench(bench, &state, None).unwrap();
@@ -85,8 +87,8 @@ impl MyModel {
         println!("{} {}", self.state, cx.time());
         self.output.send(value).await;
     }
-    pub async fn query(&mut self) -> u16 {
-        self.state
+    pub async fn query(&mut self, arg: u8) -> u16 {
+        arg as u16 * self.state
     }
 }
 impl Model for MyModel {

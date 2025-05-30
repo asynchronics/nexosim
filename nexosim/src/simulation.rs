@@ -280,19 +280,17 @@ impl Simulation {
     ///
     /// Simulation time remains unchanged. The periodicity of the event, if
     /// any, is ignored.
+
     // pub(crate) fn process(&mut self, event: Event) -> Result<(), ExecutionError>
     // {     let source = self
     //         .scheduler_registry
     //         .get(&event.source_id)
     //         .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
-
     //     let fut = source.into_future(&*event.arg, event.key.clone());
     //     self.process_future(fut)
     // }
-    pub fn process(&mut self, action: Action) -> Result<Option<ActionReceiver>, ExecutionError> {
-        let (fut, receiver) = action.consume();
-        self.process_future(fut)?;
-        Ok(receiver)
+    pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
+        self.process_future(action.consume())
     }
 
     /// Processes an event immediately, blocking until completion.
