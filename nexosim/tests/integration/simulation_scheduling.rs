@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[cfg(not(miri))]
 use nexosim::model::Context;
@@ -23,7 +23,7 @@ where
 }
 impl<T> PassThroughModel<T>
 where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     pub fn new() -> Self {
         Self {
@@ -36,7 +36,7 @@ where
 }
 impl<T> Model for PassThroughModel<T>
 where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     type Env = ();
 }
@@ -48,7 +48,7 @@ fn passthrough_bench<T>(
     t0: MonotonicTime,
 ) -> (Simulation, Scheduler, SourceId<T>, EventQueueReader<T>)
 where
-    for<'de> T: Serialize + Deserialize<'de> + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     // Bench assembly.
     let mut model = PassThroughModel::new();
