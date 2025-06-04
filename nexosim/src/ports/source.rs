@@ -100,7 +100,7 @@ impl<T: Clone + Send + 'static> EventSource<T> {
         self.broadcaster.add(sender);
     }
 
-    pub(crate) fn into_future(&self, arg: T) -> impl Future<Output = ()> {
+    pub(crate) fn event_future(&self, arg: T) -> impl Future<Output = ()> {
         let fut = self.broadcaster.broadcast(arg);
 
         async {
@@ -109,7 +109,7 @@ impl<T: Clone + Send + 'static> EventSource<T> {
     }
 
     pub fn action(&self, arg: T) -> Action {
-        Action::new(Box::pin(self.into_future(arg)))
+        Action::new(Box::pin(self.event_future(arg)))
     }
 }
 

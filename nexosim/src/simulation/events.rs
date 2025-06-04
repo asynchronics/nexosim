@@ -27,6 +27,8 @@ use super::ExecutionError;
 scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
+const MAX_SOURCE_ID: usize = 1 << (usize::BITS - 1) as usize;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
 
@@ -60,6 +62,7 @@ impl SchedulerSourceRegistry {
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
+        assert!(self.0.len() < MAX_SOURCE_ID);
         let source_id = SourceId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
         source_id
@@ -72,7 +75,7 @@ impl SchedulerSourceRegistry {
 pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
-    fn into_future(
+    fn event_future(
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
@@ -143,7 +146,7 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         deserialize_event_arg::<T>(arg)
     }
-    fn into_future(
+    fn event_future(
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
@@ -189,12 +192,12 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         deserialize_event_arg::<T>(arg)
     }
-    fn into_future(
+    fn event_future(
         &self,
         arg: &dyn Any,
         _: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(EventSource::into_future(
+        Box::pin(EventSource::event_future(
             self,
             arg.downcast_ref::<T>().unwrap().clone(),
         ))
@@ -215,13 +218,13 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         self.as_ref().deserialize_arg(arg)
     }
-    fn into_future(
+    fn event_future(
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let inner: &dyn SchedulerEventSource = self.as_ref();
-        inner.into_future(arg, event_key)
+        inner.event_future(arg, event_key)
     }
 }
 

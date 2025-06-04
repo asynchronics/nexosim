@@ -477,7 +477,7 @@ impl Simulation {
                     .scheduler_registry
                     .get(&event.source_id)
                     .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
-                let fut = source.into_future(&*event.arg, event.key.clone());
+                let fut = source.event_future(&*event.arg, event.key.clone());
 
                 if let Some(period) = event.period {
                     scheduler_queue.insert((time + period, channel_id), event);
