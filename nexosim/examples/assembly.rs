@@ -31,10 +31,11 @@ use nexosim::model::{BuildContext, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 mod stepper_motor;
 
-pub use stepper_motor::{Driver, Motor, ProtoDriver};
+pub use stepper_motor::{Driver, Motor};
 
 /// A prototype for `MotorAssembly`.
 pub struct ProtoMotorAssembly {
@@ -94,7 +95,7 @@ impl ProtoModel for ProtoMotorAssembly {
         let mut assembly = MotorAssembly::new();
         let mut motor = Motor::new(self.init_pos);
 
-        let mut driver = ProtoDriver::new(1.0);
+        let mut driver = Driver::new(1.0);
 
         // Mailboxes.
         let motor_mbox = Mailbox::new();
@@ -142,8 +143,7 @@ fn main() -> Result<(), SimulationError> {
     // Assembly and initialization.
     let mut bench = SimInit::new().add_model(assembly, assembly_mbox, "assembly");
 
-    let pulse_rate_source_id =
-        bench.register_model_input(MotorAssembly::pulse_rate, &assembly_addr);
+    let pulse_rate_source_id = bench.register_input(MotorAssembly::pulse_rate, &assembly_addr);
 
     let mut simu = bench.init(t0)?;
 

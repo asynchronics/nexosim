@@ -22,10 +22,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
+use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::{schedulable, Model};
 
 /// Stepper motor.
 #[derive(Serialize, Deserialize)]
@@ -38,7 +39,7 @@ pub struct Motor {
     /// Torque applied by the load [N·m] -- internal state.
     torque: f64,
 }
-
+#[Model]
 impl Motor {
     /// Number of steps per revolution.
     pub const STEPS_PER_REV: u16 = 200;
@@ -52,6 +53,13 @@ impl Motor {
             pos: position % Self::STEPS_PER_REV,
             torque: 0.0,
         }
+    }
+
+    /// Broadcasts the initial position of the motor.
+    #[nexosim(init)]
+    async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+        self.position.send(self.pos).await;
+        self.into()
     }
 
     /// Coil currents [A] -- input port.
@@ -91,40 +99,6 @@ impl Motor {
     }
 }
 
-impl Model for Motor {
-    type Env = ();
-    /// Broadcasts the initial position of the motor.
-    async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
-        self.position.send(self.pos).await;
-        self.into()
-    }
-}
-
-pub struct ProtoDriver {
-    current: f64,
-    pub current_out: Output<(f64, f64)>,
-}
-impl ProtoDriver {
-    pub fn new(nominal_current: f64) -> Self {
-        Self {
-            current: nominal_current,
-            current_out: Output::default(),
-        }
-    }
-}
-
-impl ProtoModel for ProtoDriver {
-    type Model = Driver;
-
-    fn build(
-        self,
-        cx: &mut nexosim::model::BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Env) {
-        let input_id = cx.register_input(Driver::send_pulse);
-        (Driver::new(self.current, self.current_out, input_id), ())
-    }
-}
-
 /// Stepper motor driver.
 #[derive(Serialize, Deserialize)]
 pub struct Driver {
@@ -137,10 +111,8 @@ pub struct Driver {
     next_phase: u8,
     /// Nominal coil current (absolute value) [A] -- constant.
     current: f64,
-    /// InputId
-    pulse_input_id: InputId<Self, ()>,
 }
-
+#[Model]
 impl Driver {
     /// Minimum supported pulse rate [Hz].
     const MIN_PPS: f64 = 1.0;
@@ -148,17 +120,12 @@ impl Driver {
     const MAX_PPS: f64 = 1_000.0;
 
     /// Creates a new driver with the specified nominal current.
-    pub fn new(
-        nominal_current: f64,
-        current_out: Output<(f64, f64)>,
-        pulse_input_id: InputId<Self, ()>,
-    ) -> Self {
+    pub fn new(nominal_current: f64) -> Self {
         Self {
-            current_out,
+            current_out: Default::default(),
             pps: 0.0,
             next_phase: 0,
             current: nominal_current,
-            pulse_input_id,
         }
     }
 
@@ -183,38 +150,29 @@ impl Driver {
     ///
     /// Note: self-scheduling async methods must be for now defined with an
     /// explicit signature instead of `async fn` due to a rustc issue.
-    fn send_pulse<'a>(
-        &'a mut self,
-        _: (),
-        cx: &'a mut Context<Self>,
-    ) -> impl Future<Output = ()> + Send + 'a {
-        async move {
-            let current_out = match self.next_phase {
-                0 => (self.current, 0.0),
-                1 => (0.0, self.current),
-                2 => (-self.current, 0.0),
-                3 => (0.0, -self.current),
-                _ => unreachable!(),
-            };
-            self.current_out.send(current_out).await;
+    #[nexosim(schedulable)]
+    async fn send_pulse(&mut self, _: (), cx: &mut Context<Self>) {
+        let current_out = match self.next_phase {
+            0 => (self.current, 0.0),
+            1 => (0.0, self.current),
+            2 => (-self.current, 0.0),
+            3 => (0.0, -self.current),
+            _ => unreachable!(),
+        };
+        self.current_out.send(current_out).await;
 
-            if self.pps == 0.0 {
-                return;
-            }
-
-            self.next_phase = (self.next_phase + (self.pps.signum() + 4.0) as u8) % 4;
-
-            let pulse_duration = Duration::from_secs_f64(1.0 / self.pps.abs());
-
-            // Schedule the next pulse.
-            cx.schedule_event(pulse_duration, &self.pulse_input_id, ())
-                .unwrap();
+        if self.pps == 0.0 {
+            return;
         }
-    }
-}
 
-impl Model for Driver {
-    type Env = ();
+        self.next_phase = (self.next_phase + (self.pps.signum() + 4.0) as u8) % 4;
+
+        let pulse_duration = Duration::from_secs_f64(1.0 / self.pps.abs());
+
+        // Schedule the next pulse.
+        cx.schedule_event(pulse_duration, schedulable!(Self::send_pulse), ())
+            .unwrap();
+    }
 }
 
 #[allow(dead_code)]
@@ -226,7 +184,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Models.
     let init_pos = 123;
     let mut motor = Motor::new(init_pos);
-    let mut driver = ProtoDriver::new(1.0);
+    let mut driver = Driver::new(1.0);
 
     // Mailboxes.
     let motor_mbox = Mailbox::new();
@@ -250,9 +208,10 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
         .add_model(driver, driver_mbox, "driver")
         .add_model(motor, motor_mbox, "motor");
 
-    let pulse_rate_source_id = bench.register_model_input(Driver::pulse_rate, &driver_addr);
+    let pulse_rate_source_id = bench.register_input(Driver::pulse_rate, &driver_addr);
 
     let mut simu = bench.init(t0)?;
+
     let scheduler = simu.scheduler();
 
     // ----------

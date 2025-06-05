@@ -26,10 +26,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
+use nexosim::model::{BuildContext, Context, InitializedModel, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
+use nexosim::{schedulable, Model};
 
 const DELTA: Duration = Duration::from_millis(2);
 const PERIOD: Duration = Duration::from_millis(20);
@@ -60,17 +61,15 @@ impl ProtoModel for ProtoListener {
     type Model = Listener;
 
     /// Start the UDP Server immediately upon model construction.
-    fn build(self, cx: &mut BuildContext<Self>) -> (Listener, ListenerEnv) {
+    fn build(self, _: &mut BuildContext<Self>) -> (Listener, ListenerEnv) {
         let (tx, rx) = channel();
 
         let external_handle = thread::spawn(move || {
             Listener::listen(tx, self.start);
         });
 
-        let input_id = cx.register_input(Listener::process);
-
         (
-            Listener::new(self.message, input_id),
+            Listener::new(self.message),
             ListenerEnv::new(rx, external_handle),
         )
     }
@@ -81,21 +80,27 @@ impl ProtoModel for ProtoListener {
 pub struct Listener {
     /// Received message.
     message: Output<String>,
-
-    /// Scheduler InputId
-    process_input_id: InputId<Self, ()>,
 }
 
+#[Model(Env=ListenerEnv)]
 impl Listener {
     /// Creates a Listener.
-    pub fn new(message: Output<String>, process_input_id: InputId<Self, ()>) -> Self {
-        Self {
-            message,
-            process_input_id,
-        }
+    pub fn new(message: Output<String>) -> Self {
+        Self { message }
+    }
+
+    /// Initialize model.
+    #[nexosim(init)]
+    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        // Schedule periodic function that processes external events.
+        cx.schedule_periodic_event(DELTA, PERIOD, schedulable!(Self::process), ())
+            .unwrap();
+
+        self.into()
     }
 
     /// Periodically scheduled function that processes external events.
+    #[nexosim(schedulable)]
     async fn process(&mut self, _: (), cx: &mut Context<Self>) {
         while let Ok(message) = cx.env().rx.try_recv() {
             self.message.send(message).await;
@@ -131,19 +136,6 @@ impl Listener {
                 }
             }
         }
-    }
-}
-
-impl Model for Listener {
-    type Env = ListenerEnv;
-
-    /// Initialize model.
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        // Schedule periodic function that processes external events.
-        cx.schedule_periodic_event(DELTA, PERIOD, &self.process_input_id, ())
-            .unwrap();
-
-        self.into()
     }
 }
 

@@ -26,10 +26,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
+use nexosim::model::{Context, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
+use nexosim::{schedulable, Model};
 
 const DELTA: Duration = Duration::from_millis(2);
 const PERIOD: Duration = Duration::from_millis(20);
@@ -40,35 +41,31 @@ const N: usize = 10;
 pub struct Listener {
     /// Received message.
     pub message: Output<String>,
-
-    /// Scheduled input id
-    input_id: InputId<Self, ()>,
 }
 
+#[Model(Env=ListenerEnv)]
 impl Listener {
     /// Creates new `Listener` model.
-    fn new(input_id: InputId<Self, ()>, message: Output<String>) -> Self {
-        Self { input_id, message }
+    fn new(message: Output<String>) -> Self {
+        Self { message }
+    }
+
+    /// Initialize model.
+    #[nexosim(init)]
+    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        // Schedule periodic function that processes external events.
+        cx.schedule_periodic_event(DELTA, PERIOD, schedulable!(Self::process), ())
+            .unwrap();
+
+        self.into()
     }
 
     /// Periodically scheduled function that processes external events.
+    #[nexosim(schedulable)]
     async fn process(&mut self, _: (), cx: &mut Context<Self>) {
         while let Ok(message) = cx.env().external.try_recv() {
             self.message.send(message).await;
         }
-    }
-}
-
-impl Model for Listener {
-    type Env = ListenerEnv;
-
-    /// Initialize model.
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        // Schedule periodic function that processes external events.
-        cx.schedule_periodic_event(DELTA, PERIOD, &self.input_id, ())
-            .unwrap();
-
-        self.into()
     }
 }
 
@@ -101,13 +98,9 @@ impl ProtoModel for ProtoListener {
 
     fn build(
         self,
-        cx: &mut nexosim::model::BuildContext<Self>,
+        _: &mut nexosim::model::BuildContext<Self>,
     ) -> (Self::Model, <Self::Model as Model>::Env) {
-        let input_id = cx.register_input(Listener::process);
-        (
-            Listener::new(input_id, self.message),
-            ListenerEnv::new(self.external),
-        )
+        (Listener::new(self.message), ListenerEnv::new(self.external))
     }
 }
 

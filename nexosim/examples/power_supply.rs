@@ -28,10 +28,10 @@
 //! ```
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Model;
 use nexosim::ports::{EventSlot, Output, Requestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 /// Power supply.
 #[derive(Serialize, Deserialize)]
@@ -42,6 +42,7 @@ pub struct PowerSupply {
     pub power: Output<f64>,
 }
 
+#[Model]
 impl PowerSupply {
     /// Creates a power supply.
     fn new() -> Self {
@@ -68,10 +69,6 @@ impl PowerSupply {
     }
 }
 
-impl Model for PowerSupply {
-    type Env = ();
-}
-
 /// Power supply.
 #[derive(Serialize, Deserialize)]
 pub struct Load {
@@ -82,6 +79,7 @@ pub struct Load {
     conductance: f64,
 }
 
+#[Model]
 impl Load {
     /// Creates a load with the specified resistance [Ω].
     fn new(resistance: f64) -> Self {
@@ -101,10 +99,6 @@ impl Load {
 
         current
     }
-}
-
-impl Model for Load {
-    type Env = ();
 }
 
 fn main() -> Result<(), SimulationError> {
