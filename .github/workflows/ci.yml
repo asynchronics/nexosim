@@ -84,6 +84,19 @@ jobs:
       - name: Run cargo test
         run: cargo test --all-features
 
+  test-arm:
+    name: Test suite (ARM)
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run cargo test
+        run: cargo test --all-features
+
   loom-dry-run:
     name: Loom dry run
     runs-on: ubuntu-latest
