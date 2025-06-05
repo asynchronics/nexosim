@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Model;
 use nexosim::ports::Output;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
@@ -13,6 +13,7 @@ const MT_NUM_THREADS: usize = 4;
 struct TestModel {
     countdown_out: Output<usize>,
 }
+#[Model]
 impl TestModel {
     async fn countdown_in(&mut self, count: usize) {
         if count == 0 {
@@ -20,9 +21,6 @@ impl TestModel {
         }
         self.countdown_out.send(count - 1).await;
     }
-}
-impl Model for TestModel {
-    type Env = ();
 }
 
 /// Pass a counter around several models and decrement it each time, panicking

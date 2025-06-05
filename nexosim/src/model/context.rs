@@ -168,7 +168,7 @@ impl<M: Model> Context<M> {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        schedulable_id: SchedulableId<M, T>,
+        schedulable_id: &SchedulableId<M, T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where

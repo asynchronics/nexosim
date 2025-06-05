@@ -46,7 +46,7 @@ impl MyModel {
         //     .unwrap();
         cx.schedule_event(Duration::from_secs(2), schedulable!(Self::tick), ())
             .unwrap();
-        cx.schedule_event(Duration::from_secs(1), self.manual_id, -5)
+        cx.schedule_event(Duration::from_secs(1), &self.manual_id, -5)
             .unwrap();
         self.into()
     }

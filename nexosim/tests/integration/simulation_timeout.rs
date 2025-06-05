@@ -7,10 +7,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, InitializedModel, Model, ProtoModel};
+use nexosim::model::{BuildContext, Model, ProtoModel};
 use nexosim::ports::Output;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
@@ -18,13 +19,11 @@ const MT_NUM_THREADS: usize = 4;
 struct TestModel {
     output: Output<()>,
 }
+#[Model(Env=TestEnv)]
 impl TestModel {
     async fn input(&mut self) {
         self.output.send(()).await;
     }
-}
-impl Model for TestModel {
-    type Env = TestEnv;
 }
 
 struct TestEnv {
@@ -44,7 +43,7 @@ struct TestProto {
 impl ProtoModel for TestProto {
     type Model = TestModel;
 
-    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
+    fn build(self, _: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
         (
             TestModel {
                 output: self.output,

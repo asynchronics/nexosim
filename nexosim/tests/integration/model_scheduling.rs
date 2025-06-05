@@ -4,52 +4,32 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
+use nexosim::model::Context;
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::{schedulable, Model};
 
 const MT_NUM_THREADS: usize = 4;
 
 fn model_schedule_event(num_threads: usize) {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct TestModel {
         output: Output<()>,
-        input: InputId<Self, ()>,
     }
+    #[Model]
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
-            cx.schedule_event(Duration::from_secs(2), &self.input, ())
+            cx.schedule_event(Duration::from_secs(2), schedulable!(Self::action), ())
                 .unwrap();
         }
+        #[nexosim(schedulable)]
         async fn action(&mut self) {
             self.output.send(()).await;
         }
     }
-    impl Model for TestModel {
-        type Env = ();
-    }
 
-    #[derive(Default)]
-    struct ProtoTest {
-        output: Output<()>,
-    }
-    impl ProtoModel for ProtoTest {
-        type Model = TestModel;
-
-        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
-            let input = cx.register_input(TestModel::action);
-            (
-                TestModel {
-                    input,
-                    output: self.output,
-                },
-                (),
-            )
-        }
-    }
-
-    let mut model = ProtoTest::default();
+    let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
     let output = EventQueue::new();
@@ -72,57 +52,33 @@ fn model_schedule_event(num_threads: usize) {
 }
 
 fn model_cancel_future_keyed_event(num_threads: usize) {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct TestModel {
         output: Output<i32>,
         key: Option<EventKey>,
-        input_1: InputId<Self, ()>,
-        input_2: InputId<Self, ()>,
     }
+    #[Model]
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
-            cx.schedule_event(Duration::from_secs(1), &self.input_1, ())
+            cx.schedule_event(Duration::from_secs(1), schedulable!(Self::action1), ())
                 .unwrap();
             self.key = cx
-                .schedule_keyed_event(Duration::from_secs(2), &self.input_1, ())
+                .schedule_keyed_event(Duration::from_secs(2), schedulable!(Self::action2), ())
                 .ok();
         }
+        #[nexosim(schedulable)]
         async fn action1(&mut self) {
             self.output.send(1).await;
             // Cancel the call to `action2`.
             self.key.take().unwrap().cancel();
         }
+        #[nexosim(schedulable)]
         async fn action2(&mut self) {
             self.output.send(2).await;
         }
     }
-    impl Model for TestModel {
-        type Env = ();
-    }
 
-    #[derive(Default)]
-    struct ProtoTest {
-        output: Output<i32>,
-    }
-    impl ProtoModel for ProtoTest {
-        type Model = TestModel;
-
-        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
-            let input_1 = cx.register_input(TestModel::action1);
-            let input_2 = cx.register_input(TestModel::action2);
-            (
-                TestModel {
-                    input_1,
-                    input_2,
-                    output: self.output,
-                    key: None,
-                },
-                (),
-            )
-        }
-    }
-
-    let mut model = ProtoTest::default();
+    let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
     let output = EventQueue::new();
@@ -146,60 +102,33 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
 }
 
 fn model_cancel_same_time_keyed_event(num_threads: usize) {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct TestModel {
         output: Output<i32>,
         key: Option<EventKey>,
-        input_1: InputId<Self, ()>,
-        input_2: InputId<Self, ()>,
     }
+    #[Model]
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
-            cx.schedule_event(Duration::from_secs(2), &self.input_1, ())
+            cx.schedule_event(Duration::from_secs(2), schedulable!(Self::action1), ())
                 .unwrap();
             self.key = cx
-                .schedule_keyed_event(Duration::from_secs(2), &self.input_2, ())
+                .schedule_keyed_event(Duration::from_secs(2), schedulable!(Self::action2), ())
                 .ok();
         }
+        #[nexosim(schedulable)]
         async fn action1(&mut self) {
-            println!("Action 1");
             self.output.send(1).await;
             // Cancel the call to `action2`.
             self.key.take().unwrap().cancel();
-            println!("Cancelled");
         }
+        #[nexosim(schedulable)]
         async fn action2(&mut self) {
-            println!("Action 2");
             self.output.send(2).await;
         }
     }
-    impl Model for TestModel {
-        type Env = ();
-    }
 
-    #[derive(Default)]
-    struct ProtoTest {
-        output: Output<i32>,
-    }
-    impl ProtoModel for ProtoTest {
-        type Model = TestModel;
-
-        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
-            let input_1 = cx.register_input(TestModel::action1);
-            let input_2 = cx.register_input(TestModel::action2);
-            (
-                TestModel {
-                    input_1,
-                    input_2,
-                    output: self.output,
-                    key: None,
-                },
-                (),
-            )
-        }
-    }
-
-    let mut model = ProtoTest::default();
+    let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
     let output = EventQueue::new();
@@ -223,49 +152,28 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
 }
 
 fn model_schedule_periodic_event(num_threads: usize) {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct TestModel {
-        input: InputId<Self, i32>,
         output: Output<i32>,
     }
+    #[Model]
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
             cx.schedule_periodic_event(
                 Duration::from_secs(2),
                 Duration::from_secs(3),
-                &self.input,
+                schedulable!(Self::action),
                 42,
             )
             .unwrap();
         }
+        #[nexosim(schedulable)]
         async fn action(&mut self, payload: i32) {
             self.output.send(payload).await;
         }
     }
-    impl Model for TestModel {
-        type Env = ();
-    }
 
-    #[derive(Default)]
-    struct ProtoTest {
-        output: Output<i32>,
-    }
-    impl ProtoModel for ProtoTest {
-        type Model = TestModel;
-
-        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
-            let input = cx.register_input(TestModel::action);
-            (
-                TestModel {
-                    input,
-                    output: self.output,
-                },
-                (),
-            )
-        }
-    }
-
-    let mut model = ProtoTest::default();
+    let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
     let output = EventQueue::new();
@@ -294,54 +202,32 @@ fn model_schedule_periodic_event(num_threads: usize) {
 }
 
 fn model_cancel_periodic_event(num_threads: usize) {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Default, Serialize, Deserialize)]
     struct TestModel {
-        input: InputId<Self, ()>,
         output: Output<()>,
         key: Option<EventKey>,
     }
+    #[Model]
     impl TestModel {
         fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
             self.key = cx
                 .schedule_keyed_periodic_event(
                     Duration::from_secs(2),
                     Duration::from_secs(3),
-                    &self.input,
+                    schedulable!(Self::action),
                     (),
                 )
                 .ok();
         }
+        #[nexosim(schedulable)]
         async fn action(&mut self) {
             self.output.send(()).await;
             // Cancel the next events.
             self.key.take().unwrap().cancel();
         }
     }
-    impl Model for TestModel {
-        type Env = ();
-    }
 
-    #[derive(Default)]
-    struct ProtoTest {
-        output: Output<()>,
-    }
-    impl ProtoModel for ProtoTest {
-        type Model = TestModel;
-
-        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
-            let input = cx.register_input(TestModel::action);
-            (
-                TestModel {
-                    input,
-                    output: self.output,
-                    key: None,
-                },
-                (),
-            )
-        }
-    }
-
-    let mut model = ProtoTest::default();
+    let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
     let output = EventQueue::new();

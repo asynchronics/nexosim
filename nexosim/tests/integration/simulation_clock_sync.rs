@@ -5,21 +5,19 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Model;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
 #[derive(Default, Deserialize, Serialize)]
 struct TestModel {}
+#[Model]
 impl TestModel {
     fn block_for(&mut self, duration: Duration) {
         thread::sleep(duration);
     }
-}
-impl Model for TestModel {
-    type Env = ();
 }
 
 // Schedule `TestModel::block_for` at the required ticks, blocking each time for
@@ -48,7 +46,7 @@ fn clock_sync(
         .set_clock(clock)
         .set_clock_tolerance(clock_tolerance);
 
-    let source_id = bench.register_model_input(TestModel::block_for, &addr);
+    let source_id = bench.register_input(TestModel::block_for, &addr);
 
     let mut simu = bench.init(t0).unwrap();
 

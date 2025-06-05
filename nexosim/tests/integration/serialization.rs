@@ -3,29 +3,31 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Context, InitializedModel, InputId, Model, ProtoModel};
+use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{Address, EventKey, Mailbox, SimInit, SourceId};
 use nexosim::time::MonotonicTime;
+use nexosim::{schedulable, Model};
 
 #[derive(Default, Serialize, Deserialize)]
 struct ModelWithOutput {
     output: Output<String>,
 }
+#[Model]
 impl ModelWithOutput {
+    #[nexosim(schedulable)]
     pub async fn send(&mut self, input: u32) {
         self.output.send(format!("{}", input)).await;
     }
-}
-impl Model for ModelWithOutput {
-    type Env = ();
 }
 
 #[derive(Default, Serialize, Deserialize)]
 struct ModelWithKey {
     key: Option<EventKey>,
 }
+#[Model]
 impl ModelWithKey {
+    #[nexosim(schedulable)]
     pub async fn process(&mut self) {
         if let Some(key) = self.key.take() {
             key.cancel();
@@ -35,17 +37,31 @@ impl ModelWithKey {
         self.key = Some(key);
     }
 }
-impl Model for ModelWithKey {
-    type Env = ();
-}
 
 #[derive(Serialize, Deserialize)]
 struct ModelWithState {
     state: u32,
 }
+#[Model]
 impl ModelWithState {
     pub fn new(state: u32) -> Self {
         Self { state }
+    }
+    #[nexosim(init)]
+    fn init(
+        mut self,
+        _: &mut Context<Self>,
+    ) -> impl Future<Output = InitializedModel<Self>> + Send {
+        self.state *= 11;
+        async { self.into() }
+    }
+    #[nexosim(restore)]
+    fn restore(
+        mut self,
+        _: &mut Context<Self>,
+    ) -> impl Future<Output = InitializedModel<Self>> + Send {
+        self.state *= 13;
+        async { self.into() }
     }
     pub async fn query(&mut self) -> u32 {
         self.state
@@ -57,66 +73,32 @@ impl ModelWithState {
         self.state *= arg;
     }
 }
-impl Model for ModelWithState {
-    type Env = ();
-
-    fn init(
-        mut self,
-        _: &mut Context<Self>,
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
-        self.state *= 11;
-        async { self.into() }
-    }
-    fn restore(
-        mut self,
-        _: &mut Context<Self>,
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
-        self.state *= 13;
-        async { self.into() }
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 struct ModelWithSchedule {
-    input_id: InputId<Self, u32>,
     output: Output<u32>,
 }
+#[Model]
 impl ModelWithSchedule {
-    async fn send(&mut self, arg: u32, cx: &mut Context<Self>) {
-        self.output.send(cx.time().as_secs() as u32 * arg).await;
+    pub fn new() -> Self {
+        Self {
+            output: Output::default(),
+        }
     }
-}
-impl Model for ModelWithSchedule {
-    type Env = ();
-
+    #[nexosim(init)]
     fn init(self, cx: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
         cx.schedule_periodic_event(
             Duration::from_secs(1),
             Duration::from_secs(2),
-            &self.input_id,
+            schedulable!(Self::send),
             7,
         )
         .unwrap();
         async { self.into() }
     }
-}
-
-#[derive(Default)]
-struct ProtoSchedule {
-    output: Output<u32>,
-}
-impl ProtoModel for ProtoSchedule {
-    type Model = ModelWithSchedule;
-
-    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env) {
-        let input_id = cx.register_input(ModelWithSchedule::send);
-        (
-            ModelWithSchedule {
-                output: self.output,
-                input_id,
-            },
-            (),
-        )
+    #[nexosim(schedulable)]
+    async fn send(&mut self, arg: u32, cx: &mut Context<Self>) {
+        self.output.send(cx.time().as_secs() as u32 * arg).await;
     }
 }
 
@@ -130,7 +112,7 @@ fn model_with_output() {
         model.output.connect_sink(&msg);
 
         let mut bench = SimInit::new();
-        let source_id = bench.register_model_input(ModelWithOutput::send, &mbox);
+        let source_id = bench.register_input(ModelWithOutput::send, &mbox);
         bench = bench.add_model(model, mbox, "modelWithOutput");
 
         (bench, source_id, msg.into_reader())
@@ -146,11 +128,12 @@ fn model_with_output() {
         .schedule_event(Duration::from_secs(5), &source_id, 5);
 
     // Store state with an event scheduled.
-    let state = simu.save().unwrap();
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
     let (bench, _, mut msg) = get_bench();
-    let mut simu = bench.restore(&state).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap();
 
     // Verify that the scheduled event gets fired.
     simu.step().unwrap();
@@ -177,7 +160,7 @@ fn model_with_key() {
         let key_addr = key_mbox.address();
 
         let mut bench = SimInit::new();
-        let output_id = bench.register_model_input(ModelWithOutput::send, &output_mbox);
+        let output_id = bench.register_input(ModelWithOutput::send, &output_mbox);
         bench = bench
             .add_model(output_model, output_mbox, "modelWithOutput")
             .add_model(key_model, key_mbox, "modelWithKey");
@@ -198,11 +181,12 @@ fn model_with_key() {
     let _ = simu.process_event(ModelWithKey::set_key, key, key_addr);
 
     // Store state with an event scheduled and key set.
-    let state = simu.save().unwrap();
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
     let (bench, _, key_addr, mut msg) = get_bench();
-    let mut simu = bench.restore(&state).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap();
 
     // Cancel the serialized key.
     let _ = simu.process_event(ModelWithKey::process, (), key_addr);
@@ -234,11 +218,12 @@ fn model_init_restore() {
     assert_eq!(model_state, 11);
 
     // // Store state with an initialized model.
-    let state = simu.save().unwrap();
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
 
     // // Recreate the bench with the state restored.
     let (bench, addr) = get_bench();
-    let mut simu = bench.restore(&state).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap();
 
     // Verify that `restore` has been called instead of `init` this time
     let model_state = simu.process_query(ModelWithState::query, (), addr).unwrap();
@@ -249,7 +234,7 @@ fn model_init_restore() {
 fn model_with_schedule() {
     fn get_bench() -> (SimInit, EventQueueReader<u32>) {
         let mbox = Mailbox::new();
-        let mut model = ProtoSchedule::default();
+        let mut model = ModelWithSchedule::new();
 
         let msg = EventQueue::new();
         model.output.connect_sink(&msg);
@@ -267,11 +252,12 @@ fn model_with_schedule() {
     assert_eq!(msg.next(), Some(7));
 
     // Store state with a scheduled model after one step.
-    let state = simu.save().unwrap();
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
     let (bench, mut msg) = get_bench();
-    let mut simu = bench.restore(&state).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap();
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
@@ -292,8 +278,8 @@ fn model_relative_order() {
         let addr = mbox.address();
 
         let mut bench = SimInit::new();
-        let add_id = bench.register_model_input(ModelWithState::add, &addr);
-        let mul_id = bench.register_model_input(ModelWithState::mul, &addr);
+        let add_id = bench.register_input(ModelWithState::add, &addr);
+        let mul_id = bench.register_input(ModelWithState::mul, &addr);
 
         bench = bench.add_model(model, mbox, "modelWithKey");
 
@@ -314,11 +300,12 @@ fn model_relative_order() {
         .schedule_event(Duration::from_secs(1), &add_id, 19);
 
     // Store state with an initialized model and events scheduled.
-    let state = simu.save().unwrap();
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
     let (bench, _, _, addr) = get_bench();
-    let mut simu = bench.restore(&state).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap();
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
@@ -342,11 +329,12 @@ fn model_relative_order() {
         .schedule_event(Duration::from_secs(1), &mul_id, 7);
 
     // Store state with an initialized model and events scheduled.
-    let state = simu.save().unwrap();
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
     let (bench, _, _, addr) = get_bench();
-    let mut simu = bench.restore(&state).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap();
 
     // Verify events have been called in the right order.
     simu.step().unwrap();

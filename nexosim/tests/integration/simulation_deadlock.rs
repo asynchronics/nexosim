@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Model;
 use nexosim::ports::{Output, Requestor};
 use nexosim::simulation::{DeadlockInfo, ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
@@ -14,6 +14,7 @@ struct TestModel {
     output: Output<()>,
     requestor: Requestor<(), ()>,
 }
+#[Model]
 impl TestModel {
     async fn activate_output(&mut self) {
         self.output.send(()).await;
@@ -21,9 +22,6 @@ impl TestModel {
     async fn activate_requestor(&mut self) {
         let _ = self.requestor.send(()).await;
     }
-}
-impl Model for TestModel {
-    type Env = ();
 }
 
 /// Overflows a mailbox by sending 2 messages in loopback for each incoming

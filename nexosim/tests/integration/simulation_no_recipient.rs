@@ -4,10 +4,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Model;
-use nexosim::ports::{EventSource, Output, QuerySource, Requestor};
+use nexosim::ports::{Output, QuerySource, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
@@ -16,6 +16,7 @@ struct TestModel {
     output: Output<()>,
     requestor: Requestor<(), ()>,
 }
+#[Model]
 impl TestModel {
     async fn activate_output(&mut self) {
         self.output.send(()).await;
@@ -23,9 +24,6 @@ impl TestModel {
     async fn activate_requestor(&mut self) {
         let _ = self.requestor.send(()).await;
     }
-}
-impl Model for TestModel {
-    type Env = ();
 }
 
 /// Send an event from a model to a dead input.
@@ -91,7 +89,7 @@ fn no_input_from_scheduler(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
     let mut bench = SimInit::with_num_threads(num_threads);
 
-    let source_id = bench.register_model_input(TestModel::activate_output, &bad_mbox);
+    let source_id = bench.register_input(TestModel::activate_output, &bad_mbox);
     drop(bad_mbox);
 
     let mut simu = bench.init(t0).unwrap();

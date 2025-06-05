@@ -46,7 +46,7 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
             let _: [(); { if !Self::____is_schedulable(stringify!(#hidden_name)) {
                 panic!(#err_msg)
             }; 0} ] = [];
-            #path
+            &#path
         }
     };
     Ok(gen.into())

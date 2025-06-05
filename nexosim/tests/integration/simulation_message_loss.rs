@@ -2,10 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Model;
 use nexosim::ports::{Output, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
@@ -14,6 +14,7 @@ struct TestModel {
     output: Output<()>,
     requestor: Requestor<(), ()>,
 }
+#[Model]
 impl TestModel {
     async fn activate_output_twice(&mut self) {
         self.output.send(()).await;
@@ -23,9 +24,6 @@ impl TestModel {
         let _ = self.requestor.send(()).await;
         let _ = self.requestor.send(()).await;
     }
-}
-impl Model for TestModel {
-    type Env = ();
 }
 
 /// Loose an event.
