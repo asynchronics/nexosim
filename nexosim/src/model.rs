@@ -196,7 +196,7 @@
 use std::any::type_name;
 use std::collections::VecDeque;
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -274,6 +274,7 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
         async { self.into() }
     }
 
+    /// Creates model's internal input registry used for self-scheduling.
     fn register_schedulables(
         &mut self,
         _: &mut BuildContext<impl ProtoModel<Model = Self>>,
@@ -380,7 +381,7 @@ async fn deserialize_model<M: Model>(
     cx: &mut Context<M>,
 ) -> Result<(), ExecutionError> {
     let restored = PORT_REG
-        .set(&Arc::new(Mutex::new(VecDeque::new())), || {
+        .set(&Mutex::new(VecDeque::new()), || {
             EVENT_KEY_REG.set(&state.1, || {
                 bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|_| {
                     ExecutionError::RestoreError(format!(
@@ -402,6 +403,6 @@ async fn deserialize_model<M: Model>(
         })?
         .0;
     let restored = restored.restore(cx).await.0;
-    std::mem::replace(model, restored);
+    let _ = std::mem::replace(model, restored);
     Ok(())
 }

@@ -228,7 +228,7 @@ impl Error for SchedulingError {}
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub type SchedulerQueue = PriorityQueue<SchedulerKey, Event>;
+pub(crate) type SchedulerQueue = PriorityQueue<SchedulerKey, Event>;
 
 pub(crate) type SchedulerKey = (MonotonicTime, usize);
 

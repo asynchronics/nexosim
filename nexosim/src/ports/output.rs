@@ -4,7 +4,7 @@ mod sender;
 use std::any::Any;
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +25,7 @@ use self::sender::{
 };
 
 scoped_thread_local!(pub(crate) static PORT_REG: PortsReg);
-pub(crate) type PortsReg = Arc<Mutex<VecDeque<Box<dyn Any>>>>;
+pub(crate) type PortsReg = Mutex<VecDeque<Box<dyn Any>>>;
 
 /// An output port.
 ///

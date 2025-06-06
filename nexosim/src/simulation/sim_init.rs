@@ -167,6 +167,10 @@ impl SimInit {
         self
     }
 
+    /// Registers a callback function executed right after the simulation is
+    /// initialized and before it's run.
+    ///
+    /// Initial event scheduling or input processing is possible at this stage.
     pub fn with_post_init(
         mut self,
         callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
@@ -175,6 +179,12 @@ impl SimInit {
         self
     }
 
+    /// Registers a callback function executed right after the simulation is
+    /// restored from a persisted state.
+    ///
+    /// If necessary real-time clock resynchronization can be performed at this
+    /// stage. Otherwise simulation actions such as event scheduling or querying
+    /// are also possible.
     pub fn with_post_restore(
         mut self,
         callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
@@ -183,6 +193,7 @@ impl SimInit {
         self
     }
 
+    /// Registers EventSource<T> as schedulable.
     pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -190,6 +201,7 @@ impl SimInit {
         self.scheduler_registry.add(source)
     }
 
+    /// Registers single model input as a schedulable event source.
     pub fn register_input<M, F, S, T>(
         &mut self,
         input: F,
@@ -224,8 +236,7 @@ impl SimInit {
     /// executing the [`Model::init`](crate::model::Model::init) method on all
     /// model initializers.
     ///
-    /// The simulation object and its associated scheduler are returned upon
-    /// success.
+    /// The simulation object is returned upon success.
     pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
@@ -246,6 +257,11 @@ impl SimInit {
         Ok(simulation)
     }
 
+    /// Restores a simulation from a previously persisted state.
+    /// executing the [`Model::restore`](crate::model::Model::restore) method on
+    /// all registered models.
+    ///
+    /// The simulation object is returned upon success.
     pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 

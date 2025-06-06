@@ -4,10 +4,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::vec;
 
-use pin_project::pin_project;
-use serde::{Deserialize, Serialize};
-
 use diatomic_waker::WakeSink;
+use pin_project::pin_project;
 
 use super::sender::{Sender, SenderFuture};
 

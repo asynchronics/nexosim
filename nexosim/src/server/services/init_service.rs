@@ -184,6 +184,8 @@ fn map_init_error(
         .and_then(|init_result| init_result.map_err(map_simulation_error))
 }
 
+/// Allows running a server targeted simulation directly from Rust. (e.g.
+/// for debugging purposes)
 pub fn init_bench<F, I>(
     mut sim_gen: F,
     cfg: I,
@@ -201,6 +203,14 @@ where
     Ok((simulation, endpoint_registry))
 }
 
+/// Allows restoring a previously saved server simulation and continuing it's
+/// execution directly from Rust.
+///
+/// It is possible to override the initial configuration that the simulation
+/// has been started with. The override should not modify bench nor model
+/// layout, otherwise unexpected side effects might happen.
+/// If no additional configuration is provided, simulation will be restored with
+/// it's initial config value.
 pub fn restore_bench<F, I>(
     mut sim_gen: F,
     state: &[u8],

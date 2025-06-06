@@ -29,6 +29,9 @@ pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
 const MAX_SOURCE_ID: usize = 1 << (usize::BITS - 1) as usize;
 
+/// A unique, type-safe id for schedulable event sources.
+/// `SourceId` is stable between bench runs, provided that the bench layout does
+/// not change.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
 
@@ -40,6 +43,7 @@ impl<T> Clone for SourceId<T> {
 }
 impl<T> Copy for SourceId<T> {}
 
+/// Type erased `SourceId` variant.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct SourceIdErased(pub(crate) usize);
 
@@ -228,7 +232,8 @@ where
     }
 }
 
-/// Struct representing a single scheduled event on the queue.
+/// A possibly periodic, possibly cancellable event that can be scheeduled on
+/// the event queue.
 #[derive(Debug)]
 pub(crate) struct Event {
     pub source_id: SourceIdErased,
@@ -245,9 +250,6 @@ impl Event {
             key: None,
         }
     }
-
-    // #[cfg(feature = "server")]
-    // pub(crate) fn new_erased
 
     pub(crate) fn with_period(mut self, period: Duration) -> Self {
         self.period = Some(period);

@@ -33,9 +33,7 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
     let err_name = ast.segments[1].ident.to_string();
     // Argument formatting not possible in the const context as of Rust >= 1.87
     let err_msg = format!(
-        "method `{}` is not a valid schedulable input for the model!
-                    Perhaps you forgot to include the #[nexosim(schedulable)] attribute
-                    or are using a method from another model.",
+        "method `{}` is not a valid schedulable input for the model! Perhaps you forgot to include the #[nexosim(schedulable)] attribute or are using a method from another model.",
         err_name
     );
 

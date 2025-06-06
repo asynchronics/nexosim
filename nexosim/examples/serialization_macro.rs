@@ -33,10 +33,6 @@ impl MyModel {
         println!("Manual: {:+}", -arg);
     }
 
-    const fn b() -> bool {
-        false
-    }
-
     #[nexosim(init)]
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
         println!("Custom init");
@@ -82,8 +78,6 @@ impl OtherModel {
 }
 
 fn main() {
-    std::any::type_name_of_val(&MyModel::input);
-
     let m = MyProto;
 
     let mbox = Mailbox::new();

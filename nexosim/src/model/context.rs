@@ -478,6 +478,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// Creates a new local context.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         mailbox: &'a Mailbox<P::Model>,
         name: &'a String,
@@ -513,6 +514,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
+    /// Registers a single self-schedulable source from model's input.
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
@@ -547,7 +549,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             mailbox,
             submodel_name,
             self.scheduler.clone(),
-            &mut self.scheduler_registry,
+            self.scheduler_registry,
             self.executor,
             self.abort_signal,
             self.registered_models,
@@ -571,9 +573,13 @@ impl<M: Model<Env = ()>> Context<M> {
     }
 }
 
+/// Model's internal registry of self-schedulable inputs.
+/// In typical scenarios it is utilized exclusively in the proc-macro generated
+/// code.
 #[derive(Debug, Default)]
 pub struct ModelRegistry(Vec<SourceIdErased>);
 impl ModelRegistry {
+    #[doc(hidden)]
     pub fn add<M: Model, T>(&mut self, schedulable_id: SchedulableId<M, T>) {
         self.0.push(SourceIdErased(schedulable_id.0));
     }
@@ -582,12 +588,15 @@ impl ModelRegistry {
     }
 }
 
+/// Type-safe, unique id required for model's internal event scheduling.
+/// `SchedulableId` is stable between bench runs, provided that the model layout
+/// does not change.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> SchedulableId<M, T> {
     const REGISTRY_MASK: usize = 1 << (usize::BITS - 1);
 
-    // TODO name
+    #[doc(hidden)]
     pub const fn __from_decorated(id: usize) -> Self {
         Self(id | Self::REGISTRY_MASK, PhantomData, PhantomData)
     }

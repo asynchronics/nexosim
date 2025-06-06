@@ -12,7 +12,7 @@ use serde::de::DeserializeOwned;
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::registry::EndpointRegistry;
-use crate::simulation::{SimInit, Simulation};
+use crate::simulation::Simulation;
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;

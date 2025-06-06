@@ -640,7 +640,9 @@ impl Simulation {
         }
         Ok(())
     }
-    /// Serialize simulation state to bytes.
+
+    /// Persists a serialized simulation state.
+    /// Saved byte count is returned upon success.
     pub fn save<W: std::io::Write>(&mut self, writer: &mut W) -> Result<usize, ExecutionError> {
         // TODO should call halt first?
         let state = SimulationState {
@@ -653,23 +655,26 @@ impl Simulation {
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
     }
 
-    /// Serialize with bench builder CBOR serialized cfg
+    /// Serializes simulation state together with CBOR serialized SimGen
+    /// configuration.
     #[cfg(feature = "server")]
     pub(crate) fn save_with_serialized_cfg<W: std::io::Write>(
         &mut self,
-        cfg: Vec<u8>,
+        serialized_cfg: Vec<u8>,
         writer: &mut W,
     ) -> Result<usize, ExecutionError> {
         let state = SimulationState {
             models: self.save_models()?,
             scheduler_queue: self.save_queue()?,
             time: self.time(),
-            cfg: Some(cfg),
+            cfg: Some(serialized_cfg),
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
             .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
     }
 
+    /// Persists a serialized simulation state together with a SimGen
+    /// configuration object.
     #[cfg(feature = "server")]
     pub fn save_with_cfg<W: std::io::Write, C: Serialize>(
         &mut self,

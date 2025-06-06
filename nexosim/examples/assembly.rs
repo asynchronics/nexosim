@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, Model, ProtoModel};
+use nexosim::model::{BuildContext, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
@@ -63,7 +63,7 @@ pub struct MotorAssembly {
     /// Private output for submodel connection.
     load: Output<f64>,
 }
-
+#[Model]
 impl MotorAssembly {
     /// The model now has a module-private constructor.
     fn new() -> Self {
@@ -82,10 +82,6 @@ impl MotorAssembly {
     pub async fn load(&mut self, torque: f64) {
         self.load.send(torque).await
     }
-}
-
-impl Model for MotorAssembly {
-    type Env = ();
 }
 
 impl ProtoModel for ProtoMotorAssembly {

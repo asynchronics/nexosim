@@ -284,4 +284,4 @@ pub use sink::{
 };
 pub use source::{EventSource, QuerySource, ReplyReceiver};
 
-pub(crate) use output::{PortsReg, PORT_REG};
+pub(crate) use output::PORT_REG;
