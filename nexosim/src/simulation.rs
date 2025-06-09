@@ -93,7 +93,7 @@ pub(crate) use events::{
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
@@ -113,7 +113,7 @@ use scheduler::{SchedulerKey, SchedulerQueue};
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
-use crate::ports::{InputFn, ReplierFn};
+use crate::ports::{InputFn, ReplierFn, PORT_REG};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -977,6 +977,18 @@ pub(crate) fn add_model<P>(
         is_resumed.clone(),
     );
     let (mut model, env) = model.build(&mut build_cx);
+
+    PORT_REG.set(&Mutex::new(VecDeque::new()), || {
+        bincode::serde::encode_to_vec(&model, serialization_config()).unwrap();
+        PORT_REG.map(|r| {
+            for entry in r.lock().unwrap().iter() {
+                println!("---");
+                println!("{:?} {:?}", entry.tag(), entry.type_name(),);
+                println!("{:?}", &entry.schema().unwrap());
+            }
+        });
+    });
+
     let model_registry = model.register_schedulables(&mut build_cx);
 
     let address = mailbox.address();

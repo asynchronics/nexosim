@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::Mutex;
 
+use schemars::schema_for;
 use serde::{Deserialize, Serialize};
 
 use crate::macros::scoped_thread_local::scoped_thread_local;
@@ -25,7 +26,33 @@ use self::sender::{
 };
 
 scoped_thread_local!(pub(crate) static PORT_REG: PortsReg);
-pub(crate) type PortsReg = Mutex<VecDeque<Box<dyn Any>>>;
+pub(crate) type PortsReg = Mutex<VecDeque<Box<dyn PortAny>>>;
+
+pub(crate) trait PortAny: Any {
+    fn tag(&self) -> Option<&String> {
+        None
+    }
+    fn type_name(&self) -> &'static str {
+        "todo"
+    }
+    fn schema(&self) -> Option<schemars::Schema> {
+        None
+    }
+}
+
+impl<T: schemars::JsonSchema + Clone + Send + 'static> PortAny for Output<T> {
+    fn tag(&self) -> Option<&String> {
+        self.tag.as_ref()
+    }
+    fn type_name(&self) -> &'static str {
+        std::any::type_name_of_val(self)
+    }
+    fn schema(&self) -> Option<schemars::Schema> {
+        Some(schemars::schema_for!(T))
+    }
+}
+impl<T: Clone + Send + 'static, R: Send + 'static> PortAny for Requestor<T, R> {}
+impl<T: Clone + Send + 'static, R: Send + 'static> PortAny for UniRequestor<T, R> {}
 
 /// An output port.
 ///
@@ -39,12 +66,19 @@ pub(crate) type PortsReg = Mutex<VecDeque<Box<dyn Any>>>;
 #[derive(Clone)]
 pub struct Output<T: Clone + Send + 'static> {
     broadcaster: CachedRwLock<EventBroadcaster<T>>,
+    tag: Option<String>,
 }
 
 impl<T: Clone + Send + 'static> Output<T> {
     /// Creates a disconnected `Output` port.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn tagged(tag: String) -> Self {
+        let mut output = Self::new();
+        output.tag = Some(tag);
+        output
     }
 
     /// Adds a connection to an input port of the model specified by the
@@ -164,6 +198,7 @@ impl<T: Clone + Send + 'static> Default for Output<T> {
     fn default() -> Self {
         Self {
             broadcaster: CachedRwLock::new(EventBroadcaster::default()),
+            tag: None,
         }
     }
 }
@@ -178,7 +213,7 @@ impl<T: Clone + Send + 'static> fmt::Debug for Output<T> {
     }
 }
 
-impl<T: Clone + Send> Serialize for Output<T> {
+impl<T: schemars::JsonSchema + Clone + Send> Serialize for Output<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -197,7 +232,11 @@ impl<'de, T: Clone + Send> Deserialize<'de> for Output<T> {
         // Pop stored value from the registry.
         // If registry is not present, use a default
         Ok(*PORT_REG
-            .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
+            .map(|reg| {
+                (reg.lock().unwrap().pop_front().unwrap() as Box<dyn Any>)
+                    .downcast()
+                    .unwrap()
+            })
             .unwrap_or_default())
     }
 }
@@ -362,7 +401,11 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for Requestor<T, R> {
         // Pop stored value from the registry.
         // If registry is not present, use a default
         Ok(*PORT_REG
-            .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
+            .map(|reg| {
+                (reg.lock().unwrap().pop_front().unwrap() as Box<dyn Any>)
+                    .downcast()
+                    .unwrap()
+            })
             .unwrap_or_default())
     }
 }
@@ -510,7 +553,11 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for UniRequestor<T, R> {
         // Since there is no ease way to create a default
         // a dummy sender is used instead.
         Ok(*PORT_REG
-            .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
+            .map(|reg| {
+                (reg.lock().unwrap().pop_front().unwrap() as Box<dyn Any>)
+                    .downcast()
+                    .unwrap()
+            })
             .unwrap_or(Box::new(UniRequestor {
                 sender: Box::new(EmptySender),
             })))

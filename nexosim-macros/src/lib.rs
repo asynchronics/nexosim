@@ -4,8 +4,8 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprAssign, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path, PathSegment, Type,
-    TypeTuple,
+    Expr, ExprAssign, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, PatType, Path,
+    PathSegment, ReturnType, Type, TypePath, TypeTuple, Visibility,
 };
 
 #[proc_macro]
@@ -78,6 +78,7 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
     let env_expr = parse_env_expr(env_expr);
 
     let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
+    parse_input_methods(&mut ast.items);
 
     let registered_methods = get_registered_method_paths(name_ident, &schedulables);
     let mut gen = get_impl_model_trait(name, &env_expr, init, restore, registered_methods);
@@ -326,4 +327,95 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn:
         return Ok(true);
     }
     Ok(false)
+}
+
+fn parse_input_methods(items: &mut [ImplItem]) {
+    for item in items.iter_mut() {
+        if let ImplItem::Fn(f) = item {
+            println!(
+                "{:?} => Input: {:?} | Replier: {:?}",
+                f.sig.ident.to_string(),
+                _is_input_fn(f),
+                _is_replier_fn(f)
+            );
+        }
+    }
+}
+
+fn _is_input_fn(f: &ImplItemFn) -> bool {
+    if let Visibility::Public(_) = f.vis {
+        if let ReturnType::Type(_, _) = f.sig.output {
+            // TODO check for `-> ()` ?
+            return false;
+        }
+
+        let args = &f.sig.inputs;
+
+        match args.len() {
+            1 | 2 => return _is_self_mut_method(args),
+            3 => {
+                if !_is_self_mut_method(args) {
+                    return false;
+                }
+                if let FnArg::Typed(pat) = &args[2] {
+                    return _is_context_mut_arg(pat);
+                }
+            }
+            _ => (),
+        }
+    }
+    false
+}
+
+fn _is_replier_fn(f: &ImplItemFn) -> bool {
+    if let Visibility::Public(_) = f.vis {
+        // Only async methods
+        if f.sig.asyncness.is_none() {
+            return false;
+        }
+        if let ReturnType::Type(_, _) = f.sig.output {
+            let args = &f.sig.inputs;
+            match args.len() {
+                1 | 2 => return _is_self_mut_method(args),
+                3 => {
+                    if !_is_self_mut_method(args) {
+                        return false;
+                    }
+                    if let FnArg::Typed(pat) = &args[2] {
+                        return _is_context_mut_arg(pat);
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+    false
+}
+
+fn _is_self_mut_method<T>(args: &Punctuated<FnArg, T>) -> bool {
+    if let FnArg::Receiver(r) = &args[0] {
+        return r.mutability.is_some();
+    }
+    false
+}
+
+fn _is_context_mut_arg(pat: &PatType) -> bool {
+    if let Type::Reference(r) = &*pat.ty {
+        if r.mutability.is_none() {
+            return false;
+        }
+        if let Type::Path(path) = &*r.elem {
+            return _has_path_segment(path, "Context");
+        }
+    }
+    false
+}
+
+fn _has_path_segment(type_path: &TypePath, name: &'static str) -> bool {
+    for segment in type_path.path.segments.iter() {
+        if segment.ident.to_string().as_str() == name {
+            return true;
+        }
+    }
+    false
 }
