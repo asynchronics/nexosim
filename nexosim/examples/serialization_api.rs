@@ -71,6 +71,7 @@ impl ProtoModel for MyProto {
         let output_map = HashMap::from_iter([
             ("port_a".to_string(), Output::tagged("PortA".to_string())),
             ("port_b".to_string(), Output::tagged("PortB".to_string())),
+            ("port_c".to_string(), Output::default()),
         ]);
         (
             MyModel {
@@ -91,7 +92,7 @@ struct SimpleModel {
 #[Model]
 impl SimpleModel {
     #[nexosim(schedulable)]
-    async fn input(&mut self, arg: u32) {
+    pub async fn input(&mut self, arg: u32) {
         println!("Simple Model called with: {}", arg);
         self.value = arg;
     }

@@ -983,7 +983,11 @@ pub(crate) fn add_model<P>(
         PORT_REG.map(|r| {
             for entry in r.lock().unwrap().iter() {
                 println!("\n---OUTPUT---");
-                println!("{:?} {:?}", entry.tag(), entry.type_name(),);
+                println!(
+                    "Tag: {:?} | Type: {:?}",
+                    entry.tag().unwrap_or(&String::new()),
+                    entry.type_name(),
+                );
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&entry.schema().unwrap()).unwrap()
