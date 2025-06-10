@@ -982,9 +982,12 @@ pub(crate) fn add_model<P>(
         bincode::serde::encode_to_vec(&model, serialization_config()).unwrap();
         PORT_REG.map(|r| {
             for entry in r.lock().unwrap().iter() {
-                println!("---");
+                println!("\n---OUTPUT---");
                 println!("{:?} {:?}", entry.tag(), entry.type_name(),);
-                println!("{:?}", &entry.schema().unwrap());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&entry.schema().unwrap()).unwrap()
+                );
             }
         });
     });

@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::executor::{Executor, Signal};
-use crate::ports::InputFn;
+use crate::ports::{InputFn, ReplierFn};
 use crate::simulation::{
     self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulerSourceRegistry,
     SchedulingError, SourceId, SourceIdErased,
@@ -577,14 +577,52 @@ impl<M: Model<Env = ()>> Context<M> {
 /// In typical scenarios it is utilized exclusively in the proc-macro generated
 /// code.
 #[derive(Debug, Default)]
-pub struct ModelRegistry(Vec<SourceIdErased>);
+pub struct ModelRegistry {
+    inputs: Vec<String>,
+    repliers: Vec<String>,
+    schedulables: Vec<SourceIdErased>,
+}
 impl ModelRegistry {
     #[doc(hidden)]
-    pub fn add<M: Model, T>(&mut self, schedulable_id: SchedulableId<M, T>) {
-        self.0.push(SourceIdErased(schedulable_id.0));
+    pub fn add_schedulable<M: Model, T>(&mut self, schedulable_id: SchedulableId<M, T>) {
+        self.schedulables.push(SourceIdErased(schedulable_id.0));
     }
-    pub(crate) fn get<M: Model, T>(&self, idx: usize) -> SchedulableId<M, T> {
-        SchedulableId(self.0[idx].0, PhantomData, PhantomData)
+    pub(crate) fn get_schedulable<M: Model, T>(&self, idx: usize) -> SchedulableId<M, T> {
+        SchedulableId(self.schedulables[idx].0, PhantomData, PhantomData)
+    }
+    pub fn add_input<M, F, T, S>(&mut self, func: F)
+    where
+        M: Model,
+        F: for<'a> InputFn<'a, M, T, S>,
+        T: schemars::JsonSchema + Send + Clone + 'static,
+    {
+        println!("\n---INPUT---");
+        println!("{}", std::any::type_name_of_val(&func));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&schemars::schema_for!(T)).unwrap()
+        );
+        // self.inputs.push(name);
+    }
+
+    pub fn add_replier<M, F, T, R, S>(&mut self, func: F)
+    where
+        M: Model,
+        F: for<'a> ReplierFn<'a, M, T, R, S>,
+        T: schemars::JsonSchema + Send + Clone + 'static,
+        R: schemars::JsonSchema + Send + 'static,
+    {
+        println!("\n---REPLIER---");
+        println!("{}", std::any::type_name_of_val(&func));
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&schemars::schema_for!(T)).unwrap()
+        );
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&schemars::schema_for!(R)).unwrap()
+        );
+        // self.inputs.push(name);
     }
 }
 
@@ -604,7 +642,9 @@ impl<M: Model, T> SchedulableId<M, T> {
         match self.0 & Self::REGISTRY_MASK {
             0 => SourceId(self.0, PhantomData),
             _ => SourceId(
-                registry.get::<M, T>(self.0 ^ Self::REGISTRY_MASK).0,
+                registry
+                    .get_schedulable::<M, T>(self.0 ^ Self::REGISTRY_MASK)
+                    .0,
                 PhantomData,
             ),
         }

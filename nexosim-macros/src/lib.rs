@@ -78,10 +78,26 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
     let env_expr = parse_env_expr(env_expr);
 
     let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
-    parse_input_methods(&mut ast.items);
+    let (inputs, repliers) = parse_input_methods(&mut ast.items);
+    let inputs = inputs
+        .iter()
+        .map(|a| get_input_path(name_ident, a))
+        .collect::<Vec<_>>();
+    let repliers = repliers
+        .iter()
+        .map(|a| get_input_path(name_ident, a))
+        .collect::<Vec<_>>();
 
     let registered_methods = get_registered_method_paths(name_ident, &schedulables);
-    let mut gen = get_impl_model_trait(name, &env_expr, init, restore, registered_methods);
+    let mut gen = get_impl_model_trait(
+        name,
+        &env_expr,
+        init,
+        restore,
+        registered_methods,
+        inputs,
+        repliers,
+    );
     let hidden_methods = get_hidden_method_impls(&schedulables);
 
     // Write hidden methods block.
@@ -210,6 +226,8 @@ fn get_impl_model_trait(
     init: Option<proc_macro2::TokenStream>,
     restore: Option<proc_macro2::TokenStream>,
     registered_methods: impl Iterator<Item = Expr>,
+    inputs: Vec<Expr>,
+    repliers: Vec<Expr>,
 ) -> proc_macro2::TokenStream {
     quote! {
         impl nexosim::model::Model for #name {
@@ -220,8 +238,17 @@ fn get_impl_model_trait(
             ) -> nexosim::model::ModelRegistry {
                 let mut registry = nexosim::model::ModelRegistry::default();
                 #(
-                    registry.add(cx.register_schedulable(#registered_methods));
+                    registry.add_schedulable(cx.register_schedulable(#registered_methods));
                 )*
+
+                #(
+                    registry.add_input(#inputs);
+                )*
+
+                #(
+                    registry.add_replier(#repliers);
+                )*
+
                 registry
             }
 
@@ -329,17 +356,27 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn:
     Ok(false)
 }
 
-fn parse_input_methods(items: &mut [ImplItem]) {
+fn parse_input_methods(items: &mut [ImplItem]) -> (Vec<ImplItemFn>, Vec<ImplItemFn>) {
+    let mut inputs = Vec::new();
+    let mut repliers = Vec::new();
+
     for item in items.iter_mut() {
         if let ImplItem::Fn(f) = item {
-            println!(
-                "{:?} => Input: {:?} | Replier: {:?}",
-                f.sig.ident.to_string(),
-                _is_input_fn(f),
-                _is_replier_fn(f)
-            );
+            // println!(
+            //     "{:?} => Input: {:?} | Replier: {:?}",
+            //     f.sig.ident.to_string(),
+            //     _is_input_fn(f),
+            //     _is_replier_fn(f)
+            // );
+            if _is_input_fn(f) {
+                inputs.push(f.clone());
+            }
+            if _is_replier_fn(f) {
+                repliers.push(f.clone());
+            }
         }
     }
+    (inputs, repliers)
 }
 
 fn _is_input_fn(f: &ImplItemFn) -> bool {
@@ -418,4 +455,26 @@ fn _has_path_segment(type_path: &TypePath, name: &'static str) -> bool {
         }
     }
     false
+}
+
+fn get_input_path<'a>(name_ident: &'a Ident, f: &'a ImplItemFn) -> Expr {
+    let mut segments = Punctuated::new();
+
+    segments.push_value(PathSegment {
+        ident: name_ident.clone(),
+        arguments: syn::PathArguments::None,
+    });
+    segments.push_punct(PathSep::default());
+    segments.push_value(PathSegment {
+        ident: f.sig.ident.clone(),
+        arguments: syn::PathArguments::None,
+    });
+    Expr::Path(ExprPath {
+        path: Path {
+            leading_colon: None,
+            segments,
+        },
+        attrs: Vec::new(),
+        qself: None,
+    })
 }
