@@ -2,7 +2,7 @@ use nexosim::model::{Context, InitializedModel, ProtoModel, SchedulableId};
 use nexosim::ports::Output;
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
+use nexosim::{schedulable, Argument, Model};
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -15,13 +15,14 @@ struct MyOutput {
     args: Vec<u8>,
 }
 
-#[derive(Clone, schemars::JsonSchema)]
+#[Argument]
+#[derive(Clone)]
 struct CompoundValue {
     value: u32,
     coeff: f32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Debug, Deserialize)]
 struct MyModel {
     state: u32,
     voltage: Output<u16>,

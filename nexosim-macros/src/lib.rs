@@ -8,6 +8,17 @@ use syn::{
     PathSegment, ReturnType, Type, TypePath, TypeTuple, Visibility,
 };
 
+#[allow(non_snake_case)]
+#[proc_macro_attribute]
+pub fn Argument(_: TokenStream, input: TokenStream) -> TokenStream {
+    let input: proc_macro2::TokenStream = input.into();
+    let output = quote! {
+        #[derive(schemars::JsonSchema)]
+        #input
+    };
+    output.into()
+}
+
 #[proc_macro]
 pub fn schedulable(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).unwrap();
