@@ -8,15 +8,27 @@ use syn::{
     PathSegment, ReturnType, Type, TypePath, TypeTuple, Visibility,
 };
 
-#[allow(non_snake_case)]
 #[proc_macro_attribute]
-pub fn Argument(_: TokenStream, input: TokenStream) -> TokenStream {
-    let input: proc_macro2::TokenStream = input.into();
-    let output = quote! {
-        #[derive(schemars::JsonSchema)]
-        #input
-    };
-    output.into()
+pub fn __erase(_: TokenStream, _: TokenStream) -> TokenStream {
+    <_>::default()
+}
+
+#[proc_macro_derive(Event)]
+pub fn event_derive(input: TokenStream) -> TokenStream {
+    [
+        stringify!(
+            #[
+                ::core::prelude::v1::derive(
+                    ::schemars::JsonSchema
+                )
+            ]
+            #[::nexosim_macros::__erase]
+        ),
+        &input.to_string(),
+    ]
+    .concat()
+    .parse()
+    .unwrap()
 }
 
 #[proc_macro]

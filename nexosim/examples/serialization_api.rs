@@ -2,24 +2,30 @@ use nexosim::model::{Context, InitializedModel, ProtoModel, SchedulableId};
 use nexosim::ports::Output;
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Argument, Model};
+use nexosim::{schedulable, Event, Model};
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, schemars::JsonSchema)]
-struct MyOutput {
-    value: usize,
-    args: Vec<u8>,
+#[derive(Clone, Event)]
+enum MyOutput {
+    Int(u32),
+    Float(f32),
+    String(String),
 }
 
-#[Argument]
-#[derive(Clone)]
+#[derive(Clone, Event)]
 struct CompoundValue {
     value: u32,
     coeff: f32,
+    inner: InnerArg,
+}
+
+#[derive(Clone, Debug, Event)]
+struct InnerArg {
+    pub value: u64,
 }
 
 #[derive(Serialize, Debug, Deserialize)]
@@ -46,6 +52,7 @@ impl MyModel {
     }
 
     pub async fn apply_value(&mut self, arg: CompoundValue) {
+        println!("{:?}", arg.inner);
         self.state += (arg.value as f32 * arg.coeff) as u32;
     }
 
