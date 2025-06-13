@@ -10,6 +10,8 @@ use serde::de::DeserializeOwned;
 use crate::ports::EventSource;
 use crate::simulation::{Action, ActionKey};
 
+use super::{EventSchema, RegistryEvent, Schema};
+
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
 /// A registry that holds all sources and sinks meant to be accessed through
@@ -20,15 +22,15 @@ pub(crate) struct EventSourceRegistry(HashMap<String, Box<dyn EventSourceAny>>);
 impl EventSourceRegistry {
     /// Adds an event source to the registry.
     ///
-    /// If the specified name is already in use for another event source, the source
-    /// provided as argument is returned in the error.
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
     pub(crate) fn add<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Schema + DeserializeOwned + Clone + Send + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -54,7 +56,7 @@ impl fmt::Debug for EventSourceRegistry {
 }
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
-pub(crate) trait EventSourceAny: Send + Sync + 'static {
+pub(crate) trait EventSourceAny: RegistryEvent + Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
     ///
@@ -96,9 +98,18 @@ pub(crate) trait EventSourceAny: Send + Sync + 'static {
     fn event_type_name(&self) -> &'static str;
 }
 
+impl<T> RegistryEvent for Arc<EventSource<T>>
+where
+    T: Schema + Clone + Send + 'static,
+{
+    fn input_schema(&self) -> Option<EventSchema> {
+        Some(schemars::schema_for!(T).as_value().to_string())
+    }
+}
+
 impl<T> EventSourceAny for Arc<EventSource<T>>
 where
-    T: DeserializeOwned + Clone + Send + 'static,
+    T: Schema + DeserializeOwned + Clone + Send + 'static,
 {
     fn event(&self, serialized_arg: &[u8]) -> Result<Action, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg| EventSource::event(self, arg))

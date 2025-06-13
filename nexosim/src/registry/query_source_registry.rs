@@ -9,6 +9,8 @@ use serde::Serialize;
 use crate::ports::{QuerySource, ReplyReceiver};
 use crate::simulation::Action;
 
+use super::{EventSchema, RegistryEvent, Schema};
+
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
@@ -28,8 +30,8 @@ impl QuerySourceRegistry {
         name: impl Into<String>,
     ) -> Result<(), QuerySource<T, R>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
-        R: Serialize + Send + 'static,
+        T: Schema + DeserializeOwned + Clone + Send + 'static,
+        R: Schema + Serialize + Send + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -56,7 +58,7 @@ impl fmt::Debug for QuerySourceRegistry {
 
 /// A type-erased `QuerySource` that operates on CBOR-encoded serialized queries
 /// and returns CBOR-encoded replies.
-pub(crate) trait QuerySourceAny: Send + Sync + 'static {
+pub(crate) trait QuerySourceAny: RegistryEvent + Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
     ///
@@ -76,10 +78,23 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     fn reply_type_name(&self) -> &'static str;
 }
 
+impl<T, R> RegistryEvent for QuerySource<T, R>
+where
+    T: Schema + Clone + Send + 'static,
+    R: Schema + Send + 'static,
+{
+    fn input_schema(&self) -> Option<EventSchema> {
+        Some(schemars::schema_for!(T).as_value().to_string())
+    }
+    fn output_schema(&self) -> Option<EventSchema> {
+        Some(schemars::schema_for!(R).as_value().to_string())
+    }
+}
+
 impl<T, R> QuerySourceAny for QuerySource<T, R>
 where
-    T: DeserializeOwned + Clone + Send + 'static,
-    R: Serialize + Send + 'static,
+    T: Schema + DeserializeOwned + Clone + Send + 'static,
+    R: Schema + Serialize + Send + 'static,
 {
     fn query(
         &self,

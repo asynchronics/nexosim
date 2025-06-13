@@ -32,15 +32,15 @@ impl EndpointRegistry {
 
     /// Adds an event source to the registry.
     ///
-    /// If the specified name is already in use for another event source, the source
-    /// provided as argument is returned in the error.
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
     pub fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Schema + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.add(source, name)
     }
@@ -55,8 +55,8 @@ impl EndpointRegistry {
         name: impl Into<String>,
     ) -> Result<(), QuerySource<T, R>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
-        R: Serialize + Send + 'static,
+        T: Schema + DeserializeOwned + Clone + Send + 'static,
+        R: Schema + Serialize + Send + 'static,
     {
         self.query_source_registry.add(source, name)
     }
@@ -68,8 +68,23 @@ impl EndpointRegistry {
     pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
-        S::Item: Serialize,
+        S::Item: Schema + Serialize,
     {
         self.event_sink_registry.add(sink, name)
+    }
+}
+
+pub(crate) type EventSchema = String;
+
+// Aliasing only at the moment.
+pub trait Schema: schemars::JsonSchema {}
+impl<T: schemars::JsonSchema> Schema for T {}
+
+pub(crate) trait RegistryEvent {
+    fn input_schema(&self) -> Option<EventSchema> {
+        None
+    }
+    fn output_schema(&self) -> Option<EventSchema> {
+        None
     }
 }

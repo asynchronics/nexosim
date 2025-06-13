@@ -9,6 +9,8 @@ use serde::Serialize;
 
 use crate::ports::EventSinkReader;
 
+use super::{EventSchema, RegistryEvent, Schema};
+
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
 /// A registry that holds all sinks meant to be accessed through remote
@@ -24,7 +26,7 @@ impl EventSinkRegistry {
     pub(crate) fn add<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
-        S::Item: Serialize,
+        S::Item: Serialize + Schema,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -55,7 +57,9 @@ impl fmt::Debug for EventSinkRegistry {
 }
 
 /// A type-erased `EventSinkReader`.
-pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
+pub(crate) trait EventSinkReaderAny:
+    RegistryEvent + DynClone + Send + Sync + 'static
+{
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
@@ -75,10 +79,20 @@ pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
 
 dyn_clone::clone_trait_object!(EventSinkReaderAny);
 
+impl<E> RegistryEvent for E
+where
+    E: EventSinkReader + Send + Sync + 'static,
+    E::Item: Serialize + Schema,
+{
+    fn output_schema(&self) -> Option<EventSchema> {
+        Some(schemars::schema_for!(E::Item).as_value().to_string())
+    }
+}
+
 impl<E> EventSinkReaderAny for E
 where
     E: EventSinkReader + Send + Sync + 'static,
-    E::Item: Serialize,
+    E::Item: Serialize + Schema,
 {
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<E::Item>()
