@@ -47,6 +47,14 @@ impl EventSourceRegistry {
     pub(crate) fn get(&self, name: &str) -> Option<&dyn EventSourceAny> {
         self.0.get(name).map(|s| s.as_ref())
     }
+
+    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    pub(crate) fn get_source_schema(&self, name: &str) -> Option<EventSchema> {
+        self.get(name)?.input_schema()
+    }
 }
 
 impl fmt::Debug for EventSourceRegistry {

@@ -140,6 +140,30 @@ impl ControllerService {
         }
     }
 
+    pub(crate) fn list_event_sources(
+        &mut self,
+        _: ListEventSourcesRequest,
+    ) -> ListEventSourcesReply {
+        match self {
+            Self::Started {
+                event_source_registry,
+                ..
+            } => ListEventSourcesReply {
+                source_names: event_source_registry
+                    .list_sources()
+                    .map(|a| a.to_string())
+                    .collect(),
+                result: Some(list_event_sources_reply::Result::Empty(())),
+            },
+            Self::NotStarted => ListEventSourcesReply {
+                source_names: Vec::new(),
+                result: Some(list_event_sources_reply::Result::Error(
+                    simulation_not_started_error(),
+                )),
+            },
+        }
+    }
+
     /// Broadcasts an event from an event source immediately, blocking until
     /// completion.
     ///

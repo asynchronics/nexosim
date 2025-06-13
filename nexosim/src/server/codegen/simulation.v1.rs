@@ -164,6 +164,42 @@ pub mod step_unbounded_reply {
         Error(super::Error),
     }
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListEventSourcesRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListEventSourcesReply {
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(string, repeated, tag = "1")]
+    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "list_event_sources_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<list_event_sources_reply::Result>,
+}
+/// Nested message and enum types in `ListEventSourcesReply`.
+pub mod list_event_sources_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEventSourceSchemasRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEventSourceSchemasReply {
+    #[prost(map = "string, string", tag = "1")]
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScheduleEventRequest {
     #[prost(string, tag = "3")]
@@ -551,6 +587,13 @@ pub mod simulation_server {
             request: tonic::Request<super::StepUnboundedRequest>,
         ) -> std::result::Result<
             tonic::Response<super::StepUnboundedReply>,
+            tonic::Status,
+        >;
+        async fn list_event_sources(
+            &self,
+            request: tonic::Request<super::ListEventSourcesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListEventSourcesReply>,
             tonic::Status,
         >;
         async fn schedule_event(
@@ -966,6 +1009,51 @@ pub mod simulation_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StepUnboundedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/ListEventSources" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListEventSourcesSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListEventSourcesRequest>
+                    for ListEventSourcesSvc<T> {
+                        type Response = super::ListEventSourcesReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListEventSourcesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::list_event_sources(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListEventSourcesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

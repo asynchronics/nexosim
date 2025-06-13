@@ -382,6 +382,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
 
         self.execute_scheduler_fn(request, SchedulerService::cancel_event)
     }
+    async fn list_event_sources(
+        &self,
+        request: Request<ListEventSourcesRequest>,
+    ) -> Result<Response<ListEventSourcesReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_controller_fn(request, ControllerService::list_event_sources)
+            .await
+    }
     async fn process_event(
         &self,
         request: Request<ProcessEventRequest>,
