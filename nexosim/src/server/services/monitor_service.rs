@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 
@@ -151,6 +152,72 @@ impl MonitorService {
 
         CloseSinkReply {
             result: Some(reply),
+        }
+    }
+
+    pub(crate) fn list_event_sinks(&self, _: ListEventSinksRequest) -> ListEventSinksReply {
+        match self {
+            Self::Started {
+                event_sink_registry,
+                ..
+            } => ListEventSinksReply {
+                sink_names: event_sink_registry
+                    .list_sinks()
+                    .map(|a| a.to_string())
+                    .collect(),
+                result: Some(list_event_sinks_reply::Result::Empty(())),
+            },
+            Self::NotStarted => ListEventSinksReply {
+                sink_names: Vec::new(),
+                result: Some(list_event_sinks_reply::Result::Error(
+                    simulation_not_started_error(),
+                )),
+            },
+        }
+    }
+
+    pub(crate) fn get_event_sink_schemas(
+        &self,
+        request: GetEventSinkSchemasRequest,
+    ) -> GetEventSinkSchemasReply {
+        match self {
+            Self::Started {
+                event_sink_registry,
+                ..
+            } => {
+                let schemas = if request.sink_names.is_empty() {
+                    event_sink_registry
+                        .list_sinks()
+                        .map(|a| {
+                            (
+                                a.to_string(),
+                                event_sink_registry.get_sink_schema(a).unwrap_or_default(),
+                            )
+                        })
+                        .collect()
+                } else {
+                    request
+                        .sink_names
+                        .iter()
+                        .map(|a| {
+                            (
+                                a.to_string(),
+                                event_sink_registry.get_sink_schema(a).unwrap_or_default(),
+                            )
+                        })
+                        .collect()
+                };
+                GetEventSinkSchemasReply {
+                    schemas,
+                    result: Some(get_event_sink_schemas_reply::Result::Empty(())),
+                }
+            }
+            Self::NotStarted => GetEventSinkSchemasReply {
+                schemas: HashMap::new(),
+                result: Some(get_event_sink_schemas_reply::Result::Error(
+                    simulation_not_started_error(),
+                )),
+            },
         }
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -158,6 +159,136 @@ impl ControllerService {
             Self::NotStarted => ListEventSourcesReply {
                 source_names: Vec::new(),
                 result: Some(list_event_sources_reply::Result::Error(
+                    simulation_not_started_error(),
+                )),
+            },
+        }
+    }
+
+    pub(crate) fn get_event_source_schemas(
+        &mut self,
+        request: GetEventSourceSchemasRequest,
+    ) -> GetEventSourceSchemasReply {
+        match self {
+            Self::Started {
+                event_source_registry,
+                ..
+            } => {
+                let schemas = if request.source_names.is_empty() {
+                    event_source_registry
+                        .list_sources()
+                        .map(|a| {
+                            (
+                                a.to_string(),
+                                event_source_registry
+                                    .get_source_schema(a)
+                                    .unwrap_or_default(),
+                            )
+                        })
+                        .collect()
+                } else {
+                    request
+                        .source_names
+                        .iter()
+                        .map(|a| {
+                            (
+                                a.to_string(),
+                                event_source_registry
+                                    .get_source_schema(a)
+                                    .unwrap_or_default(),
+                            )
+                        })
+                        .collect()
+                };
+                GetEventSourceSchemasReply {
+                    schemas,
+                    result: Some(get_event_source_schemas_reply::Result::Empty(())),
+                }
+            }
+            Self::NotStarted => GetEventSourceSchemasReply {
+                schemas: HashMap::new(),
+                result: Some(get_event_source_schemas_reply::Result::Error(
+                    simulation_not_started_error(),
+                )),
+            },
+        }
+    }
+
+    pub(crate) fn list_query_sources(
+        &mut self,
+        _: ListQuerySourcesRequest,
+    ) -> ListQuerySourcesReply {
+        match self {
+            Self::Started {
+                query_source_registry,
+                ..
+            } => ListQuerySourcesReply {
+                source_names: query_source_registry
+                    .list_sources()
+                    .map(|a| a.to_string())
+                    .collect(),
+                result: Some(list_query_sources_reply::Result::Empty(())),
+            },
+            Self::NotStarted => ListQuerySourcesReply {
+                source_names: Vec::new(),
+                result: Some(list_query_sources_reply::Result::Error(
+                    simulation_not_started_error(),
+                )),
+            },
+        }
+    }
+
+    pub(crate) fn get_query_source_schemas(
+        &mut self,
+        request: GetQuerySourceSchemasRequest,
+    ) -> GetQuerySourceSchemasReply {
+        match self {
+            Self::Started {
+                query_source_registry,
+                ..
+            } => {
+                let schemas = if request.source_names.is_empty() {
+                    query_source_registry
+                        .list_sources()
+                        .map(|a| {
+                            let schema = query_source_registry
+                                .get_source_schema(a)
+                                .unwrap_or_default();
+                            (
+                                a.to_string(),
+                                QuerySchema {
+                                    input: schema.0,
+                                    output: schema.1,
+                                },
+                            )
+                        })
+                        .collect()
+                } else {
+                    request
+                        .source_names
+                        .iter()
+                        .map(|a| {
+                            let schema = query_source_registry
+                                .get_source_schema(a)
+                                .unwrap_or_default();
+                            (
+                                a.to_string(),
+                                QuerySchema {
+                                    input: schema.0,
+                                    output: schema.1,
+                                },
+                            )
+                        })
+                        .collect()
+                };
+                GetQuerySourceSchemasReply {
+                    schemas,
+                    result: Some(get_query_source_schemas_reply::Result::Empty(())),
+                }
+            }
+            Self::NotStarted => GetQuerySourceSchemasReply {
+                schemas: HashMap::new(),
+                result: Some(get_query_source_schemas_reply::Result::Error(
                     simulation_not_started_error(),
                 )),
             },

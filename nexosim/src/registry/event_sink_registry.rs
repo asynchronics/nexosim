@@ -48,6 +48,14 @@ impl EventSinkRegistry {
     pub(crate) fn get(&self, name: &str) -> Option<Box<dyn EventSinkReaderAny>> {
         self.0.get(name).map(|s| dyn_clone::clone_box(&**s))
     }
+
+    pub(crate) fn list_sinks(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    pub(crate) fn get_sink_schema(&self, name: &str) -> Option<EventSchema> {
+        self.get(name)?.output_schema()
+    }
 }
 
 impl fmt::Debug for EventSinkRegistry {

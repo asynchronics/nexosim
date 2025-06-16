@@ -391,6 +391,51 @@ impl simulation_server::Simulation for GrpcSimulationService {
         self.execute_controller_fn(request, ControllerService::list_event_sources)
             .await
     }
+    async fn get_event_source_schemas(
+        &self,
+        request: Request<GetEventSourceSchemasRequest>,
+    ) -> Result<Response<GetEventSourceSchemasReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_controller_fn(request, ControllerService::get_event_source_schemas)
+            .await
+    }
+    async fn list_query_sources(
+        &self,
+        request: Request<ListQuerySourcesRequest>,
+    ) -> Result<Response<ListQuerySourcesReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_controller_fn(request, ControllerService::list_query_sources)
+            .await
+    }
+    async fn get_query_source_schemas(
+        &self,
+        request: Request<GetQuerySourceSchemasRequest>,
+    ) -> Result<Response<GetQuerySourceSchemasReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_controller_fn(request, ControllerService::get_query_source_schemas)
+            .await
+    }
+    async fn list_event_sinks(
+        &self,
+        request: Request<ListEventSinksRequest>,
+    ) -> Result<Response<ListEventSinksReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_monitor_read_fn(request, MonitorService::list_event_sinks)
+            .await
+    }
+    async fn get_event_sink_schemas(
+        &self,
+        request: Request<GetEventSinkSchemasRequest>,
+    ) -> Result<Response<GetEventSinkSchemasReply>, Status> {
+        let request = request.into_inner();
+
+        self.execute_monitor_read_fn(request, MonitorService::get_event_sink_schemas)
+            .await
+    }
     async fn process_event(
         &self,
         request: Request<ProcessEventRequest>,

@@ -48,6 +48,15 @@ impl QuerySourceRegistry {
     pub(crate) fn get(&self, name: &str) -> Option<&dyn QuerySourceAny> {
         self.0.get(name).map(|s| s.as_ref())
     }
+
+    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    pub(crate) fn get_source_schema(&self, name: &str) -> Option<(EventSchema, EventSchema)> {
+        let source = self.get(name)?;
+        Some((source.input_schema()?, source.output_schema()?))
+    }
 }
 
 impl fmt::Debug for QuerySourceRegistry {
