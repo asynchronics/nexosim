@@ -68,6 +68,7 @@ fn run_service(
     signal: Option<Pin<Box<dyn Future<Output = ()>>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
         .enable_io()
         .build()?;
 
@@ -170,6 +171,7 @@ fn run_local_service(
     fs::create_dir_all(path.parent().unwrap())?;
 
     let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
         .enable_io()
         .build()?;
 
