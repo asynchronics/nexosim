@@ -139,8 +139,8 @@ message ListQuerySourcesReply {
 }
 
 message QuerySchema {
-  string input = 1;
-  string output = 2;
+  string request = 1;
+  string reply = 2;
 }
 
 message GetQuerySourceSchemasRequest {
