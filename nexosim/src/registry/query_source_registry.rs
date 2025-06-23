@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use std::fmt;
 
 use ciborium;
+use schemars::schema_for;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
 use crate::simulation::Action;
 
-use super::{EventSchema, RegistryEvent, Schema};
+use super::{EventSchema, RegistryError, Schema};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -35,7 +36,39 @@ impl QuerySourceRegistry {
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
-                s.insert(Box::new(source));
+                let entry = QuerySourceEntry {
+                    inner: source,
+                    schema_gen: || {
+                        (
+                            schema_for!(T).as_value().to_string(),
+                            schema_for!(R).as_value().to_string(),
+                        )
+                    },
+                };
+                s.insert(Box::new(entry));
+
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(source),
+        }
+    }
+
+    pub(crate) fn add_raw<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+    ) -> Result<(), QuerySource<T, R>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+        R: Serialize + Send + 'static,
+    {
+        match self.0.entry(name.into()) {
+            Entry::Vacant(s) => {
+                let entry = QuerySourceEntry {
+                    inner: source,
+                    schema_gen: || (String::new(), String::new()),
+                };
+                s.insert(Box::new(entry));
 
                 Ok(())
             }
@@ -53,9 +86,14 @@ impl QuerySourceRegistry {
         self.0.keys()
     }
 
-    pub(crate) fn get_source_schema(&self, name: &str) -> Option<(EventSchema, EventSchema)> {
-        let source = self.get(name)?;
-        Some((source.input_schema()?, source.output_schema()?))
+    pub(crate) fn get_source_schema(
+        &self,
+        name: &str,
+    ) -> Result<(EventSchema, EventSchema), RegistryError> {
+        Ok(self
+            .get(name)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get_schema())
     }
 }
 
@@ -67,7 +105,7 @@ impl fmt::Debug for QuerySourceRegistry {
 
 /// A type-erased `QuerySource` that operates on CBOR-encoded serialized queries
 /// and returns CBOR-encoded replies.
-pub(crate) trait QuerySourceAny: RegistryEvent + Send + Sync + 'static {
+pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
     ///
@@ -85,32 +123,32 @@ pub(crate) trait QuerySourceAny: RegistryEvent + Send + Sync + 'static {
     /// Human-readable name of the reply type, as returned by
     /// `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
+
+    fn get_schema(&self) -> (EventSchema, EventSchema);
 }
 
-impl<T, R> RegistryEvent for QuerySource<T, R>
+struct QuerySourceEntry<T, R, F>
 where
-    T: Schema + Clone + Send + 'static,
-    R: Schema + Send + 'static,
+    T: DeserializeOwned + Clone + Send + 'static,
+    R: Serialize + Send + 'static,
+    F: Fn() -> (EventSchema, EventSchema),
 {
-    fn input_schema(&self) -> Option<EventSchema> {
-        Some(schemars::schema_for!(T).as_value().to_string())
-    }
-    fn output_schema(&self) -> Option<EventSchema> {
-        Some(schemars::schema_for!(R).as_value().to_string())
-    }
+    inner: QuerySource<T, R>,
+    schema_gen: F,
 }
 
-impl<T, R> QuerySourceAny for QuerySource<T, R>
+impl<T, R, F> QuerySourceAny for QuerySourceEntry<T, R, F>
 where
-    T: Schema + DeserializeOwned + Clone + Send + 'static,
-    R: Schema + Serialize + Send + 'static,
+    T: DeserializeOwned + Clone + Send + 'static,
+    R: Serialize + Send + 'static,
+    F: Fn() -> (EventSchema, EventSchema) + Send + Sync + 'static,
 {
     fn query(
         &self,
         arg: &[u8],
     ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError> {
         ciborium::from_reader(arg).map(|arg| {
-            let (action, reply_recv) = self.query(arg);
+            let (action, reply_recv) = self.inner.query(arg);
             let reply_recv: Box<dyn ReplyReceiverAny> = Box::new(reply_recv);
 
             (action, reply_recv)
@@ -123,6 +161,10 @@ where
 
     fn reply_type_name(&self) -> &'static str {
         std::any::type_name::<R>()
+    }
+
+    fn get_schema(&self) -> (EventSchema, EventSchema) {
+        (self.schema_gen)()
     }
 }
 

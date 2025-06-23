@@ -9,6 +9,7 @@ use prost_types::Timestamp;
 use tai_time::MonotonicTime;
 
 use super::codegen::simulation::{Error, ErrorCode};
+use crate::registry::RegistryError;
 use crate::simulation::{ExecutionError, SchedulingError, SimulationError};
 
 pub(crate) use controller_service::ControllerService;
@@ -70,6 +71,16 @@ fn map_simulation_error(error: SimulationError) -> Error {
         SimulationError::ExecutionError(e) => map_execution_error(e),
         SimulationError::SchedulingError(e) => map_scheduling_error(e),
     }
+}
+
+fn map_registry_error(error: RegistryError) -> Error {
+    let error_code = match error {
+        RegistryError::SourceNotFound(_) => ErrorCode::SourceNotFound,
+        RegistryError::SinkNotFound(_) => ErrorCode::SinkNotFound,
+    };
+    let error_message = error.to_string();
+
+    to_error(error_code, error_message)
 }
 
 /// Attempts a cast from a `MonotonicTime` to a protobuf `Timestamp`.

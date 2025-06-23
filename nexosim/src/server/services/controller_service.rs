@@ -9,7 +9,7 @@ use crate::simulation::Simulation;
 
 use super::super::codegen::simulation::*;
 use super::{
-    map_execution_error, monotonic_to_timestamp, simulation_not_started_error,
+    map_execution_error, map_registry_error, monotonic_to_timestamp, simulation_not_started_error,
     timestamp_to_monotonic, to_error, to_positive_duration,
 };
 
@@ -175,34 +175,30 @@ impl ControllerService {
                 ..
             } => {
                 let schemas = if request.source_names.is_empty() {
+                    // When no argument is provided return all the schemas.
                     event_source_registry
                         .list_sources()
-                        .map(|a| {
-                            (
-                                a.to_string(),
-                                event_source_registry
-                                    .get_source_schema(a)
-                                    .unwrap_or_default(),
-                            )
-                        })
+                        .map(|a| Ok((a.to_string(), event_source_registry.get_source_schema(a)?)))
                         .collect()
                 } else {
                     request
                         .source_names
                         .iter()
-                        .map(|a| {
-                            (
-                                a.to_string(),
-                                event_source_registry
-                                    .get_source_schema(a)
-                                    .unwrap_or_default(),
-                            )
-                        })
+                        .map(|a| Ok((a.to_string(), event_source_registry.get_source_schema(a)?)))
                         .collect()
                 };
-                GetEventSourceSchemasReply {
-                    schemas,
-                    result: Some(get_event_source_schemas_reply::Result::Empty(())),
+
+                match schemas {
+                    Ok(schemas) => GetEventSourceSchemasReply {
+                        schemas,
+                        result: Some(get_event_source_schemas_reply::Result::Empty(())),
+                    },
+                    Err(e) => GetEventSourceSchemasReply {
+                        schemas: HashMap::new(),
+                        result: Some(get_event_source_schemas_reply::Result::Error(
+                            map_registry_error(e),
+                        )),
+                    },
                 }
             }
             Self::NotStarted => GetEventSourceSchemasReply {
@@ -248,19 +244,18 @@ impl ControllerService {
                 ..
             } => {
                 let schemas = if request.source_names.is_empty() {
+                    // When no argument is provided return all the schemas.
                     query_source_registry
                         .list_sources()
                         .map(|a| {
-                            let schema = query_source_registry
-                                .get_source_schema(a)
-                                .unwrap_or_default();
-                            (
+                            let schema = query_source_registry.get_source_schema(a)?;
+                            Ok((
                                 a.to_string(),
                                 QuerySchema {
                                     input: schema.0,
                                     output: schema.1,
                                 },
-                            )
+                            ))
                         })
                         .collect()
                 } else {
@@ -268,22 +263,29 @@ impl ControllerService {
                         .source_names
                         .iter()
                         .map(|a| {
-                            let schema = query_source_registry
-                                .get_source_schema(a)
-                                .unwrap_or_default();
-                            (
+                            let schema = query_source_registry.get_source_schema(a)?;
+                            Ok((
                                 a.to_string(),
                                 QuerySchema {
                                     input: schema.0,
                                     output: schema.1,
                                 },
-                            )
+                            ))
                         })
                         .collect()
                 };
-                GetQuerySourceSchemasReply {
-                    schemas,
-                    result: Some(get_query_source_schemas_reply::Result::Empty(())),
+
+                match schemas {
+                    Ok(schemas) => GetQuerySourceSchemasReply {
+                        schemas,
+                        result: Some(get_query_source_schemas_reply::Result::Empty(())),
+                    },
+                    Err(e) => GetQuerySourceSchemasReply {
+                        schemas: HashMap::new(),
+                        result: Some(get_query_source_schemas_reply::Result::Error(
+                            map_registry_error(e),
+                        )),
+                    },
                 }
             }
             Self::NotStarted => GetQuerySourceSchemasReply {

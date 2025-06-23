@@ -45,6 +45,17 @@ impl EndpointRegistry {
         self.event_source_registry.add(source, name)
     }
 
+    pub fn add_event_source_raw<T>(
+        &mut self,
+        source: EventSource<T>,
+        name: impl Into<String>,
+    ) -> Result<(), EventSource<T>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+    {
+        self.event_source_registry.add_raw(source, name)
+    }
+
     /// Adds a query source to the registry.
     ///
     /// If the specified name is already in use for another query source, the
@@ -61,6 +72,18 @@ impl EndpointRegistry {
         self.query_source_registry.add(source, name)
     }
 
+    pub fn add_query_source_raw<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+    ) -> Result<(), QuerySource<T, R>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+        R: Serialize + Send + 'static,
+    {
+        self.query_source_registry.add_raw(source, name)
+    }
+
     /// Adds an event sink to the registry.
     ///
     /// If the specified name is already in use for another event sink, the
@@ -72,6 +95,14 @@ impl EndpointRegistry {
     {
         self.event_sink_registry.add(sink, name)
     }
+
+    pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    where
+        S: EventSinkReader + Send + Sync + 'static,
+        S::Item: Serialize,
+    {
+        self.event_sink_registry.add_raw(sink, name)
+    }
 }
 
 pub(crate) type EventSchema = String;
@@ -80,11 +111,22 @@ pub(crate) type EventSchema = String;
 pub trait Schema: schemars::JsonSchema {}
 impl<T: schemars::JsonSchema> Schema for T {}
 
-pub(crate) trait RegistryEvent {
-    fn input_schema(&self) -> Option<EventSchema> {
-        None
-    }
-    fn output_schema(&self) -> Option<EventSchema> {
-        None
+#[derive(Debug)]
+pub(crate) enum RegistryError {
+    SourceNotFound(String),
+    SinkNotFound(String),
+}
+
+impl std::fmt::Display for RegistryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegistryError::SourceNotFound(name) => {
+                write!(f, "source not found in the registry: {}", name)
+            }
+            RegistryError::SinkNotFound(name) => {
+                write!(f, "sink not found in the registry: {}", name)
+            }
+        }
     }
 }
+impl std::error::Error for RegistryError {}

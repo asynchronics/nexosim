@@ -5,12 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ciborium;
+use schemars::schema_for;
 use serde::de::DeserializeOwned;
 
 use crate::ports::EventSource;
 use crate::simulation::{Action, ActionKey};
 
-use super::{EventSchema, RegistryEvent, Schema};
+use super::{EventSchema, RegistryError, Schema};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
@@ -34,8 +35,33 @@ impl EventSourceRegistry {
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
-                s.insert(Box::new(Arc::new(source)));
+                let entry = EventSourceEntry {
+                    inner: Arc::new(source),
+                    schema_gen: || schema_for!(T).as_value().to_string(),
+                };
+                s.insert(Box::new(entry));
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(source),
+        }
+    }
 
+    pub(crate) fn add_raw<T>(
+        &mut self,
+        source: EventSource<T>,
+        name: impl Into<String>,
+    ) -> Result<(), EventSource<T>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+    {
+        match self.0.entry(name.into()) {
+            Entry::Vacant(s) => {
+                let entry = EventSourceEntry {
+                    inner: Arc::new(source),
+                    // Empty string means no schema.
+                    schema_gen: || String::new(),
+                };
+                s.insert(Box::new(entry));
                 Ok(())
             }
             Entry::Occupied(_) => Err(source),
@@ -52,8 +78,11 @@ impl EventSourceRegistry {
         self.0.keys()
     }
 
-    pub(crate) fn get_source_schema(&self, name: &str) -> Option<EventSchema> {
-        self.get(name)?.input_schema()
+    pub(crate) fn get_source_schema(&self, name: &str) -> Result<EventSchema, RegistryError> {
+        Ok(self
+            .get(name)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get_schema())
     }
 }
 
@@ -64,7 +93,7 @@ impl fmt::Debug for EventSourceRegistry {
 }
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
-pub(crate) trait EventSourceAny: RegistryEvent + Send + Sync + 'static {
+pub(crate) trait EventSourceAny: Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
     ///
@@ -104,29 +133,32 @@ pub(crate) trait EventSourceAny: RegistryEvent + Send + Sync + 'static {
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
+
+    fn get_schema(&self) -> EventSchema;
 }
 
-impl<T> RegistryEvent for Arc<EventSource<T>>
+struct EventSourceEntry<T, F>
 where
-    T: Schema + Clone + Send + 'static,
+    T: DeserializeOwned + Clone + Send + 'static,
+    F: Fn() -> EventSchema,
 {
-    fn input_schema(&self) -> Option<EventSchema> {
-        Some(schemars::schema_for!(T).as_value().to_string())
-    }
+    inner: Arc<EventSource<T>>,
+    schema_gen: F,
 }
 
-impl<T> EventSourceAny for Arc<EventSource<T>>
+impl<T, F> EventSourceAny for EventSourceEntry<T, F>
 where
-    T: Schema + DeserializeOwned + Clone + Send + 'static,
+    T: DeserializeOwned + Clone + Send + 'static,
+    F: Fn() -> EventSchema + Send + Sync + 'static,
 {
     fn event(&self, serialized_arg: &[u8]) -> Result<Action, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| EventSource::event(self, arg))
+        ciborium::from_reader(serialized_arg).map(|arg| EventSource::event(&self.inner, arg))
     }
     fn keyed_event(
         &self,
         serialized_arg: &[u8],
     ) -> Result<(Action, ActionKey), DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| EventSource::keyed_event(self, arg))
+        ciborium::from_reader(serialized_arg).map(|arg| EventSource::keyed_event(&self.inner, arg))
     }
     fn periodic_event(
         &self,
@@ -134,16 +166,20 @@ where
         serialized_arg: &[u8],
     ) -> Result<Action, DeserializationError> {
         ciborium::from_reader(serialized_arg)
-            .map(|arg| EventSource::periodic_event(self, period, arg))
+            .map(|arg| EventSource::periodic_event(&self.inner, period, arg))
     }
     fn keyed_periodic_event(
         &self,
         period: Duration,
         serialized_arg: &[u8],
     ) -> Result<(Action, ActionKey), DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| self.keyed_periodic_event(period, arg))
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| self.inner.keyed_periodic_event(period, arg))
     }
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
+    }
+    fn get_schema(&self) -> EventSchema {
+        (self.schema_gen)()
     }
 }

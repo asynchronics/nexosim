@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::registry::EventSinkRegistry;
 
 use super::super::codegen::simulation::*;
-use super::{simulation_not_started_error, to_error, to_positive_duration};
+use super::{map_registry_error, simulation_not_started_error, to_error, to_positive_duration};
 
 /// Protobuf-based simulation monitor.
 ///
@@ -188,28 +188,26 @@ impl MonitorService {
                 let schemas = if request.sink_names.is_empty() {
                     event_sink_registry
                         .list_sinks()
-                        .map(|a| {
-                            (
-                                a.to_string(),
-                                event_sink_registry.get_sink_schema(a).unwrap_or_default(),
-                            )
-                        })
+                        .map(|a| Ok((a.to_string(), event_sink_registry.get_sink_schema(a)?)))
                         .collect()
                 } else {
                     request
                         .sink_names
                         .iter()
-                        .map(|a| {
-                            (
-                                a.to_string(),
-                                event_sink_registry.get_sink_schema(a).unwrap_or_default(),
-                            )
-                        })
+                        .map(|a| Ok((a.to_string(), event_sink_registry.get_sink_schema(a)?)))
                         .collect()
                 };
-                GetEventSinkSchemasReply {
-                    schemas,
-                    result: Some(get_event_sink_schemas_reply::Result::Empty(())),
+                match schemas {
+                    Ok(schemas) => GetEventSinkSchemasReply {
+                        schemas,
+                        result: Some(get_event_sink_schemas_reply::Result::Empty(())),
+                    },
+                    Err(e) => GetEventSinkSchemasReply {
+                        schemas: HashMap::new(),
+                        result: Some(get_event_sink_schemas_reply::Result::Error(
+                            map_registry_error(e),
+                        )),
+                    },
                 }
             }
             Self::NotStarted => GetEventSinkSchemasReply {
