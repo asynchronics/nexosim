@@ -225,3 +225,121 @@ impl fmt::Debug for MonitorService {
         f.debug_struct("SimulationService").finish_non_exhaustive()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ports::EventSinkReader;
+
+    use super::*;
+
+    #[derive(Clone, Debug)]
+    struct DummySink<T>(T);
+    impl<T> DummySink<T> {
+        fn new(t: T) -> Self {
+            Self(t)
+        }
+    }
+    impl<T> Iterator for DummySink<T> {
+        type Item = ();
+        fn next(&mut self) -> Option<()> {
+            None
+        }
+    }
+    impl<T: Clone> EventSinkReader for DummySink<T> {
+        fn open(&mut self) {}
+        fn close(&mut self) {}
+        fn set_blocking(&mut self, _: bool) {}
+        fn set_timeout(&mut self, _: Duration) {}
+    }
+
+    fn get_service<'a>(sinks: impl IntoIterator<Item = &'a str>) -> MonitorService {
+        let mut event_sink_registry = EventSinkRegistry::default();
+        for sink in sinks {
+            event_sink_registry.add(DummySink::new(()), sink).unwrap();
+        }
+        MonitorService::Started {
+            event_sink_registry,
+        }
+    }
+
+    #[test]
+    fn get_single_schema() {
+        let reply =
+            get_service(["main", "other"]).get_event_sink_schemas(GetEventSinkSchemasRequest {
+                sink_names: vec!["main".to_string()],
+            });
+        assert_eq!(
+            reply.result,
+            Some(get_event_sink_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(reply.schemas.len(), 1);
+        assert_eq!(reply.schemas.keys().next().unwrap(), "main");
+    }
+
+    #[test]
+    fn get_multiple_schemas() {
+        let reply = get_service(["main", "secondary", "other"]).get_event_sink_schemas(
+            GetEventSinkSchemasRequest {
+                sink_names: vec!["main".to_string(), "secondary".to_string()],
+            },
+        );
+        assert_eq!(
+            reply.result,
+            Some(get_event_sink_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(reply.schemas.len(), 2);
+        let keys = reply
+            .schemas
+            .into_keys()
+            .collect::<std::collections::HashSet<String>>();
+        assert!(keys.contains("main"));
+        assert!(keys.contains("secondary"));
+    }
+
+    #[test]
+    fn get_all_schemas() {
+        let reply = get_service(["main", "secondary"])
+            .get_event_sink_schemas(GetEventSinkSchemasRequest { sink_names: vec![] });
+
+        assert_eq!(
+            reply.result,
+            Some(get_event_sink_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(reply.schemas.len(), 2);
+    }
+
+    #[test]
+    fn get_missing_schema() {
+        let reply = get_service(["main"]).get_event_sink_schemas(GetEventSinkSchemasRequest {
+            sink_names: vec!["main".to_string(), "secondary".to_string()],
+        });
+        assert!(matches!(
+            reply.result,
+            Some(get_event_sink_schemas_reply::Result::Error(_))
+        ));
+        assert!(reply.schemas.is_empty());
+    }
+
+    #[test]
+    fn get_empty_schema() {
+        let mut event_sink_registry = EventSinkRegistry::default();
+        event_sink_registry
+            .add_raw(DummySink::new(()), "main")
+            .unwrap();
+        let service = MonitorService::Started {
+            event_sink_registry,
+        };
+
+        let reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
+            sink_names: vec!["main".to_string()],
+        });
+
+        assert_eq!(
+            reply.result,
+            Some(get_event_sink_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(reply.schemas.len(), 1);
+        assert_eq!(reply.schemas.keys().next().unwrap(), "main");
+        assert_eq!(reply.schemas.values().next().unwrap(), "");
+    }
+}

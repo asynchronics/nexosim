@@ -409,3 +409,202 @@ impl fmt::Debug for ControllerService {
         f.debug_struct("ControllerService").finish_non_exhaustive()
     }
 }
+
+#[cfg(all(test, not(nexosim_loom)))]
+mod tests {
+
+    use super::*;
+
+    use crate::ports::{EventSource, QuerySource};
+
+    fn get_service(
+        event_sources: Vec<&str>,
+        raw_event_sources: Vec<&str>,
+        query_sources: Vec<&str>,
+        raw_query_sources: Vec<&str>,
+    ) -> ControllerService {
+        let mut event_source_registry = EventSourceRegistry::default();
+        for source in event_sources {
+            event_source_registry
+                .add::<()>(EventSource::new(), source)
+                .unwrap();
+        }
+        for source in raw_event_sources {
+            event_source_registry
+                .add_raw::<()>(EventSource::new(), source)
+                .unwrap();
+        }
+
+        let mut query_source_registry = QuerySourceRegistry::default();
+        for source in query_sources {
+            query_source_registry
+                .add::<(), ()>(QuerySource::new(), source)
+                .unwrap();
+        }
+        for source in raw_query_sources {
+            query_source_registry
+                .add_raw::<(), ()>(QuerySource::new(), source)
+                .unwrap();
+        }
+
+        ControllerService::Started {
+            simulation: Simulation::new_dummy(),
+            event_source_registry: Arc::new(event_source_registry),
+            query_source_registry,
+        }
+    }
+
+    #[test]
+    fn get_single_schemas() {
+        let mut service = get_service(
+            vec!["event", "other"],
+            vec![],
+            vec!["query", "other"],
+            vec![],
+        );
+        let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
+            source_names: vec!["event".to_string()],
+        });
+        assert_eq!(
+            event_reply.result,
+            Some(get_event_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(event_reply.schemas.len(), 1);
+        assert_eq!(event_reply.schemas.keys().next().unwrap(), "event");
+
+        let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
+            source_names: vec!["query".to_string()],
+        });
+        assert_eq!(
+            query_reply.result,
+            Some(get_query_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(query_reply.schemas.len(), 1);
+        assert_eq!(query_reply.schemas.keys().next().unwrap(), "query");
+    }
+
+    #[test]
+    fn get_multiple_schemas() {
+        let mut service = get_service(
+            vec!["event", "secondary", "other"],
+            vec![],
+            vec!["query", "secondary", "other"],
+            vec![],
+        );
+        let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
+            source_names: vec!["event".to_string(), "secondary".to_string()],
+        });
+        assert_eq!(
+            event_reply.result,
+            Some(get_event_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(event_reply.schemas.len(), 2);
+        let event_keys = event_reply
+            .schemas
+            .into_keys()
+            .collect::<std::collections::HashSet<String>>();
+        assert!(event_keys.contains("event"));
+        assert!(event_keys.contains("secondary"));
+
+        let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
+            source_names: vec!["query".to_string(), "secondary".to_string()],
+        });
+        assert_eq!(
+            query_reply.result,
+            Some(get_query_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(query_reply.schemas.len(), 2);
+        let query_keys = query_reply
+            .schemas
+            .into_keys()
+            .collect::<std::collections::HashSet<String>>();
+        assert!(query_keys.contains("query"));
+        assert!(query_keys.contains("secondary"));
+    }
+
+    #[test]
+    fn get_all_schemas() {
+        let mut service = get_service(
+            vec!["event", "other"],
+            vec!["raw"],
+            vec!["query", "other"],
+            vec!["raw"],
+        );
+        let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
+            source_names: vec![],
+        });
+        assert_eq!(
+            event_reply.result,
+            Some(get_event_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(event_reply.schemas.len(), 3);
+
+        let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
+            source_names: vec![],
+        });
+        assert_eq!(
+            query_reply.result,
+            Some(get_query_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(query_reply.schemas.len(), 3);
+    }
+
+    #[test]
+    fn get_empty_schemas() {
+        let mut service = get_service(
+            vec!["event", "other"],
+            vec!["raw"],
+            vec!["query", "other"],
+            vec!["raw"],
+        );
+        let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
+            source_names: vec!["raw".to_string()],
+        });
+        assert_eq!(
+            event_reply.result,
+            Some(get_event_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(event_reply.schemas.len(), 1);
+        assert_eq!(event_reply.schemas.keys().next().unwrap(), "raw");
+        assert_eq!(event_reply.schemas.values().next().unwrap(), "");
+
+        let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
+            source_names: vec!["raw".to_string()],
+        });
+        assert_eq!(
+            query_reply.result,
+            Some(get_query_source_schemas_reply::Result::Empty(()))
+        );
+        assert_eq!(query_reply.schemas.len(), 1);
+        assert_eq!(query_reply.schemas.keys().next().unwrap(), "raw");
+        assert_eq!(query_reply.schemas.values().next().unwrap().input, "");
+        assert_eq!(query_reply.schemas.values().next().unwrap().output, "");
+    }
+
+    #[test]
+    fn get_missing_schemas() {
+        let mut service = get_service(
+            vec!["event", "other"],
+            vec![],
+            vec!["query", "other"],
+            vec![],
+        );
+        let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
+            source_names: vec!["main".to_string()],
+        });
+        assert!(matches!(
+            event_reply.result,
+            Some(get_event_source_schemas_reply::Result::Error(_))
+        ));
+        assert!(event_reply.schemas.is_empty());
+
+        let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
+            source_names: vec!["main".to_string()],
+        });
+        assert!(matches!(
+            query_reply.result,
+            Some(get_query_source_schemas_reply::Result::Error(_))
+        ));
+        assert!(query_reply.schemas.is_empty());
+    }
+}
