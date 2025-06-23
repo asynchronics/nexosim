@@ -33,19 +33,13 @@ impl EventSourceRegistry {
     where
         T: Schema + DeserializeOwned + Clone + Send + 'static,
     {
-        match self.0.entry(name.into()) {
-            Entry::Vacant(s) => {
-                let entry = EventSourceEntry {
-                    inner: Arc::new(source),
-                    schema_gen: || schema_for!(T).as_value().to_string(),
-                };
-                s.insert(Box::new(entry));
-                Ok(())
-            }
-            Entry::Occupied(_) => Err(source),
-        }
+        self.insert_entry(source, name, || schema_for!(T).as_value().to_string())
     }
 
+    /// Adds an event source to the registry without a schema definition.
+    ///
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
     pub(crate) fn add_raw<T>(
         &mut self,
         source: EventSource<T>,
@@ -54,12 +48,24 @@ impl EventSourceRegistry {
     where
         T: DeserializeOwned + Clone + Send + 'static,
     {
+        self.insert_entry(source, name, String::new)
+    }
+
+    fn insert_entry<T, F>(
+        &mut self,
+        source: EventSource<T>,
+        name: impl Into<String>,
+        schema_gen: F,
+    ) -> Result<(), EventSource<T>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+        F: Fn() -> EventSchema + Send + Sync + 'static,
+    {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
                 let entry = EventSourceEntry {
                     inner: Arc::new(source),
-                    // Empty string means no schema.
-                    schema_gen: || String::new(),
+                    schema_gen,
                 };
                 s.insert(Box::new(entry));
                 Ok(())
@@ -74,10 +80,12 @@ impl EventSourceRegistry {
         self.0.get(name).map(|s| s.as_ref())
     }
 
+    /// Returns an iterator over the names (keys) of the registered event sources.
     pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
         self.0.keys()
     }
 
+    /// Returns the schema of the specified event source if it is in the registry.
     pub(crate) fn get_source_schema(&self, name: &str) -> Result<EventSchema, RegistryError> {
         Ok(self
             .get(name)
@@ -134,6 +142,8 @@ pub(crate) trait EventSourceAny: Send + Sync + 'static {
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
 
+    /// Returns the schema of the event type.
+    /// If the source was added via `add_raw` method, this returns an empty schema string.
     fn get_schema(&self) -> EventSchema;
 }
 

@@ -29,30 +29,37 @@ impl EventSinkRegistry {
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize + Schema,
     {
-        match self.0.entry(name.into()) {
-            Entry::Vacant(s) => {
-                let entry = EventSinkEntry {
-                    inner: sink,
-                    schema_gen: || schema_for!(S::Item).as_value().to_string(),
-                };
-                s.insert(Box::new(entry));
-
-                Ok(())
-            }
-            Entry::Occupied(_) => Err(sink),
-        }
+        self.insert_entry(sink, name, || schema_for!(S::Item).as_value().to_string())
     }
 
+    /// Adds a sink to the registry without a schema definition.
+    ///
+    /// If the specified name is already in use for another sink, the sink
+    /// provided as argument is returned in the error.
     pub(crate) fn add_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,
     {
+        self.insert_entry(sink, name, String::new)
+    }
+
+    fn insert_entry<S, F>(
+        &mut self,
+        sink: S,
+        name: impl Into<String>,
+        schema_gen: F,
+    ) -> Result<(), S>
+    where
+        S: EventSinkReader + Send + Sync + 'static,
+        S::Item: Serialize,
+        F: Fn() -> EventSchema + Clone + Send + Sync + 'static,
+    {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
                 let entry = EventSinkEntry {
                     inner: sink,
-                    schema_gen: || String::new(),
+                    schema_gen,
                 };
                 s.insert(Box::new(entry));
 
@@ -73,10 +80,12 @@ impl EventSinkRegistry {
         self.0.get(name).map(|s| dyn_clone::clone_box(&**s))
     }
 
+    /// Returns an iterator over the names of all sinks in the registry.
     pub(crate) fn list_sinks(&self) -> impl Iterator<Item = &String> {
         self.0.keys()
     }
 
+    /// Returns the schema of the specified sink if it is in the registry.
     pub(crate) fn get_sink_schema(&self, name: &str) -> Result<EventSchema, RegistryError> {
         Ok(self
             .get(name)
@@ -109,6 +118,8 @@ pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
     /// Waits for an event and encodes it in bytes.
     fn await_event(&mut self, timeout: Duration) -> Result<Vec<u8>, SerializationError>;
 
+    /// Returns the schema of the events provided by the sink.
+    /// If the sink was added via `add_raw` method, this returns an empty schema string.
     fn get_schema(&self) -> EventSchema;
 }
 

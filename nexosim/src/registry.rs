@@ -45,6 +45,11 @@ impl EndpointRegistry {
         self.event_source_registry.add(source, name)
     }
 
+    /// Adds an event source to the registry without requiring a `Schema`
+    /// implementation for its item type.
+    ///
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
     pub fn add_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
@@ -72,6 +77,11 @@ impl EndpointRegistry {
         self.query_source_registry.add(source, name)
     }
 
+    /// Adds a query source to the registry without requiring `Schema`
+    /// implementations for its query and response types.
+    ///
+    /// If the specified name is already in use for another query source, the
+    /// source provided as argument is returned in the error.
     pub fn add_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -96,6 +106,11 @@ impl EndpointRegistry {
         self.event_sink_registry.add(sink, name)
     }
 
+    /// Adds an event sink to the registry without requiring a `Schema`
+    /// implementation for its item type.
+    ///
+    /// If the specified name is already in use for another event sink, the
+    /// event sink provided as argument is returned in the error.
     pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
@@ -107,10 +122,11 @@ impl EndpointRegistry {
 
 pub(crate) type EventSchema = String;
 
-// Aliasing only at the moment.
+/// An internal alias for the registry schema trait.
 pub trait Schema: schemars::JsonSchema {}
 impl<T: schemars::JsonSchema> Schema for T {}
 
+/// Errors that can occur when interacting with the `EndpointRegistry`.
 #[derive(Debug)]
 pub(crate) enum RegistryError {
     SourceNotFound(String),

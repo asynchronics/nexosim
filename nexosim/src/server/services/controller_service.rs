@@ -141,6 +141,7 @@ impl ControllerService {
         }
     }
 
+    /// Returns a list of the names of all registered event sources.
     pub(crate) fn list_event_sources(
         &mut self,
         _: ListEventSourcesRequest,
@@ -165,6 +166,10 @@ impl ControllerService {
         }
     }
 
+    /// Retrieves the input event schemas for the specified event sources.
+    ///
+    /// If the `source_names` field is left empty, it returns schemas for all
+    /// the registered sources.
     pub(crate) fn get_event_source_schemas(
         &mut self,
         request: GetEventSourceSchemasRequest,
@@ -210,6 +215,7 @@ impl ControllerService {
         }
     }
 
+    /// Returns a list of the names of all registered query sources.
     pub(crate) fn list_query_sources(
         &mut self,
         _: ListQuerySourcesRequest,
@@ -234,6 +240,11 @@ impl ControllerService {
         }
     }
 
+    /// Retrieves the input and output query schemas for the specified query
+    /// sources.
+    ///
+    /// If the `source_names` field is left empty, it returns schemas for all
+    /// the registered sources.
     pub(crate) fn get_query_source_schemas(
         &mut self,
         request: GetQuerySourceSchemasRequest,
@@ -416,6 +427,7 @@ mod tests {
     use super::*;
 
     use crate::ports::{EventSource, QuerySource};
+    use std::collections::HashSet;
 
     fn get_service(
         event_sources: Vec<&str>,
@@ -499,10 +511,7 @@ mod tests {
             Some(get_event_source_schemas_reply::Result::Empty(()))
         );
         assert_eq!(event_reply.schemas.len(), 2);
-        let event_keys = event_reply
-            .schemas
-            .into_keys()
-            .collect::<std::collections::HashSet<String>>();
+        let event_keys = event_reply.schemas.into_keys().collect::<HashSet<String>>();
         assert!(event_keys.contains("event"));
         assert!(event_keys.contains("secondary"));
 
@@ -514,10 +523,7 @@ mod tests {
             Some(get_query_source_schemas_reply::Result::Empty(()))
         );
         assert_eq!(query_reply.schemas.len(), 2);
-        let query_keys = query_reply
-            .schemas
-            .into_keys()
-            .collect::<std::collections::HashSet<String>>();
+        let query_keys = query_reply.schemas.into_keys().collect::<HashSet<String>>();
         assert!(query_keys.contains("query"));
         assert!(query_keys.contains("secondary"));
     }
@@ -606,5 +612,23 @@ mod tests {
             Some(get_query_source_schemas_reply::Result::Error(_))
         ));
         assert!(query_reply.schemas.is_empty());
+    }
+
+    #[test]
+    fn list_event_sources() {
+        let mut service = get_service(vec!["main", "other"], vec!["raw"], vec![], vec![]);
+        let reply = service.list_event_sources(ListEventSourcesRequest {});
+        let expected: HashSet<String> =
+            HashSet::from_iter(["main".to_string(), "other".to_string(), "raw".to_string()]);
+        assert_eq!(HashSet::from_iter(reply.source_names), expected);
+    }
+
+    #[test]
+    fn list_query_sources() {
+        let mut service = get_service(vec![], vec![], vec!["main", "other"], vec!["raw"]);
+        let reply = service.list_query_sources(ListQuerySourcesRequest {});
+        let expected: HashSet<String> =
+            HashSet::from_iter(["main".to_string(), "other".to_string(), "raw".to_string()]);
+        assert_eq!(HashSet::from_iter(reply.source_names), expected);
     }
 }

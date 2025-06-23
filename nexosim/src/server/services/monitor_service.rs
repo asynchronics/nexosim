@@ -155,6 +155,7 @@ impl MonitorService {
         }
     }
 
+    /// Returns a list of the names of all registered event sinks.
     pub(crate) fn list_event_sinks(&self, _: ListEventSinksRequest) -> ListEventSinksReply {
         match self {
             Self::Started {
@@ -176,6 +177,10 @@ impl MonitorService {
         }
     }
 
+    /// Returns the schemas of the specified event sinks.
+    ///
+    /// If `sink_names` field is empty, it returns schemas for all the
+    /// registered sinks.
     pub(crate) fn get_event_sink_schemas(
         &self,
         request: GetEventSinkSchemasRequest,
@@ -229,6 +234,7 @@ impl fmt::Debug for MonitorService {
 #[cfg(test)]
 mod tests {
     use crate::ports::EventSinkReader;
+    use std::collections::HashSet;
 
     use super::*;
 
@@ -288,10 +294,7 @@ mod tests {
             Some(get_event_sink_schemas_reply::Result::Empty(()))
         );
         assert_eq!(reply.schemas.len(), 2);
-        let keys = reply
-            .schemas
-            .into_keys()
-            .collect::<std::collections::HashSet<String>>();
+        let keys = reply.schemas.into_keys().collect::<HashSet<String>>();
         assert!(keys.contains("main"));
         assert!(keys.contains("secondary"));
     }
@@ -322,13 +325,15 @@ mod tests {
 
     #[test]
     fn get_empty_schema() {
-        let mut event_sink_registry = EventSinkRegistry::default();
-        event_sink_registry
-            .add_raw(DummySink::new(()), "main")
-            .unwrap();
-        let service = MonitorService::Started {
-            event_sink_registry,
-        };
+        let mut service = get_service([]);
+        if let MonitorService::Started {
+            ref mut event_sink_registry,
+        } = service
+        {
+            event_sink_registry
+                .add_raw(DummySink::new(()), "main")
+                .unwrap();
+        }
 
         let reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
             sink_names: vec!["main".to_string()],
@@ -341,5 +346,24 @@ mod tests {
         assert_eq!(reply.schemas.len(), 1);
         assert_eq!(reply.schemas.keys().next().unwrap(), "main");
         assert_eq!(reply.schemas.values().next().unwrap(), "");
+    }
+
+    #[test]
+    fn list_event_sinks() {
+        let mut service = get_service(["main", "other"]);
+        if let MonitorService::Started {
+            ref mut event_sink_registry,
+        } = service
+        {
+            event_sink_registry
+                .add_raw(DummySink::new(()), "raw")
+                .unwrap();
+        }
+
+        let reply = service.list_event_sinks(ListEventSinksRequest {});
+
+        let expected: HashSet<String> =
+            HashSet::from_iter(["main".to_string(), "other".to_string(), "raw".to_string()]);
+        assert_eq!(HashSet::from_iter(reply.sink_names), expected);
     }
 }

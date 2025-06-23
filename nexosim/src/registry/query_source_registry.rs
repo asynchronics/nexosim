@@ -34,25 +34,18 @@ impl QuerySourceRegistry {
         T: Schema + DeserializeOwned + Clone + Send + 'static,
         R: Schema + Serialize + Send + 'static,
     {
-        match self.0.entry(name.into()) {
-            Entry::Vacant(s) => {
-                let entry = QuerySourceEntry {
-                    inner: source,
-                    schema_gen: || {
-                        (
-                            schema_for!(T).as_value().to_string(),
-                            schema_for!(R).as_value().to_string(),
-                        )
-                    },
-                };
-                s.insert(Box::new(entry));
-
-                Ok(())
-            }
-            Entry::Occupied(_) => Err(source),
-        }
+        self.insert_entry(source, name, || {
+            (
+                schema_for!(T).as_value().to_string(),
+                schema_for!(R).as_value().to_string(),
+            )
+        })
     }
 
+    /// Adds a query source to the registry without a schema definition.
+    ///
+    /// If the specified name is already in use for another query source, the
+    /// source provided as argument is returned in the error.
     pub(crate) fn add_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -62,11 +55,25 @@ impl QuerySourceRegistry {
         T: DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
+        self.insert_entry(source, name, || (String::new(), String::new()))
+    }
+
+    fn insert_entry<T, R, F>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+        schema_gen: F,
+    ) -> Result<(), QuerySource<T, R>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+        R: Serialize + Send + 'static,
+        F: Fn() -> (EventSchema, EventSchema) + Send + Sync + 'static,
+    {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
                 let entry = QuerySourceEntry {
                     inner: source,
-                    schema_gen: || (String::new(), String::new()),
+                    schema_gen,
                 };
                 s.insert(Box::new(entry));
 
@@ -82,10 +89,12 @@ impl QuerySourceRegistry {
         self.0.get(name).map(|s| s.as_ref())
     }
 
+    /// Returns an iterator over the names of the registered query sources.
     pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
         self.0.keys()
     }
 
+    /// Returns the input and output schemas of a specified query source if it is in the registry.
     pub(crate) fn get_source_schema(
         &self,
         name: &str,
@@ -124,6 +133,11 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
     /// `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
 
+    /// Returns the input and output schemas of the query source.
+    ///
+    /// The first element of the tuple being the input schema, the second one the
+    /// output schema.
+    /// If the query was added via `add_raw` method, it returns an empty schema strings.
     fn get_schema(&self) -> (EventSchema, EventSchema);
 }
 
