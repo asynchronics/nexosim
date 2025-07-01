@@ -146,7 +146,7 @@ impl Executor {
             .into_iter()
             .enumerate()
             .map(|(id, (local_queue, worker_parker))| {
-                let thread_builder = thread::Builder::new().name(format!("Worker #{}", id));
+                let thread_builder = thread::Builder::new().name(format!("Worker #{id}"));
 
                 thread_builder
                     .spawn({
