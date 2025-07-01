@@ -223,7 +223,7 @@ where
         let state = this.state.fetch_add(state_delta, Ordering::Release);
 
         if state & WAKE_MASK > WAKE_CRITICAL {
-            panic!("The task was woken too many times: {:0x}", state);
+            panic!("The task was woken too many times: {state:0x}");
         }
 
         // Schedule the task if it is in the `Polling` phase but is not

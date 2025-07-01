@@ -227,7 +227,7 @@ fn main() -> Result<(), SimulationError> {
             simu.step_unbounded()
         }),
         |res| {
-            println!("Simulation thread result: {:?}.", res);
+            println!("Simulation thread result: {res:?}.");
         },
     );
 
