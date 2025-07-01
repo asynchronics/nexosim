@@ -353,10 +353,7 @@ fn system_clock_from_instant(num_threads: usize) {
             let measured_time = (stamp.next().unwrap().0 - wall_clock_init).as_secs_f64();
             assert!(
                 (expected_time - measured_time).abs() <= TOLERANCE,
-                "Expected t = {:.6}s +/- {:.6}s, measured t = {:.6}s",
-                expected_time,
-                TOLERANCE,
-                measured_time,
+                "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
             );
 
             simu.step().unwrap();
@@ -413,10 +410,7 @@ fn system_clock_from_system_time(num_threads: usize) {
                 .as_secs_f64();
             assert!(
                 (expected_time - measured_time).abs() <= TOLERANCE,
-                "Expected t = {:.6}s +/- {:.6}s, measured t = {:.6}s",
-                expected_time,
-                TOLERANCE,
-                measured_time,
+                "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
             );
 
             simu.step().unwrap();
@@ -459,10 +453,7 @@ fn auto_system_clock(num_threads: usize) {
         let measured_time = (stamp.next().unwrap().0 - instant_t0).as_secs_f64();
         assert!(
             (expected_time - measured_time).abs() <= TOLERANCE,
-            "Expected t = {:.6}s +/- {:.6}s, measured t = {:.6}s",
-            expected_time,
-            TOLERANCE,
-            measured_time,
+            "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
         );
 
         simu.step().unwrap();

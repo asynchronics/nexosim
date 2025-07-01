@@ -13,9 +13,9 @@ time-driven state machines.
 >
 > Our new Python front-end for NeXosim provides:
 >
-> * a simple interface to control and monitor simulations over HTTP/2 or unix domain sockets,
-> * an elegant API for the (de)serialization of Rust types,
-> * `asyncio` support for concurrent simulation control & monitoring.
+> - a simple interface to control and monitor simulations over HTTP/2 or unix domain sockets,
+> - an elegant API for the (de)serialization of Rust types,
+> - `asyncio` support for concurrent simulation control & monitoring.
 
 ## Overview
 
@@ -35,20 +35,19 @@ activities. It draws from experience on spacecraft real-time simulators but
 differs from existing tools in the space industry in a number of respects,
 including:
 
-1) *performance*: by taking advantage of Rust's excellent support for
+1. _performance_: by taking advantage of Rust's excellent support for
    multithreading and asynchronous programming, simulation models can run
    efficiently in parallel with all required synchronization being transparently
    handled by the simulator,
-2) *developer-friendliness*: an ergonomic API and Rust's support for algebraic
+2. _developer-friendliness_: an ergonomic API and Rust's support for algebraic
    types make it ideal for the "cyber" part in cyberphysical, i.e. for modelling
    digital devices with even very complex state machines,
-3) *open-source*: last but not least, NeXosim is distributed under the very
+3. _open-source_: last but not least, NeXosim is distributed under the very
    permissive MIT and Apache 2 licenses, with the explicit intent to foster an
    ecosystem where models can be easily exchanged without reliance on
    proprietary APIs.
 
 [FBP]: https://en.wikipedia.org/wiki/Flow-based_programming
-
 
 ## Documentation
 
@@ -61,16 +60,14 @@ directories.
 
 [API]: https://docs.rs/nexosim
 
-
 ## Usage
 
 To use the latest version, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nexosim = "0.3.2"
+nexosim = "0.3.3"
 ```
-
 
 ## Example
 
@@ -161,7 +158,7 @@ Computations proceed at discrete times. When executed, models can request the
 scheduler to send an event (or rather, a closure capturing such event) at a
 certain simulation time. Whenever computations for the current time complete,
 the scheduler selects the nearest future time at which one or several events are
-scheduled (*next event increment*), thus triggering another set of computations.
+scheduled (_next event increment_), thus triggering another set of computations.
 
 This computational process makes it difficult to use general-purposes
 asynchronous runtimes such as [Tokio][tokio], because the end of a set of
@@ -180,19 +177,14 @@ demonstrated through [Tachyonix][tachyonix], a general-purpose offshoot of this
 channel.
 
 [actor_model]: https://en.wikipedia.org/wiki/Actor_model
-
 [tokio]: https://github.com/tokio-rs/tokio
-
 [tachyonix]: https://github.com/asynchronics/tachyonix
-
 [benchmark]: https://github.com/asynchronics/tachyobench
-
 
 ## License
 
 This software is licensed under the [Apache License, Version 2.0](LICENSE-APACHE) or the
 [MIT license](LICENSE-MIT), at your option.
-
 
 ## Contribution
 

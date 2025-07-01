@@ -146,7 +146,7 @@ impl Executor {
             .into_iter()
             .enumerate()
             .map(|(id, (local_queue, worker_parker))| {
-                let thread_builder = thread::Builder::new().name(format!("Worker #{}", id));
+                let thread_builder = thread::Builder::new().name(format!("Worker #{id}"));
 
                 thread_builder
                     .spawn({
@@ -514,11 +514,16 @@ fn run_local_worker(worker: &Worker, id: usize, parker: Parker, abort_signal: Si
         loop {
             // Signal barrier: park until notified to continue or terminate.
 
+            // Update the message count. This must be done before calling
+            // `try_set_worker_inactive` to ensure that all updates to the
+            // message count are visible after the last active worker calls
+            // `try_set_worker_inactive`.
+            update_msg_count();
+
             // Try to deactivate the worker.
             if pool_manager.try_set_worker_inactive(id) {
                 // No need to call `begin_worker_search()`: this was done by the
                 // thread that unparked the worker.
-                update_msg_count();
                 parker.park();
             } else if injector.is_empty() {
                 // This worker could not be deactivated because it was the last
@@ -528,7 +533,6 @@ fn run_local_worker(worker: &Worker, id: usize, parker: Parker, abort_signal: Si
                 // not activate a new worker, which is why some tasks may now be
                 // visible in the injector queue.
                 pool_manager.set_all_workers_inactive();
-                update_msg_count();
                 executor_unparker.unpark();
                 parker.park();
                 // No need to call `begin_worker_search()`: this was done by the
