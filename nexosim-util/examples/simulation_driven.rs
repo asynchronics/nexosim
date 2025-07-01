@@ -239,7 +239,7 @@ fn main() -> Result<(), SimulationError> {
             sim_scheduler.halt();
         },
         |_, res| {
-            println!("Simulation thread result: {:?}.", res);
+            println!("Simulation thread result: {res:?}.");
         },
     );
 
