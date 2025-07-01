@@ -13,7 +13,7 @@ use nexosim::model::{Context, InitializedModel, Model};
 /// This model self-schedules at the specified period, which can be used to keep
 /// the simulation alive.
 ///
-/// An example below shows adding a ticker model and making simulation run
+/// The example below shows how to add a ticker model to make the simulation run
 /// infinitely until some condition is met.
 ///
 /// ```rust

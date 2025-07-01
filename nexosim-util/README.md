@@ -6,11 +6,11 @@ This crate contains utilities for [NeXosim][NX]-based simulations.
 
 At the moment the following modules are included:
 
-* `models` with models useful for simulation bench construction,
-* `observable` with type that implement states that propagate their values to
-  outputs on change.
+- `models`: models useful for simulation bench construction,
+- `observable`: types that enable the automatic propagation of state changes to
+  an associated output.
 
-See [API] documentation and [`examples`][ex] directory for detailed
+See the [API] documentation and [`examples`][ex] directory for detailed
 information.
 
 [API]: https://docs.rs/nexosim-util

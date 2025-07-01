@@ -1,9 +1,9 @@
 //! Observable states.
 //!
-//! This module contains types used to implement states automatically propagated
-//! to output on change.
+//! This module contains types that enable the automatic propagation of state
+//! changes to an associated output.
 //!
-//! The following example shows how to create an observable state with custom
+//! The following example shows how to create an observable state with a custom
 //! `observe` method.
 //!
 //! ```rust
@@ -162,8 +162,8 @@ where
 
 /// Observable state.
 ///
-/// This object encapsulates state. Every state change access is propagated to
-/// the output.
+/// This object encapsulates a state. Every state change is propagated to the
+/// associated output.
 #[derive(Debug)]
 pub struct Observable<S, T = S>
 where
@@ -173,7 +173,7 @@ where
     /// State.
     state: S,
 
-    /// Output used for observation.
+    /// Output to which the state is to be propagated.
     out: Output<T>,
 }
 
@@ -182,7 +182,7 @@ where
     S: Observe<T> + Default,
     T: Clone + Send + 'static,
 {
-    /// New default state.
+    /// Constructs an `Observable` containing the default state.
     pub fn new(out: Output<T>) -> Self {
         Self {
             state: S::default(),
@@ -190,18 +190,19 @@ where
         }
     }
 
-    /// Get state.
+    /// Returns the contained state.
     pub fn get(&self) -> &S {
         &self.state
     }
 
-    /// Set state.
-    pub async fn set(&mut self, value: S) {
-        self.state = value;
+    /// Sets the contained state.
+    pub async fn set(&mut self, state: S) {
+        self.state = state;
         self.out.send(self.state.observe()).await;
     }
 
-    /// Modify state using mutable reference.
+    /// Updates the contained state using a function and forwards the state
+    /// returned by this function.
     pub async fn modify<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut S) -> R,
@@ -211,7 +212,10 @@ where
         r
     }
 
-    /// Propagate value.
+    /// Propagates the value.
+    ///
+    /// This is most typically used to propagate the value at model
+    /// initialization time.
     pub async fn propagate(&mut self) {
         self.out.send(self.state.observe()).await;
     }
