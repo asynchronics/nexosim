@@ -3,6 +3,91 @@
 //! This module contains types that enable the automatic propagation of state
 //! changes to an associated output.
 //!
+//! # Examples
+//!
+//! ## Simple observable value
+//!
+//! ```rust
+//! use nexosim::model::{Context, InitializedModel, Model};
+//! use nexosim::ports::{EventSlot, Output};
+//! use nexosim::simulation::{Mailbox, SimInit};
+//! use nexosim::time::MonotonicTime;
+//! use nexosim_util::observable::Observable;
+//!
+//! /// Initial count.
+//! const INITIAL: u64 = 5;
+//!
+//! /// The `Counter` Model.
+//! pub struct Counter {
+//!     /// Pulses count.
+//!     pub count: Output<u64>,
+//!     /// Counter.
+//!     acc: Observable<u64>,
+//! }
+//!
+//! impl Counter {
+//!     /// Creates a new `Counter` model with initial count.
+//!     fn new(initial_count: u64) -> Self {
+//!         let count = Output::default();
+//!         Self {
+//!             count: count.clone(),
+//!             acc: Observable::new(count, initial_count),
+//!         }
+//!     }
+//!
+//!     /// Pulse -- input port.
+//!     pub async fn pulse(&mut self) {
+//!         self.acc.modify(|x| *x += 1).await;
+//!     }
+//! }
+//!
+//! impl Model for Counter {
+//!     /// Propagate the internal state.
+//!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+//!         self.acc.propagate().await;
+//!         self.into()
+//!     }
+//! }
+//!
+//! // ---------------
+//! // Bench assembly.
+//! // ---------------
+//!
+//! // Models.
+//!
+//! // The counter model.
+//! let mut counter = Counter::new(INITIAL);
+//!
+//! // Mailboxes.
+//! let counter_mbox = Mailbox::new();
+//!
+//! // Model handles for simulation.
+//! let counter_addr = counter_mbox.address();
+//! let mut count = EventSlot::new();
+//! counter.count.connect_sink(&count);
+//!
+//! // Start time (arbitrary since models do not depend on absolute time).
+//! let t0 = MonotonicTime::EPOCH;
+//!
+//! // Assembly and initialization.
+//! let mut simu = SimInit::new()
+//!     .add_model(counter, counter_mbox, "counter")
+//!     .init(t0).unwrap().0;
+//!
+//! // ----------
+//! // Simulation.
+//! // ----------
+//!
+//! // The initial state.
+//! assert_eq!(count.next(), Some(INITIAL));
+//!
+//! // Count one pulse.
+//! simu.process_event(Counter::pulse, (), &counter_addr).unwrap();
+//! assert_eq!(count.next(), Some(INITIAL + 1));
+//! ```
+//!
+//! ## Custom `Observe` trait implementation
+//!
 //! The following example shows how to create an observable state with a custom
 //! `observe` method.
 //!
@@ -58,7 +143,7 @@
 //!         let mode = Output::new();
 //!         Self {
 //!             mode: mode.clone(),
-//!             state: Observable::new(mode),
+//!             state: Observable::with_default(mode),
 //!         }
 //!     }
 //!
@@ -167,7 +252,7 @@ where
 #[derive(Debug)]
 pub struct Observable<S, T = S>
 where
-    S: Observe<T> + Default,
+    S: Observe<T>,
     T: Clone + Send + 'static,
 {
     /// State.
@@ -179,15 +264,12 @@ where
 
 impl<S, T> Observable<S, T>
 where
-    S: Observe<T> + Default,
+    S: Observe<T>,
     T: Clone + Send + 'static,
 {
-    /// Constructs an `Observable` containing the default state.
-    pub fn new(out: Output<T>) -> Self {
-        Self {
-            state: S::default(),
-            out,
-        }
+    /// Constructs an `Observable`.
+    pub fn new(out: Output<T>, state: S) -> Self {
+        Self { state, out }
     }
 
     /// Returns the contained state.
@@ -201,8 +283,9 @@ where
         self.out.send(self.state.observe()).await;
     }
 
-    /// Updates the contained state using a function and forwards the state
-    /// returned by this function.
+    /// Updates the contained state using a function and propagates the state
+    /// set by this function. Forwards the value returned by the modification
+    /// function.
     pub async fn modify<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut S) -> R,
@@ -221,9 +304,23 @@ where
     }
 }
 
-impl<S, T> Deref for Observable<S, T>
+impl<S, T> Observable<S, T>
 where
     S: Observe<T> + Default,
+    T: Clone + Send + 'static,
+{
+    /// Constructs an `Observable` containing the default state.
+    pub fn with_default(out: Output<T>) -> Self {
+        Self {
+            state: S::default(),
+            out,
+        }
+    }
+}
+
+impl<S, T> Deref for Observable<S, T>
+where
+    S: Observe<T>,
     T: Clone + Send + 'static,
 {
     type Target = S;

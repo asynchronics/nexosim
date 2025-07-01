@@ -48,7 +48,7 @@ impl Sensor {
             temp,
             overheat: overheat.clone(),
             threshold,
-            oh: Observable::new(overheat),
+            oh: Observable::with_default(overheat),
         }
     }
 

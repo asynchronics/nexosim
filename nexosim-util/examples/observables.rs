@@ -98,9 +98,9 @@ impl Processor {
             mode: mode.clone(),
             value: value.clone(),
             hk: hk.clone(),
-            state: Observable::new(mode),
-            acc: Observable::new(value),
-            elc: Observable::new(hk),
+            state: Observable::with_default(mode),
+            acc: Observable::with_default(value),
+            elc: Observable::with_default(hk),
         }
     }
 
