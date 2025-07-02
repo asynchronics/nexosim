@@ -21,7 +21,7 @@ use nexosim::model::{Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{AutoActionKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim_util::observables::{Observable, ObservableState, ObservableValue};
+use nexosim_util::observable::{Observable, Observe};
 
 /// House keeping TM.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,7 +57,7 @@ pub enum State {
     Processing(AutoActionKey),
 }
 
-impl Observable<ModeId> for State {
+impl Observe<ModeId> for State {
     fn observe(&self) -> ModeId {
         match *self {
             State::Off => ModeId::Off,
@@ -79,13 +79,13 @@ pub struct Processor {
     pub hk: Output<Hk>,
 
     /// Internal state.
-    state: ObservableState<State, ModeId>,
+    state: Observable<State, ModeId>,
 
     /// Accumulator.
-    acc: ObservableValue<u16>,
+    acc: Observable<u16>,
 
     /// Electrical data.
-    elc: ObservableValue<Hk>,
+    elc: Observable<Hk>,
 }
 
 impl Processor {
@@ -98,9 +98,9 @@ impl Processor {
             mode: mode.clone(),
             value: value.clone(),
             hk: hk.clone(),
-            state: ObservableState::new(mode),
-            acc: ObservableValue::new(value),
-            elc: ObservableValue::new(hk),
+            state: Observable::with_default(mode),
+            acc: Observable::with_default(value),
+            elc: Observable::with_default(hk),
         }
     }
 
