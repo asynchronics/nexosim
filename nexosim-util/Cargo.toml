@@ -6,7 +6,7 @@ name = "nexosim-util"
 # - Remove path dependencies (if any)
 # - Update CHANGELOG.md
 # - Update if necessary copyright notice in LICENSE-MIT
-# - Create a "vX.Y.Z" git tag
+# - Create a "nexosim-util-vX.Y.Z" git tag
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
