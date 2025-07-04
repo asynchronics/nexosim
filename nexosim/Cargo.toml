@@ -49,6 +49,7 @@ tracing = ["dep:tracing", "dep:tracing-subscriber"]
 dev-hooks = []
 
 [dependencies]
+nexosim-macros = { path = "../nexosim-macros" }
 # Mandatory dependencies.
 async-event = "0.2.1"
 crossbeam-channel = "0.5"

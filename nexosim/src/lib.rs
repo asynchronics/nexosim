@@ -488,4 +488,8 @@ pub mod tracing;
 pub mod dev_hooks;
 
 #[cfg(feature = "server")]
+pub use crate::registry::Message;
+#[cfg(feature = "server")]
+pub use nexosim_macros::Message;
+#[cfg(feature = "server")]
 pub use schemars::JsonSchema as Schema;
