@@ -5,13 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ciborium;
-use schemars::schema_for;
 use serde::de::DeserializeOwned;
 
 use crate::ports::EventSource;
 use crate::simulation::{Action, ActionKey};
 
-use super::{EventSchema, RegistryError, Schema};
+use super::{Message, MessageSchema, RegistryError};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
@@ -31,9 +30,9 @@ impl EventSourceRegistry {
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: Schema + DeserializeOwned + Clone + Send + 'static,
+        T: Message + DeserializeOwned + Clone + Send + 'static,
     {
-        self.insert_entry(source, name, || schema_for!(T).as_value().to_string())
+        self.insert_entry(source, name, || T::schema())
     }
 
     /// Adds an event source to the registry without a schema definition.
@@ -59,7 +58,7 @@ impl EventSourceRegistry {
     ) -> Result<(), EventSource<T>>
     where
         T: DeserializeOwned + Clone + Send + 'static,
-        F: Fn() -> EventSchema + Send + Sync + 'static,
+        F: Fn() -> MessageSchema + Send + Sync + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -80,13 +79,15 @@ impl EventSourceRegistry {
         self.0.get(name).map(|s| s.as_ref())
     }
 
-    /// Returns an iterator over the names (keys) of the registered event sources.
+    /// Returns an iterator over the names (keys) of the registered event
+    /// sources.
     pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
         self.0.keys()
     }
 
-    /// Returns the schema of the specified event source if it is in the registry.
-    pub(crate) fn get_source_schema(&self, name: &str) -> Result<EventSchema, RegistryError> {
+    /// Returns the schema of the specified event source if it is in the
+    /// registry.
+    pub(crate) fn get_source_schema(&self, name: &str) -> Result<MessageSchema, RegistryError> {
         Ok(self
             .get(name)
             .ok_or(RegistryError::SourceNotFound(name.to_string()))?
@@ -143,14 +144,15 @@ pub(crate) trait EventSourceAny: Send + Sync + 'static {
     fn event_type_name(&self) -> &'static str;
 
     /// Returns the schema of the event type.
-    /// If the source was added via `add_raw` method, this returns an empty schema string.
-    fn get_schema(&self) -> EventSchema;
+    /// If the source was added via `add_raw` method, this returns an empty
+    /// schema string.
+    fn get_schema(&self) -> MessageSchema;
 }
 
 struct EventSourceEntry<T, F>
 where
     T: DeserializeOwned + Clone + Send + 'static,
-    F: Fn() -> EventSchema,
+    F: Fn() -> MessageSchema,
 {
     inner: Arc<EventSource<T>>,
     schema_gen: F,
@@ -159,7 +161,7 @@ where
 impl<T, F> EventSourceAny for EventSourceEntry<T, F>
 where
     T: DeserializeOwned + Clone + Send + 'static,
-    F: Fn() -> EventSchema + Send + Sync + 'static,
+    F: Fn() -> MessageSchema + Send + Sync + 'static,
 {
     fn event(&self, serialized_arg: &[u8]) -> Result<Action, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg| EventSource::event(&self.inner, arg))
@@ -189,7 +191,7 @@ where
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
     }
-    fn get_schema(&self) -> EventSchema {
+    fn get_schema(&self) -> MessageSchema {
         (self.schema_gen)()
     }
 }

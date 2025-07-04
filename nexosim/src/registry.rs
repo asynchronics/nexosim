@@ -40,7 +40,7 @@ impl EndpointRegistry {
         name: impl Into<String>,
     ) -> Result<(), EventSource<T>>
     where
-        T: Schema + DeserializeOwned + Clone + Send + 'static,
+        T: Message + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.add(source, name)
     }
@@ -71,8 +71,8 @@ impl EndpointRegistry {
         name: impl Into<String>,
     ) -> Result<(), QuerySource<T, R>>
     where
-        T: Schema + DeserializeOwned + Clone + Send + 'static,
-        R: Schema + Serialize + Send + 'static,
+        T: Message + DeserializeOwned + Clone + Send + 'static,
+        R: Message + Serialize + Send + 'static,
     {
         self.query_source_registry.add(source, name)
     }
@@ -101,7 +101,7 @@ impl EndpointRegistry {
     pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
-        S::Item: Schema + Serialize,
+        S::Item: Message + Serialize,
     {
         self.event_sink_registry.add(sink, name)
     }
@@ -120,11 +120,19 @@ impl EndpointRegistry {
     }
 }
 
-pub(crate) type EventSchema = String;
+pub(crate) type MessageSchema = String;
 
-/// An internal alias for the registry schema trait.
-pub trait Schema: schemars::JsonSchema {}
-impl<T: schemars::JsonSchema> Schema for T {}
+pub trait Message {
+    fn schema() -> MessageSchema;
+}
+impl<T> Message for T
+where
+    T: crate::Schema,
+{
+    fn schema() -> MessageSchema {
+        schemars::schema_for!(T).as_value().to_string()
+    }
+}
 
 /// Errors that can occur when interacting with the `EndpointRegistry`.
 #[derive(Debug)]

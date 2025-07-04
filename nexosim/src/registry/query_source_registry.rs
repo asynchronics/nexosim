@@ -3,14 +3,13 @@ use std::collections::HashMap;
 use std::fmt;
 
 use ciborium;
-use schemars::schema_for;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
 use crate::simulation::Action;
 
-use super::{EventSchema, RegistryError, Schema};
+use super::{Message, MessageSchema, RegistryError};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -31,15 +30,10 @@ impl QuerySourceRegistry {
         name: impl Into<String>,
     ) -> Result<(), QuerySource<T, R>>
     where
-        T: Schema + DeserializeOwned + Clone + Send + 'static,
-        R: Schema + Serialize + Send + 'static,
+        T: Message + DeserializeOwned + Clone + Send + 'static,
+        R: Message + Serialize + Send + 'static,
     {
-        self.insert_entry(source, name, || {
-            (
-                schema_for!(T).as_value().to_string(),
-                schema_for!(R).as_value().to_string(),
-            )
-        })
+        self.insert_entry(source, name, || (T::schema(), R::schema()))
     }
 
     /// Adds a query source to the registry without a schema definition.
@@ -67,7 +61,7 @@ impl QuerySourceRegistry {
     where
         T: DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
-        F: Fn() -> (EventSchema, EventSchema) + Send + Sync + 'static,
+        F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -94,11 +88,12 @@ impl QuerySourceRegistry {
         self.0.keys()
     }
 
-    /// Returns the input and output schemas of a specified query source if it is in the registry.
+    /// Returns the input and output schemas of a specified query source if it
+    /// is in the registry.
     pub(crate) fn get_source_schema(
         &self,
         name: &str,
-    ) -> Result<(EventSchema, EventSchema), RegistryError> {
+    ) -> Result<(MessageSchema, MessageSchema), RegistryError> {
         Ok(self
             .get(name)
             .ok_or(RegistryError::SourceNotFound(name.to_string()))?
@@ -135,17 +130,18 @@ pub(crate) trait QuerySourceAny: Send + Sync + 'static {
 
     /// Returns the input and output schemas of the query source.
     ///
-    /// The first element of the tuple being the input schema, the second one the
-    /// output schema.
-    /// If the query was added via `add_raw` method, it returns an empty schema strings.
-    fn get_schema(&self) -> (EventSchema, EventSchema);
+    /// The first element of the tuple being the input schema, the second one
+    /// the output schema.
+    /// If the query was added via `add_raw` method, it returns an empty schema
+    /// strings.
+    fn get_schema(&self) -> (MessageSchema, MessageSchema);
 }
 
 struct QuerySourceEntry<T, R, F>
 where
     T: DeserializeOwned + Clone + Send + 'static,
     R: Serialize + Send + 'static,
-    F: Fn() -> (EventSchema, EventSchema),
+    F: Fn() -> (MessageSchema, MessageSchema),
 {
     inner: QuerySource<T, R>,
     schema_gen: F,
@@ -155,7 +151,7 @@ impl<T, R, F> QuerySourceAny for QuerySourceEntry<T, R, F>
 where
     T: DeserializeOwned + Clone + Send + 'static,
     R: Serialize + Send + 'static,
-    F: Fn() -> (EventSchema, EventSchema) + Send + Sync + 'static,
+    F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
 {
     fn query(
         &self,
@@ -177,7 +173,7 @@ where
         std::any::type_name::<R>()
     }
 
-    fn get_schema(&self) -> (EventSchema, EventSchema) {
+    fn get_schema(&self) -> (MessageSchema, MessageSchema) {
         (self.schema_gen)()
     }
 }

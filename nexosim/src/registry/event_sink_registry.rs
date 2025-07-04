@@ -5,12 +5,11 @@ use std::time::Duration;
 
 use ciborium;
 use dyn_clone::DynClone;
-use schemars::schema_for;
 use serde::Serialize;
 
 use crate::ports::EventSinkReader;
 
-use super::{EventSchema, RegistryError, Schema};
+use super::{Message, MessageSchema, RegistryError};
 
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
@@ -27,9 +26,9 @@ impl EventSinkRegistry {
     pub(crate) fn add<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
-        S::Item: Serialize + Schema,
+        S::Item: Serialize + Message,
     {
-        self.insert_entry(sink, name, || schema_for!(S::Item).as_value().to_string())
+        self.insert_entry(sink, name, || S::Item::schema())
     }
 
     /// Adds a sink to the registry without a schema definition.
@@ -53,7 +52,7 @@ impl EventSinkRegistry {
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,
-        F: Fn() -> EventSchema + Clone + Send + Sync + 'static,
+        F: Fn() -> MessageSchema + Clone + Send + Sync + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
@@ -86,7 +85,7 @@ impl EventSinkRegistry {
     }
 
     /// Returns the schema of the specified sink if it is in the registry.
-    pub(crate) fn get_sink_schema(&self, name: &str) -> Result<EventSchema, RegistryError> {
+    pub(crate) fn get_sink_schema(&self, name: &str) -> Result<MessageSchema, RegistryError> {
         Ok(self
             .get(name)
             .ok_or(RegistryError::SinkNotFound(name.to_string()))?
@@ -119,15 +118,16 @@ pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
     fn await_event(&mut self, timeout: Duration) -> Result<Vec<u8>, SerializationError>;
 
     /// Returns the schema of the events provided by the sink.
-    /// If the sink was added via `add_raw` method, this returns an empty schema string.
-    fn get_schema(&self) -> EventSchema;
+    /// If the sink was added via `add_raw` method, this returns an empty schema
+    /// string.
+    fn get_schema(&self) -> MessageSchema;
 }
 
 #[derive(Clone)]
 struct EventSinkEntry<E, F>
 where
     E: EventSinkReader + Send + Sync + 'static,
-    F: Fn() -> EventSchema,
+    F: Fn() -> MessageSchema,
 {
     inner: E,
     schema_gen: F,
@@ -139,7 +139,7 @@ impl<E, F> EventSinkReaderAny for EventSinkEntry<E, F>
 where
     E: EventSinkReader + Send + Sync + 'static,
     E::Item: Serialize,
-    F: Fn() -> EventSchema + Clone + Send + Sync + 'static,
+    F: Fn() -> MessageSchema + Clone + Send + Sync + 'static,
 {
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<E::Item>()
@@ -176,7 +176,7 @@ where
         Ok(buffer)
     }
 
-    fn get_schema(&self) -> EventSchema {
+    fn get_schema(&self) -> MessageSchema {
         (self.schema_gen)()
     }
 }
