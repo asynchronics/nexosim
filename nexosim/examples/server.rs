@@ -4,6 +4,7 @@ use nexosim::registry::EndpointRegistry;
 use nexosim::server;
 use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
 use nexosim::time::MonotonicTime;
+use nexosim::Message;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -12,7 +13,12 @@ struct ModelConfig {
     bar: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct MyInput {
+    value: u32,
+}
+
+#[derive(Serialize, Deserialize, Message)]
 struct MyReply {
     value: u32,
 }
@@ -24,7 +30,7 @@ pub(crate) struct MyModel {
 }
 
 impl MyModel {
-    pub async fn my_replier(&mut self) -> MyReply {
+    pub async fn my_replier(&mut self, arg: MyInput) -> MyReply {
         MyReply { value: 0 }
     }
 

@@ -8,8 +8,9 @@ use serde::Serialize;
 
 use crate::ports::{QuerySource, ReplyReceiver};
 use crate::simulation::Action;
+use crate::Message;
 
-use super::{Message, MessageSchema, RegistryError};
+use super::{MessageSchema, RegistryError};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
@@ -33,7 +34,12 @@ impl QuerySourceRegistry {
         T: Message + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
-        self.insert_entry(source, name, || (T::schema(), R::schema()))
+        self.insert_entry(source, name, || {
+            (
+                schema::schema_for!(T).as_value().to_string(),
+                schema::schema_for!(R).as_value().to_string(),
+            )
+        })
     }
 
     /// Adds a query source to the registry without a schema definition.

@@ -9,8 +9,9 @@ use serde::de::DeserializeOwned;
 
 use crate::ports::EventSource;
 use crate::simulation::{Action, ActionKey};
+use crate::Message;
 
-use super::{Message, MessageSchema, RegistryError};
+use super::{MessageSchema, RegistryError};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
@@ -32,7 +33,9 @@ impl EventSourceRegistry {
     where
         T: Message + DeserializeOwned + Clone + Send + 'static,
     {
-        self.insert_entry(source, name, || T::schema())
+        self.insert_entry(source, name, || {
+            schema::schema_for!(T).as_value().to_string()
+        })
     }
 
     /// Adds an event source to the registry without a schema definition.

@@ -11,6 +11,7 @@ mod query_source_registry;
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
+use crate::Message;
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -121,18 +122,6 @@ impl EndpointRegistry {
 }
 
 pub(crate) type MessageSchema = String;
-
-pub trait Message {
-    fn schema() -> MessageSchema;
-}
-impl<T> Message for T
-where
-    T: crate::Schema,
-{
-    fn schema() -> MessageSchema {
-        schemars::schema_for!(T).as_value().to_string()
-    }
-}
 
 /// Errors that can occur when interacting with the `EndpointRegistry`.
 #[derive(Debug)]

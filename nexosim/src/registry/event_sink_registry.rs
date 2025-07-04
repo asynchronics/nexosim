@@ -8,8 +8,9 @@ use dyn_clone::DynClone;
 use serde::Serialize;
 
 use crate::ports::EventSinkReader;
+use crate::Message;
 
-use super::{Message, MessageSchema, RegistryError};
+use super::{MessageSchema, RegistryError};
 
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
@@ -28,7 +29,9 @@ impl EventSinkRegistry {
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize + Message,
     {
-        self.insert_entry(sink, name, || S::Item::schema())
+        self.insert_entry(sink, name, || {
+            schema::schema_for!(S::Item).as_value().to_string()
+        })
     }
 
     /// Adds a sink to the registry without a schema definition.

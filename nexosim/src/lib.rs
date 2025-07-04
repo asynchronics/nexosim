@@ -488,4 +488,6 @@ pub mod tracing;
 pub mod dev_hooks;
 
 #[cfg(feature = "server")]
-pub use schemars::JsonSchema as Schema;
+pub use schema;
+#[cfg(feature = "server")]
+pub use schema::Message;
