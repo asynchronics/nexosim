@@ -228,6 +228,8 @@
 
 use std::ops::Deref;
 
+use serde::{Deserialize, Serialize};
+
 use nexosim::ports::Output;
 
 /// Observability trait.
@@ -249,7 +251,7 @@ where
 ///
 /// This object encapsulates a state. Every state change is propagated to the
 /// associated output.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Observable<S, T = S>
 where
     S: Observe<T>,

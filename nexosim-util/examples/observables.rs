@@ -19,10 +19,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
+use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
+use nexosim::{schedulable, Model};
 use nexosim_util::observable::{Observable, Observe};
 
 /// House keeping TM.
@@ -51,7 +52,7 @@ pub enum ModeId {
 }
 
 /// Processor state.
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Deserialize, Serialize)]
 pub enum State {
     #[default]
     Off,
@@ -91,14 +92,13 @@ pub struct Processor {
     elc: Observable<Hk>,
 }
 
+#[Model]
 impl Processor {
     /// Create a new processor.
-    pub fn new(
-        mode: Output<ModeId>,
-        value: Output<u16>,
-        hk: Output<Hk>,
-        finish_processing_input_id: InputId<Self, ()>,
-    ) -> Self {
+    pub fn new() -> Self {
+        let mode = Output::new();
+        let value = Output::new();
+        let hk = Output::new();
         Self {
             mode: mode.clone(),
             value: value.clone(),
@@ -134,7 +134,7 @@ impl Processor {
                 .set(State::Processing(
                     cx.schedule_keyed_event(
                         Duration::from_millis(dt),
-                        &self.finish_processing_input_id,
+                        schedulable!(Self::finish_processing),
                         (),
                     )
                     .unwrap()
@@ -146,48 +146,20 @@ impl Processor {
     }
 
     /// Finish processing.
+    #[nexosim(schedulable)]
     async fn finish_processing(&mut self) {
         self.state.set(State::Idle).await;
         self.acc.modify(|a| *a += 1).await;
         self.elc.modify(|hk| hk.current = 0.1).await;
     }
-}
-
-impl Model for Processor {
-    type Env = ();
 
     /// Propagate all internal states.
+    #[nexosim(init)]
     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.state.propagate().await;
         self.acc.propagate().await;
         self.elc.propagate().await;
         self.into()
-    }
-}
-
-pub struct ProtoProcessor {
-    pub mode: Output<ModeId>,
-    pub value: Output<u16>,
-    pub hk: Output<Hk>,
-}
-impl ProtoProcessor {
-    pub fn new() -> Self {
-        Self {
-            mode: Output::default(),
-            value: Output::default(),
-            hk: Output::default(),
-        }
-    }
-}
-impl ProtoModel for ProtoProcessor {
-    type Model = Processor;
-
-    fn build(
-        self,
-        cx: &mut nexosim::model::BuildContext<Self>,
-    ) -> (Self::Model, <Self::Model as Model>::Env) {
-        let input_id = cx.register_input(Processor::finish_processing);
-        (Processor::new(self.mode, self.value, self.hk, input_id), ())
     }
 }
 
@@ -197,7 +169,7 @@ fn main() -> Result<(), SimulationError> {
     // ---------------
 
     // Models.
-    let mut proc = ProtoProcessor::new();
+    let mut proc = Processor::new();
 
     // Mailboxes.
     let proc_mbox = Mailbox::new();
