@@ -279,6 +279,7 @@ impl SimInit {
         Ok(simulation)
     }
 
+    #[cfg(feature = "server")]
     pub(crate) fn scheduler_registry(&mut self) -> &mut SchedulerSourceRegistry {
         &mut self.scheduler_registry
     }

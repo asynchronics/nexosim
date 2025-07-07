@@ -2,8 +2,6 @@ use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
-use std::future::Future;
-use std::pin::Pin;
 
 use ciborium;
 use serde::de::DeserializeOwned;
@@ -14,7 +12,6 @@ use crate::simulation::Action;
 
 use super::RegistryError;
 
-type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
 /// A registry that holds all sources and sinks meant to be accessed through

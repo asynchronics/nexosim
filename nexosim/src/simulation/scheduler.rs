@@ -1,16 +1,10 @@
 //! Scheduling functions and types.
 use std::error::Error;
 use std::fmt;
-use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use recycle_box::{coerce_box, RecycleBox};
-
-use crate::channel::Sender;
-use crate::model::Model;
-use crate::ports::InputFn;
 use crate::simulation::events::{Event, EventKey, SourceId};
 use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
@@ -63,6 +57,7 @@ impl Scheduler {
     /// If multiple actions send events at the same simulation time to the same
     /// model, these events are guaranteed to be processed according to the
     /// scheduling order of the actions.
+    #[cfg(feature = "server")]
     pub(crate) fn schedule(
         &self,
         deadline: impl Deadline,
@@ -264,6 +259,7 @@ impl GlobalScheduler {
     }
 
     /// Schedules an action identified by its origin at a future time.
+    #[cfg(feature = "server")]
     pub(crate) fn schedule_from(
         &self,
         deadline: impl Deadline,
@@ -425,57 +421,6 @@ impl fmt::Debug for GlobalScheduler {
             .field("time", &self.time())
             .finish_non_exhaustive()
     }
-}
-
-/// Asynchronously sends a non-cancellable event to a model input.
-pub(crate) async fn process_event<M, F, T, S>(func: F, arg: T, sender: Sender<M>)
-where
-    M: Model,
-    F: for<'a> InputFn<'a, M, T, S>,
-    T: Send + 'static,
-{
-    let _ = sender
-        .send(
-            move |model: &mut M,
-                  scheduler,
-                  recycle_box: RecycleBox<()>|
-                  -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                let fut = func.call(model, arg, scheduler);
-
-                coerce_box!(RecycleBox::recycle(recycle_box, fut))
-            },
-        )
-        .await;
-}
-
-/// Asynchronously sends a cancellable event to a model input.
-pub(crate) async fn send_keyed_event<M, F, T, S>(
-    event_key: EventKey,
-    func: F,
-    arg: T,
-    sender: Sender<M>,
-) where
-    M: Model,
-    F: for<'a> InputFn<'a, M, T, S>,
-    T: Send + Clone + 'static,
-{
-    let _ = sender
-        .send(
-            move |model: &mut M,
-                  scheduler,
-                  recycle_box: RecycleBox<()>|
-                  -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                let fut = async move {
-                    // Only perform the call if the event wasn't cancelled.
-                    if !event_key.is_cancelled() {
-                        func.call(model, arg, scheduler).await;
-                    }
-                };
-
-                coerce_box!(RecycleBox::recycle(recycle_box, fut))
-            },
-        )
-        .await;
 }
 
 #[cfg(all(test, not(nexosim_loom)))]

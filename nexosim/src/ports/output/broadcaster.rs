@@ -4,7 +4,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use diatomic_waker::WakeSink;
-use serde::{Deserialize, Serialize};
 
 use super::sender::{RecycledFuture, Sender};
 use crate::channel::SendError;

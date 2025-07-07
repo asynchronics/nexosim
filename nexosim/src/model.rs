@@ -321,7 +321,7 @@ pub trait ProtoModel: Sized {
 }
 
 // Every model can be used as a prototype for itself,
-// if it's environment is empty.
+// if it's environment is a unit type.
 impl<M: Model<Env = ()>> ProtoModel for M {
     type Model = Self;
 
@@ -330,7 +330,7 @@ impl<M: Model<Env = ()>> ProtoModel for M {
     }
 }
 
-/// An internal helper struct used to handle simulation models.
+/// An internal helper struct used to handle (de)serialization of the models.
 pub(crate) struct RegisteredModel {
     pub name: String,
     pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,

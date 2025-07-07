@@ -106,7 +106,7 @@ where
     S: Send + Sync + 'static,
     T: Clone + Send + 'static,
 {
-    pub fn new(func: F, address: impl Into<Address<M>>) -> Self {
+    pub(crate) fn new(func: F, address: impl Into<Address<M>>) -> Self {
         let sender = address.into().0;
 
         Self {
@@ -492,6 +492,12 @@ impl<'de> Deserialize<'de> for EventKey {
     }
 }
 
+/// A one-shot action that can be processed immediately.
+///
+/// `Actions` can be created from an [`EventSource`](crate::ports::EventSource)
+/// or [`QuerySource`](crate::ports::QuerySource). They can be used to process
+/// events and requests immediately with
+/// [`Simulation::process_action`](crate::simulation::Simulation::process_action).
 pub struct Action {
     future: Pin<Box<dyn Future<Output = ()> + Send>>,
 }
@@ -501,6 +507,12 @@ impl Action {
     }
     pub(crate) fn consume(self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         self.future
+    }
+}
+
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Action").finish_non_exhaustive()
     }
 }
 

@@ -275,19 +275,9 @@ impl Simulation {
         self.run()
     }
 
-    /// Processes an event immediately, blocking until completion.
+    /// Processes an action immediately, blocking until completion.
     ///
-    /// Simulation time remains unchanged. The periodicity of the event, if
-    /// any, is ignored.
-
-    // pub(crate) fn process(&mut self, event: Event) -> Result<(), ExecutionError>
-    // {     let source = self
-    //         .scheduler_registry
-    //         .get(&event.source_id)
-    //         .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
-    //     let fut = source.into_future(&*event.arg, event.key.clone());
-    //     self.process_future(fut)
-    // }
+    /// Simulation time remains unchanged.
     pub fn process_action(&mut self, action: Action) -> Result<(), ExecutionError> {
         self.process_future(action.consume())
     }
@@ -476,7 +466,7 @@ impl Simulation {
                 let source = self
                     .scheduler_registry
                     .get(&event.source_id)
-                    .ok_or(ExecutionError::InvalidEvent(event.source_id))?;
+                    .ok_or(ExecutionError::InvalidEvent(event.source_id.0))?;
                 let fut = source.event_future(&*event.arg, event.key.clone());
 
                 if let Some(period) = event.period {
@@ -705,6 +695,7 @@ impl Simulation {
     }
 
     /// Extract bench builder cfg from the serialized simulation state.
+    #[cfg(feature = "server")]
     pub(crate) fn restore_cfg<R: std::io::Read>(
         mut state: R,
     ) -> Result<Option<Vec<u8>>, ExecutionError> {
@@ -829,7 +820,7 @@ pub enum ExecutionError {
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
     /// Non-existent SourceId has been used.
-    InvalidEvent(SourceIdErased),
+    InvalidEvent(usize),
     /// Simulation serialization has failed.
     SaveError(String),
     /// Simulation deserialization has failed.

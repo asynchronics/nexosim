@@ -78,6 +78,9 @@ impl EndpointRegistry {
         self.event_sink_registry.add(sink, name)
     }
 
+    /// Returns a typed SourceId for an EventSource registered by a given name.
+    ///
+    /// SourceId can be used to schedule events on the Scheduler instance.
     pub fn get_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
     where
         T: Clone + Send + 'static,
@@ -85,6 +88,8 @@ impl EndpointRegistry {
         self.event_source_registry.get_source_id(name)
     }
 
+    /// Returns an immutable reference to a QuerySource registered by a given
+    /// name.
     pub fn get_query_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
     where
         T: Clone + Send + 'static,
@@ -100,6 +105,8 @@ impl EndpointRegistry {
             >()))
     }
 
+    /// Returns an immutable reference to an EventSource registered by a given
+    /// name.
     pub fn get_event_source<T>(&self, name: &str) -> Result<&EventSource<T>, RegistryError>
     where
         T: Clone + Send + 'static,
@@ -116,11 +123,16 @@ impl EndpointRegistry {
     }
 }
 
+/// An error returned when an invalid endpoint registry action is taken.
 #[derive(Debug)]
 pub enum RegistryError {
+    /// The requested source has not been found.
     NotFound,
+    /// The requested source has not been properly registered.
     Unregistered,
+    /// The requested source has an invalid type.
     InvalidType(&'static str),
+    /// An argument for the source cannot be deserialized.
     DeserializationError(ciborium::de::Error<std::io::Error>),
 }
 
@@ -132,7 +144,7 @@ impl std::fmt::Display for RegistryError {
                 f.write_str("the requested resource has not been properly registered")
             }
             Self::InvalidType(type_name) => {
-                write!(f, "the requested resource cannot be cast to {}", type_name)
+                write!(f, "the requested resource cannot be cast to {type_name}")
             }
             Self::DeserializationError(e) => std::fmt::Display::fmt(e, f),
         }
