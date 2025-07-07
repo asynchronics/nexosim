@@ -13,14 +13,23 @@ struct ModelConfig {
     bar: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Message)]
+#[serde(rename_all = "camelCase")]
 struct MyInput {
-    value: u32,
+    base_value: u32,
+    total_value: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Message)]
+#[serde(tag = "custom")]
+enum Val {
+    Numeric(u32),
+    Bool(bool),
 }
 
 #[derive(Serialize, Deserialize, Message)]
 struct MyReply {
-    value: u32,
+    value: Val,
 }
 
 #[derive(Default)]
@@ -31,7 +40,9 @@ pub(crate) struct MyModel {
 
 impl MyModel {
     pub async fn my_replier(&mut self, arg: MyInput) -> MyReply {
-        MyReply { value: 0 }
+        MyReply {
+            value: Val::Numeric(0),
+        }
     }
 
     pub(crate) fn new(cfg: ModelConfig) -> Self {
@@ -66,5 +77,7 @@ fn bench(cfg: ModelConfig) -> Result<(Simulation, EndpointRegistry), SimulationE
 }
 
 fn main() {
+    println!("{:?}", nexosim::schema::schema_for!(MyReply));
+    println!("{:?}", nexosim::schema::schema_for!(MyInput));
     server::run(bench, "0.0.0.0:41633".parse().unwrap()).unwrap();
 }
