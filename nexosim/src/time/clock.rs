@@ -214,10 +214,7 @@ mod test {
 
         assert!(
             (dt - elapsed) <= TOLERANCE,
-            "Expected t = {:.6}s +/- {:.6}s, measured t = {:.6}s",
-            dt,
-            TOLERANCE,
-            elapsed,
+            "Expected t = {dt:.6}s +/- {TOLERANCE:.6}s, measured t = {elapsed:.6}s",
         );
     }
 }

@@ -23,7 +23,7 @@ use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim_util::observables::{Observable, ObservableState, ObservableValue};
+use nexosim_util::observable::{Observable, Observe};
 
 /// House keeping TM.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,7 +59,7 @@ pub enum State {
     Processing(AutoEventKey),
 }
 
-impl Observable<ModeId> for State {
+impl Observe<ModeId> for State {
     fn observe(&self) -> ModeId {
         match *self {
             State::Off => ModeId::Off,
@@ -82,15 +82,13 @@ pub struct Processor {
     pub hk: Output<Hk>,
 
     /// Internal state.
-    state: ObservableState<State, ModeId>,
+    state: Observable<State, ModeId>,
 
     /// Accumulator.
-    acc: ObservableValue<u16>,
+    acc: Observable<u16>,
 
     /// Electrical data.
-    elc: ObservableValue<Hk>,
-    /// Scheduler input id
-    finish_processing_input_id: InputId<Self, ()>,
+    elc: Observable<Hk>,
 }
 
 impl Processor {
@@ -105,10 +103,9 @@ impl Processor {
             mode: mode.clone(),
             value: value.clone(),
             hk: hk.clone(),
-            state: ObservableState::new(mode),
-            acc: ObservableValue::new(value),
-            elc: ObservableValue::new(hk),
-            finish_processing_input_id,
+            state: Observable::with_default(mode),
+            acc: Observable::with_default(value),
+            elc: Observable::with_default(hk),
         }
     }
 

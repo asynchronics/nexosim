@@ -157,10 +157,7 @@ fn map_panic(payload: Box<dyn Any + Send>) -> Error {
     };
 
     let error_msg = if let Some(panic_msg) = panic_msg {
-        format!(
-            "the simulation initializer has panicked with the message `{}`",
-            panic_msg
-        )
+        format!("the simulation initializer has panicked with the message `{panic_msg}`",)
     } else {
         String::from("the simulation initializer has panicked")
     };
@@ -175,10 +172,7 @@ fn map_init_error(
         .map_err(|e| {
             to_error(
                 ErrorCode::InvalidMessage,
-                format!(
-                    "the initializer configuration could not be deserialized: {}",
-                    e
-                ),
+                format!("the initializer configuration could not be deserialized: {e}",),
             )
         })
         .and_then(|init_result| init_result.map_err(map_simulation_error))

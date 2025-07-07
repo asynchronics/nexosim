@@ -11,16 +11,14 @@
 //! ```text
 //!                        ┌─────────────┐               ┌──────────┐
 //!                        │             │ temperature   │          │ overheat
-//! Temperature ●─────────►│ Environment ├──────────────►│  Sensor  ├──────────►
+//! Temperature ●─────────►│ Environment │◄►───────────►◄│  Sensor  ├──────────►
 //!                        │             │               │          │
 //!                        └─────────────┘               └──────────┘
 //! ```
 
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
-
-use nexosim_util::observables::ObservableValue;
+use nexosim_util::observable::Observable;
 
 use nexosim::model::{Context, InitializedModel, InputId, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output, UniRequestor};
@@ -40,10 +38,7 @@ pub struct Sensor {
     threshold: f64,
 
     /// Overheat detection [-] -- observable state.
-    oh: ObservableValue<bool>,
-
-    /// Tick InputId
-    tick_input_id: InputId<Self, ()>,
+    oh: Observable<bool>,
 }
 
 impl Sensor {
@@ -58,8 +53,7 @@ impl Sensor {
             temp,
             overheat: overheat.clone(),
             threshold,
-            oh: ObservableValue::new(overheat),
-            tick_input_id,
+            oh: Observable::with_default(overheat),
         }
     }
 
