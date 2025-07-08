@@ -120,9 +120,10 @@ impl EndpointRegistry {
     }
 }
 
-pub(crate) type MessageSchema = String;
+/// Type alias for the generated schema type.
+pub type MessageSchema = String;
 
-/// An optional helper trait for event and query input and output arguments.
+/// An optional helper trait for event and query input / output arguments.
 /// Enables json schema generation to precisely describe types of the exchanged
 /// data.
 pub trait Message {

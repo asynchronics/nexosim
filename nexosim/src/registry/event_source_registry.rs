@@ -32,7 +32,7 @@ impl EventSourceRegistry {
     where
         T: Message + DeserializeOwned + Clone + Send + 'static,
     {
-        self.insert_entry(source, name, || T::schema())
+        self.insert_entry(source, name, T::schema)
     }
 
     /// Adds an event source to the registry without a schema definition.
@@ -144,7 +144,7 @@ pub(crate) trait EventSourceAny: Send + Sync + 'static {
     fn event_type_name(&self) -> &'static str;
 
     /// Returns the schema of the event type.
-    /// If the source was added via `add_raw` method, this returns an empty
+    /// If the source was added via `add_raw` method, it returns an empty
     /// schema string.
     fn get_schema(&self) -> MessageSchema;
 }

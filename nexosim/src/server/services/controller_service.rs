@@ -141,7 +141,7 @@ impl ControllerService {
         }
     }
 
-    /// Returns a list of the names of all registered event sources.
+    /// Returns a list of names of all the registered event sources.
     pub(crate) fn list_event_sources(
         &mut self,
         _: ListEventSourcesRequest,
@@ -215,7 +215,7 @@ impl ControllerService {
         }
     }
 
-    /// Returns a list of the names of all registered query sources.
+    /// Returns a list of names of all the registered query sources.
     pub(crate) fn list_query_sources(
         &mut self,
         _: ListQuerySourcesRequest,

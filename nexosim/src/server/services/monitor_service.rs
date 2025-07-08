@@ -155,7 +155,7 @@ impl MonitorService {
         }
     }
 
-    /// Returns a list of the names of all registered event sinks.
+    /// Returns a list of names of all the registered event sinks.
     pub(crate) fn list_event_sinks(&self, _: ListEventSinksRequest) -> ListEventSinksReply {
         match self {
             Self::Started {

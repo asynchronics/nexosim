@@ -5,6 +5,8 @@ pub fn __erase(_: TokenStream, _: TokenStream) -> TokenStream {
     <_>::default()
 }
 
+/// A helper macro that enables schema generation for the server endpoint
+/// data.
 #[proc_macro_derive(Message)]
 pub fn event_derive(input: TokenStream) -> TokenStream {
     [

@@ -28,7 +28,7 @@ impl EventSinkRegistry {
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize + Message,
     {
-        self.insert_entry(sink, name, || S::Item::schema())
+        self.insert_entry(sink, name, S::Item::schema)
     }
 
     /// Adds a sink to the registry without a schema definition.
@@ -118,7 +118,7 @@ pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
     fn await_event(&mut self, timeout: Duration) -> Result<Vec<u8>, SerializationError>;
 
     /// Returns the schema of the events provided by the sink.
-    /// If the sink was added via `add_raw` method, this returns an empty schema
+    /// If the sink was added via `add_raw` method, it returns an empty schema
     /// string.
     fn get_schema(&self) -> MessageSchema;
 }
