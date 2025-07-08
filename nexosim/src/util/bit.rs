@@ -145,20 +145,14 @@ mod tests {
                 // Check that the bit is indeed set.
                 assert!(
                     value & (1 << pos) != 0,
-                    "input value: {:064b}\nrequested rank: {}\nreturned position: {}",
-                    value,
-                    rank,
-                    pos
+                    "input value: {value:064b}\nrequested rank: {rank}\nreturned position: {pos}"
                 );
 
                 // Check that the bit is indeed of the requested rank.
                 assert_eq!(
                     rank,
                     (value & ((1 << pos) - 1)).count_ones() as usize + 1,
-                    "input value: {:064b}\nrequested rank: {}\nreturned position: {}",
-                    value,
-                    rank,
-                    pos
+                    "input value: {value:064b}\nrequested rank: {rank}\nreturned position: {pos}"
                 );
             }
         }

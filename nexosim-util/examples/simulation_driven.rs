@@ -15,7 +15,7 @@
 //! ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 //! ┃ Simulation                             ┃
 //! ┃   ┌──────────┐       ┌──────────┐mode  ┃
-//! ┃   │          │pulses │          ├──────╂┐BlockingEventQueue
+//! ┃   │          │pulses │          ├──────╂┐ EventQueue
 //! ┃   │ Detector ├──────►│ Counter  │count ┃├───────────────────►
 //! ┃   │          │       │          ├──────╂┘
 //! ┃   └──────────┘       └──────────┘      ┃
@@ -28,18 +28,31 @@ use std::time::Duration;
 
 use rand::Rng;
 
+use thread_guard::ThreadGuard;
+
 use nexosim::model::{Context, Model};
 use nexosim::ports::{EventQueue, Output};
-use nexosim::simulation::{ActionKey, ExecutionError, Mailbox, SimInit, SimulationError};
+use nexosim::simulation::{
+    ActionKey, AutoActionKey, ExecutionError, Mailbox, SimInit, SimulationError,
+};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim_util::helper_models::Ticker;
-use nexosim_util::joiners::SimulationJoiner;
-use nexosim_util::observables::ObservableValue;
+use nexosim_util::models::Ticker;
+use nexosim_util::observable::Observable;
 
+/// Switch ON delay.
 const SWITCH_ON_DELAY: Duration = Duration::from_secs(1);
+
+/// Maximal period between detection pulses.
 const MAX_PULSE_PERIOD: u64 = 100;
+
+/// Tick for the `Ticker` model.
 const TICK: Duration = Duration::from_millis(100);
-const N: u64 = 10;
+
+/// Initial detections count.
+const INITIAL: u64 = 5;
+
+/// Number of detections to wait for.
+const N: u64 = 10 + INITIAL;
 
 /// Counter mode.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -65,48 +78,60 @@ pub struct Counter {
     pub count: Output<u64>,
 
     /// Internal state.
-    state: ObservableValue<Mode>,
+    state: Observable<Mode>,
 
     /// Counter.
-    acc: ObservableValue<u64>,
+    acc: Observable<u64>,
+
+    /// Switch ON key.
+    switch_on: Option<AutoActionKey>,
 }
 
 impl Counter {
     /// Creates a new `Counter` model.
-    fn new() -> Self {
+    fn new(initial_count: u64) -> Self {
         let mode = Output::default();
         let count = Output::default();
         Self {
             mode: mode.clone(),
             count: count.clone(),
-            state: ObservableValue::new(mode),
-            acc: ObservableValue::new(count),
+            state: Observable::with_default(mode),
+            acc: Observable::new(count, initial_count),
+            switch_on: None,
         }
     }
 
     /// Power -- input port.
     pub async fn power_in(&mut self, on: bool, cx: &mut Context<Self>) {
         match *self.state {
-            Mode::Off if on => cx
-                .schedule_event(SWITCH_ON_DELAY, Self::switch_on, ())
-                .unwrap(),
-            Mode::On if !on => self.switch_off().await,
+            Mode::Off if on && self.switch_on.is_none() => {
+                self.switch_on = Some(
+                    cx.schedule_keyed_event(SWITCH_ON_DELAY, Self::switch_on, ())
+                        .unwrap()
+                        .into_auto(),
+                )
+            }
+            _ if !on => self.switch_off().await,
             _ => (),
         };
     }
 
     /// Pulse -- input port.
     pub async fn pulse(&mut self) {
-        self.acc.modify(|x| *x += 1).await;
+        if *self.state == Mode::On {
+            self.acc.modify(|x| *x += 1).await;
+        }
     }
 
     /// Switches `Counter` on.
     async fn switch_on(&mut self) {
+        self.switch_on = None;
         self.state.set(Mode::On).await;
     }
 
     /// Switches `Counter` off.
     async fn switch_off(&mut self) {
+        self.switch_on = None;
         self.state.set(Mode::Off).await;
     }
 }
@@ -182,7 +207,7 @@ fn main() -> Result<(), SimulationError> {
     let mut detector = Detector::new();
 
     // The counter model.
-    let mut counter = Counter::new();
+    let mut counter = Counter::new(INITIAL);
 
     // The ticker model that keeps simulation alive.
     let ticker = Ticker::new(TICK);
@@ -205,6 +230,7 @@ fn main() -> Result<(), SimulationError> {
     counter
         .count
         .map_connect_sink(|c| Event::Count(*c), &observer);
+
     let mut observer = observer.into_reader_blocking();
 
     // Start time (arbitrary since models do not depend on absolute time).
@@ -219,15 +245,18 @@ fn main() -> Result<(), SimulationError> {
         .init(t0)?;
 
     // Simulation thread.
-    let simulation_handle = SimulationJoiner::new_with_drop_action(
-        scheduler.clone(),
+    let mut sim_scheduler = scheduler.clone();
+    let simulation_handle = ThreadGuard::with_actions(
         thread::spawn(move || {
             // ---------- Simulation.  ----------
             // Infinitely kept alive by the ticker model until halted.
             simu.step_unbounded()
         }),
-        |res| {
-            println!("Simulation thread result: {:?}.", res);
+        move |_| {
+            sim_scheduler.halt();
+        },
+        |_, res| {
+            println!("Simulation thread result: {res:?}.");
         },
     );
 
@@ -272,7 +301,7 @@ fn main() -> Result<(), SimulationError> {
     }
 
     // Stop the simulation.
-    match simulation_handle.halt().unwrap() {
+    match simulation_handle.join().unwrap() {
         Err(ExecutionError::Halted) => Ok(()),
         Err(e) => Err(e.into()),
         _ => Ok(()),

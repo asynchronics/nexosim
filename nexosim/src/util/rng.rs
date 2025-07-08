@@ -65,8 +65,8 @@ mod tests {
             chi2 + (actual - expected) * (actual - expected) / expected
         });
 
-        println!("tally = {:?}", tally);
-        println!("chi2 = {}", chi2);
+        println!("tally = {tally:?}");
+        println!("chi2 = {chi2}");
 
         assert!(chi2 > CHI2_PVAL_LOWER);
         assert!(chi2 < CHI2_PVAL_UPPER);

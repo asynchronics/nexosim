@@ -702,13 +702,12 @@ impl fmt::Display for ExecutionError {
                 Ok(())
             }
             Self::MessageLoss(count) => {
-                write!(f, "{} messages have been lost", count)
+                write!(f, "{count} messages have been lost")
             }
             Self::NoRecipient{model} => {
                 match model {
                     Some(model) => write!(f,
-                        "an attempt by model '{}' to send a message failed because the recipient's mailbox is no longer alive",
-                        model
+                        "an attempt by model '{model}' to send a message failed because the recipient's mailbox is no longer alive"
                     ),
                     None => f.write_str("an attempt by the scheduler to send a message failed because the recipient's mailbox is no longer alive"),
                 }
@@ -719,24 +718,22 @@ impl fmt::Display for ExecutionError {
                 } else if let Some(s) = payload.downcast_ref::<String>() {
                     s
                 } else {
-                    return write!(f, "model '{}' has panicked", model);
+                    return write!(f, "model '{model}' has panicked");
                 };
-                write!(f, "model '{}' has panicked with the message: '{}'", model, msg)
+                write!(f, "model '{model}' has panicked with the message: '{msg}'")
             }
             Self::Timeout => f.write_str("the simulation step has failed to complete within the allocated time"),
             Self::OutOfSync(lag) => {
                 write!(
                     f,
-                    "the simulation has lost synchronization and lags behind the clock by '{:?}'",
-                    lag
+                    "the simulation has lost synchronization and lags behind the clock by '{lag:?}'"
                 )
             }
             Self::BadQuery => f.write_str("the query did not return any response; was the target mailbox added to the simulation?"),
             Self::InvalidDeadline(time) => {
                 write!(
                     f,
-                    "the specified deadline ({}) lies in the past of the current simulation time",
-                    time
+                    "the specified deadline ({time}) lies in the past of the current simulation time"
                 )
             }
         }

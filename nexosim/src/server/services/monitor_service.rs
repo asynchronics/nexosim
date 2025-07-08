@@ -29,7 +29,7 @@ impl MonitorService {
 
                 let mut sink = event_sink_registry.get(sink_name).ok_or(to_error(
                     ErrorCode::SinkNotFound,
-                    format!("no sink is registered with the name '{}'", sink_name),
+                    format!("no sink is registered with the name '{sink_name}'"),
                 ))?;
 
                 sink.collect().map_err(|e| {
@@ -68,7 +68,7 @@ impl MonitorService {
 
                 let mut sink = event_sink_registry.get(sink_name).ok_or(to_error(
                     ErrorCode::SinkNotFound,
-                    format!("no sink is registered with the name '{}'", sink_name),
+                    format!("no sink is registered with the name '{sink_name}'"),
                 ))?;
 
                 let timeout = request.timeout.map_or(Ok(Duration::ZERO), |timeout| {
@@ -116,7 +116,7 @@ impl MonitorService {
                 } else {
                     open_sink_reply::Result::Error(to_error(
                         ErrorCode::SinkNotFound,
-                        format!("no sink is registered with the name '{}'", sink_name),
+                        format!("no sink is registered with the name '{sink_name}'"),
                     ))
                 }
             }
@@ -143,7 +143,7 @@ impl MonitorService {
                 } else {
                     close_sink_reply::Result::Error(to_error(
                         ErrorCode::SinkNotFound,
-                        format!("no sink is registered with the name '{}'", sink_name),
+                        format!("no sink is registered with the name '{sink_name}'"),
                     ))
                 }
             }
