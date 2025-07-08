@@ -492,4 +492,4 @@ pub use crate::registry::Message;
 #[cfg(feature = "server")]
 pub use nexosim_macros::Message;
 #[cfg(feature = "server")]
-pub use schemars::JsonSchema as Schema;
+pub use schemars::JsonSchema;

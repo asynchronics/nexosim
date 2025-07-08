@@ -122,12 +122,16 @@ impl EndpointRegistry {
 
 pub(crate) type MessageSchema = String;
 
+/// An optional helper trait for event and query input and output arguments.
+/// Enables json schema generation to precisely describe types of the exchanged
+/// data.
 pub trait Message {
+    /// Returns a schema defining message type.
     fn schema() -> MessageSchema;
 }
 impl<T> Message for T
 where
-    T: crate::Schema,
+    T: crate::JsonSchema,
 {
     fn schema() -> MessageSchema {
         schemars::schema_for!(T).as_value().to_string()
@@ -145,10 +149,10 @@ impl std::fmt::Display for RegistryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RegistryError::SourceNotFound(name) => {
-                write!(f, "source not found in the registry: {}", name)
+                write!(f, "source not found in the registry: {name}")
             }
             RegistryError::SinkNotFound(name) => {
-                write!(f, "sink not found in the registry: {}", name)
+                write!(f, "sink not found in the registry: {name}")
             }
         }
     }
