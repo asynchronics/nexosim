@@ -49,14 +49,14 @@ impl Scheduler {
         self.0.time()
     }
 
-    /// Schedules an action at a future time.
+    /// Schedules an event at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
     /// current simulation time.
     ///
-    /// If multiple actions send events at the same simulation time to the same
+    /// If multiple sources send events at the same simulation time to the same
     /// model, these events are guaranteed to be processed according to the
-    /// scheduling order of the actions.
+    /// scheduling order.
     #[cfg(feature = "server")]
     pub(crate) fn schedule(
         &self,
@@ -67,7 +67,7 @@ impl Scheduler {
             .schedule_from(deadline, event, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
-    /// Schedules an event at a future time.
+    /// Schedules an event by its id at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
     /// current simulation time.
@@ -87,7 +87,8 @@ impl Scheduler {
             .schedule_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
-    /// Schedules a cancellable event at a future time and returns an event key.
+    /// Schedules a cancellable event by its id at a future time and returns an
+    /// event key.
     ///
     /// An error is returned if the specified time is not in the future of the
     /// current simulation time.
@@ -107,7 +108,7 @@ impl Scheduler {
             .schedule_keyed_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
-    /// Schedules a periodically recurring event at a future time.
+    /// Schedules a periodically recurring event by its id at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
     /// current simulation time or if the specified period is null.
@@ -133,8 +134,8 @@ impl Scheduler {
         )
     }
 
-    /// Schedules a cancellable, periodically recurring event at a future time
-    /// and returns an event key.
+    /// Schedules a cancellable, periodically recurring event by its id at a
+    /// future time and returns an event key.
     ///
     /// An error is returned if the specified time is not in the future of the
     /// current simulation time or if the specified period is null.
@@ -258,7 +259,7 @@ impl GlobalScheduler {
         self.time.read()
     }
 
-    /// Schedules an action identified by its origin at a future time.
+    /// Schedules an event identified by its origin at a future time.
     #[cfg(feature = "server")]
     pub(crate) fn schedule_from(
         &self,
@@ -286,7 +287,7 @@ impl GlobalScheduler {
         Ok(())
     }
 
-    /// Schedules an event identified by its origin at a future time.
+    /// Schedules an event identified by its id and origin at a future time.
     pub(crate) fn schedule_event_from<T>(
         &self,
         deadline: impl Deadline,
@@ -312,8 +313,8 @@ impl GlobalScheduler {
         Ok(())
     }
 
-    /// Schedules a cancellable event identified by its origin at a future time
-    /// and returns an event key.
+    /// Schedules a cancellable event identified by its id and origin at a
+    /// future time and returns an event key.
     pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
@@ -341,8 +342,8 @@ impl GlobalScheduler {
         Ok(event_key)
     }
 
-    /// Schedules a periodically recurring event identified by its origin at a
-    /// future time.
+    /// Schedules a periodically recurring event identified by its id and origin
+    /// at a future time.
     pub(crate) fn schedule_periodic_event_from<T>(
         &self,
         deadline: impl Deadline,
@@ -374,7 +375,7 @@ impl GlobalScheduler {
     }
 
     /// Schedules a cancellable, periodically recurring event identified by its
-    /// origin at a future time and returns an event key.
+    /// id and origin at a future time and returns an event key.
     pub(crate) fn schedule_keyed_periodic_event_from<T>(
         &self,
         deadline: impl Deadline,

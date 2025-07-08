@@ -938,6 +938,7 @@ impl From<SchedulingError> for SimulationError {
 }
 
 /// Adds a model and its mailbox to the simulation bench.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn add_model<P>(
     model: P,
     mailbox: Mailbox<P::Model>,

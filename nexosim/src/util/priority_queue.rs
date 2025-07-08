@@ -109,7 +109,7 @@ impl<K: Copy + Ord, V> PriorityQueue<K, V> {
     }
 
     /// Creates an iterator over queue's elements.
-    pub(crate) fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a K, &'a V)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.heap.iter().map(|a| (&a.key, &a.value))
     }
 

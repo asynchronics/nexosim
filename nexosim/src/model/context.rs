@@ -52,14 +52,16 @@ use crate::channel::Receiver;
 ///
 /// ```
 /// use std::time::Duration;
-/// use nexosim::model::{Context, Model};
+/// use nexosim::model::Context;
 /// use nexosim::ports::Output;
+/// use nexosim::{schedulable, Model};
 ///
 /// #[derive(Default)]
 /// pub struct DelayedGreeter {
 ///     msg_out: Output<String>,
 /// }
 ///
+/// #[Model]
 /// impl DelayedGreeter {
 ///     // Triggers a greeting on the output port after some delay [input port].
 ///     pub async fn greet_with_delay(&mut self, delay: Duration, cx: &mut Context<Self>) {
@@ -69,11 +71,12 @@ use crate::channel::Receiver;
 ///         if delay.is_zero() {
 ///             self.msg_out.send(greeting).await;
 ///         } else {
-///             cx.schedule_event(delay, Self::send_msg, greeting).unwrap();
+///             cx.schedule_event(delay, schedulable!(Self::send_msg), greeting).unwrap();
 ///         }
 ///     }
 ///
 ///     // Sends a message to the output [private input port].
+///     #[nexosim(schedulable)]
 ///     async fn send_msg(&mut self, msg: String) {
 ///         self.msg_out.send(msg).await;
 ///     }
@@ -144,26 +147,27 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::{Context, Model};
+    /// use nexosim::model::Context;
+    /// use nexosim::{schedulable, Model;
     ///
     /// // A timer.
     /// pub struct Timer {}
     ///
+    /// #[Model]
     /// impl Timer {
     ///     // Sets an alarm [input port].
     ///     pub fn set(&mut self, setting: Duration, cx: &mut Context<Self>) {
-    ///         if cx.schedule_event(setting, Self::ring, ()).is_err() {
+    ///         if cx.schedule_event(setting, schedulable!(Self::ring), ()).is_err() {
     ///             println!("The alarm clock can only be set for a future time");
     ///         }
     ///     }
     ///
     ///     // Rings [private input port].
+    ///     #[nexosim(schedulable)]
     ///     fn ring(&mut self) {
     ///         println!("Brringggg");
     ///     }
     /// }
-    ///
-    /// impl Model for Timer {}
     /// ```
     pub fn schedule_event<T>(
         &self,
@@ -191,9 +195,10 @@ impl<M: Model> Context<M> {
     /// # Examples
     ///
     /// ```
-    /// use nexosim::model::{Context, Model};
+    /// use nexosim::model::Context;
     /// use nexosim::simulation::ActionKey;
     /// use nexosim::time::MonotonicTime;
+    /// use nexosim::{schedulable, Model};
     ///
     /// // An alarm clock that can be cancelled.
     /// #[derive(Default)]
@@ -201,11 +206,12 @@ impl<M: Model> Context<M> {
     ///     event_key: Option<ActionKey>,
     /// }
     ///
+    /// #[Model]
     /// impl CancellableAlarmClock {
     ///     // Sets an alarm [input port].
     ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
     ///         self.cancel();
-    ///         match cx.schedule_keyed_event(setting, Self::ring, ()) {
+    ///         match cx.schedule_keyed_event(setting, schedulable!(Self::ring), ()) {
     ///             Ok(event_key) => self.event_key = Some(event_key),
     ///             Err(_) => println!("The alarm clock can only be set for a future time"),
     ///         };
@@ -217,12 +223,11 @@ impl<M: Model> Context<M> {
     ///     }
     ///
     ///     // Rings the alarm [private input port].
+    ///     #[nexosim(schedulable)]
     ///     fn ring(&mut self) {
     ///         println!("Brringggg!");
     ///     }
     /// }
-    ///
-    /// impl Model for CancellableAlarmClock {}
     /// ```
     pub fn schedule_keyed_event<T>(
         &self,
@@ -253,19 +258,21 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::{Context, Model};
+    /// use nexosim::model::Context;
     /// use nexosim::time::MonotonicTime;
+    /// use nexosim::{schedulable, Model};
     ///
     /// // An alarm clock beeping at 1Hz.
     /// pub struct BeepingAlarmClock {}
     ///
+    /// #[Model]
     /// impl BeepingAlarmClock {
     ///     // Sets an alarm [input port].
     ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
     ///         if cx.schedule_periodic_event(
     ///             setting,
     ///             Duration::from_secs(1), // 1Hz = 1/1s
-    ///             Self::beep,
+    ///             schedulable!(Self::beep),
     ///             ()
     ///         ).is_err() {
     ///             println!("The alarm clock can only be set for a future time");
@@ -273,12 +280,11 @@ impl<M: Model> Context<M> {
     ///     }
     ///
     ///     // Emits a single beep [private input port].
+    ///     #[nexosim(schedulable)]
     ///     fn beep(&mut self) {
     ///         println!("Beep!");
     ///     }
     /// }
-    ///
-    /// impl Model for BeepingAlarmClock {}
     /// ```
     pub fn schedule_periodic_event<T>(
         &self,
@@ -310,9 +316,10 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::{Context, Model};
+    /// use nexosim::model::Context;
     /// use nexosim::simulation::ActionKey;
     /// use nexosim::time::MonotonicTime;
+    /// use nexosim::{schedulable, Model};
     ///
     /// // An alarm clock beeping at 1Hz that can be cancelled before it sets off, or
     /// // stopped after it sets off.
@@ -321,6 +328,7 @@ impl<M: Model> Context<M> {
     ///     event_key: Option<ActionKey>,
     /// }
     ///
+    /// #[Model]
     /// impl CancellableBeepingAlarmClock {
     ///     // Sets an alarm [input port].
     ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
@@ -328,7 +336,7 @@ impl<M: Model> Context<M> {
     ///         match cx.schedule_keyed_periodic_event(
     ///             setting,
     ///             Duration::from_secs(1), // 1Hz = 1/1s
-    ///             Self::beep,
+    ///             schedulable!(Self::beep),
     ///             ()
     ///         ) {
     ///             Ok(event_key) => self.event_key = Some(event_key),
@@ -342,12 +350,11 @@ impl<M: Model> Context<M> {
     ///     }
     ///
     ///     // Emits a single beep [private input port].
+    ///     #[nexosim(schedulable)]
     ///     fn beep(&mut self) {
     ///         println!("Beep!");
     ///     }
     /// }
-    ///
-    /// impl Model for CancellableBeepingAlarmClock {}
     /// ```
     pub fn schedule_keyed_periodic_event<T>(
         &self,
@@ -406,31 +413,32 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// ```
 /// use std::time::Duration;
-/// use nexosim::model::{BuildContext, Model, ProtoModel};
+/// use nexosim::model::{BuildContext, ProtoModel};
 /// use nexosim::ports::Output;
 /// use nexosim::simulation::Mailbox;
+/// use nexosim::Model;
 ///
 /// #[derive(Default)]
 /// struct MultiplyBy2 {
 ///     pub output: Output<i32>,
 /// }
+/// #[Model]
 /// impl MultiplyBy2 {
 ///     pub async fn input(&mut self, value: i32) {
 ///         self.output.send(value * 2).await;
 ///     }
 /// }
-/// impl Model for MultiplyBy2 {}
 ///
 /// pub struct MultiplyBy4 {
 ///     // Private forwarding output.
 ///     forward: Output<i32>,
 /// }
+/// #[Model]
 /// impl MultiplyBy4 {
 ///     pub async fn input(&mut self, value: i32) {
 ///         self.forward.send(value).await;
 ///     }
 /// }
-/// impl Model for MultiplyBy4 {}
 ///
 /// pub struct ProtoMultiplyBy4 {
 ///     pub output: Output<i32>,
@@ -514,7 +522,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
-    /// Registers a single self-schedulable source from model's input.
+    /// Registers a single self-schedulable source from model's own input.
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
