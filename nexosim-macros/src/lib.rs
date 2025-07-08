@@ -11,7 +11,7 @@ pub fn event_derive(input: TokenStream) -> TokenStream {
         stringify!(
             #[
                 ::core::prelude::v1::derive(
-                    ::nexosim::Schema
+                    ::nexosim::JsonSchema
                 )
             ]
             #[::nexosim_macros::__erase]
