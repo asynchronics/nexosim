@@ -102,6 +102,11 @@ impl<T: Clone + Send + 'static> EventSource<T> {
         self.broadcaster.add(sender);
     }
 
+    /// Returns a ready to execute event future for the argument provided.
+    /// This method can be e.g. used to spawn scheduled events from the queue.
+    ///
+    /// When processed, it broadcasts the event to all connected input
+    /// ports.
     pub(crate) fn event_future(&self, arg: T) -> impl Future<Output = ()> {
         let fut = self.broadcaster.broadcast(arg);
 

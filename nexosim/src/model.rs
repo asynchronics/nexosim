@@ -46,17 +46,17 @@
 //! default implementation of the [`Model`] trait:
 //!
 //! ```
-//! use nexosim::Model;
+//! use nexosim::model::Model;
 //!
 //! pub struct MyModel {
 //!     // ...
 //! }
-//! #[Model]
 //! impl Model for MyModel {}
 //! ```
 //!
 //! If a default action is required during simulation initialization, the `init`
-//! methods can be explicitly implemented:
+//! methods can be explicitly implemented (here using a proc-macro helper
+//! attribute):
 //!
 //! ```
 //! use nexosim::model::{Context, InitializedModel};
@@ -97,7 +97,7 @@
 //! impl MyModel {
 //!     #[nexosim(schedulable)]
 //!     pub async fn input(&mut self) {
-//!         //
+//!         // ...
 //!     }
 //!     #[nexosim(init)]
 //!     async fn init(

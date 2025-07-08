@@ -220,22 +220,20 @@ message CloseSinkReply {
 message AnyRequest {
   oneof request { // Expects exactly 1 variant.
     InitRequest init_request = 1;
-    RestoreRequest restore_request = 2;
-    HaltRequest halt_request = 3;
-    SaveRequest save_request = 4;
-    TimeRequest time_request = 5;
-    StepRequest step_request = 6;
-    StepUntilRequest step_until_request = 7;
-    ScheduleEventRequest schedule_event_request = 8;
-    CancelEventRequest cancel_event_request = 9;
-    ProcessEventRequest process_event_request = 10;
-    ProcessQueryRequest process_query_request = 11;
-    ReadEventsRequest read_events_request = 12;
-    OpenSinkRequest open_sink_request = 13;
-    CloseSinkRequest close_sink_request = 14;
-    AwaitEventRequest await_event_request = 15;
-    StepUnboundedRequest step_unbounded_request = 16;
-    TerminateRequest terminate_request = 17;
+    HaltRequest halt_request = 2;
+    TimeRequest time_request = 3;
+    StepRequest step_request = 4;
+    StepUntilRequest step_until_request = 5;
+    ScheduleEventRequest schedule_event_request = 6;
+    CancelEventRequest cancel_event_request = 7;
+    ProcessEventRequest process_event_request = 8;
+    ProcessQueryRequest process_query_request = 9;
+    ReadEventsRequest read_events_request = 10;
+    OpenSinkRequest open_sink_request = 11;
+    CloseSinkRequest close_sink_request = 12;
+    AwaitEventRequest await_event_request = 13;
+    StepUnboundedRequest step_unbounded_request = 14;
+    TerminateRequest terminate_request = 15;
   }
 }
 

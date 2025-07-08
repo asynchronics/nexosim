@@ -572,7 +572,7 @@ impl Simulation {
         )
     }
 
-    /// Requests and stores serialized state from the models
+    /// Requests and stores serialized state from each of the models.
     fn save_models(&mut self) -> Result<Vec<Vec<u8>>, ExecutionError> {
         // Temporarily move out of the simulation object.
         let models = self.registered_models.drain(..).collect::<Vec<_>>();
@@ -599,6 +599,7 @@ impl Simulation {
         Ok(())
     }
 
+    /// Saves the scheduler queue, maintaining its event order.
     fn save_queue(&self) -> Result<Vec<u8>, ExecutionError> {
         let scheduler_queue = self.scheduler_queue.lock().unwrap();
         let queue = scheduler_queue
@@ -613,6 +614,7 @@ impl Simulation {
             .map_err(|_| ExecutionError::SaveError("Scheduler Queue".to_string()))
     }
 
+    /// Restores the scheduler queue from the serialized state.
     fn restore_queue(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
         let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
             bincode::serde::decode_from_slice(state, serialization_config())
@@ -678,7 +680,7 @@ impl Simulation {
         self.save_with_serialized_cfg(serialized_cfg, writer)
     }
 
-    /// Restore simulation's state from serialized data.
+    /// Restore simulation state from a serialized data.
     pub(crate) fn restore<R: std::io::Read>(&mut self, mut state: R) -> Result<(), ExecutionError> {
         let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
         EVENT_KEY_REG.set(&event_key_reg, || {
@@ -714,7 +716,7 @@ impl fmt::Debug for Simulation {
     }
 }
 
-/// Internal helper struct organizing parts of persisted simulation state.
+/// Internal helper struct organizing parts of a persisted simulation state.
 #[derive(Serialize, Deserialize)]
 struct SimulationState {
     cfg: Option<Vec<u8>>,
@@ -889,9 +891,9 @@ impl fmt::Display for ExecutionError {
                     "the specified deadline ({time}) lies in the past of the current simulation time"
                 )
             }
-            Self::InvalidEvent(e) => write!(f, "event not found {:?}", e),
-            Self::SaveError(o) => write!(f, "serialization has failed when processing: {}", o),
-            Self::RestoreError(o) => write!(f, "deserialization has failed when processing: {}", o),
+            Self::InvalidEvent(e) => write!(f, "event not found {e:?}"),
+            Self::SaveError(o) => write!(f, "serialization has failed when processing: {o}"),
+            Self::RestoreError(o) => write!(f, "deserialization has failed when processing: {o}"),
         }
     }
 }

@@ -126,7 +126,7 @@ where
 {
     fn action(&self, serialized_arg: &[u8]) -> Result<Action, RegistryError> {
         ciborium::from_reader(serialized_arg)
-            .map(|arg| EventSource::action(&*self, arg))
+            .map(|arg| EventSource::action(self, arg))
             .map_err(RegistryError::DeserializationError)
     }
 

@@ -251,6 +251,7 @@ impl ControllerService {
         }
     }
 
+    /// Saves and returns current simulation state in a serialized form.
     pub(crate) fn save(&mut self, _: SaveRequest) -> SaveReply {
         let ControllerService::Started {
             cfg, simulation, ..

@@ -59,6 +59,13 @@ impl<T> From<&SourceId<T>> for SourceIdErased {
     }
 }
 
+/// Scheduler event source registry.
+/// Only events present in the registry can be scheduled for a future execution
+/// and put on the queue.
+///
+/// Event registration has to take place before simulation is started / resumed.
+/// Therefore the `add` method should only be accessible from `SimInit` or
+/// `BuildContext` instances.
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerSourceRegistry {
@@ -76,6 +83,7 @@ impl SchedulerSourceRegistry {
     }
 }
 
+/// Internal SchedulerSourceRegistry entry interface.
 pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
@@ -86,8 +94,16 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
+/// A helper trait ensuring type safety of the registered event sources.
+///
+/// It is necessary for the registered sources to implement this trait in order
+/// to provide a type safe registration interface.
 pub(crate) trait TypedSchedulerSource<T>: SchedulerEventSource {}
 
+/// A specialized event source struct used to register models' input methods.
+///
+/// Unlike the EventSource struct it does not allow for multiple senders and it
+/// is bound to a specific model's input only.
 pub(crate) struct InputSource<M, F, S, T>
 where
     M: Model,
@@ -232,7 +248,7 @@ where
     }
 }
 
-/// A possibly periodic, possibly cancellable event that can be scheeduled on
+/// A possibly periodic, possibly cancellable event that can be scheduled on
 /// the event queue.
 #[derive(Debug)]
 pub(crate) struct Event {
@@ -315,7 +331,7 @@ impl Event {
     }
 }
 
-/// Local helper struct organizing data for serialization
+/// Local helper struct organizing event data for serialization.
 #[derive(Serialize, Deserialize)]
 struct SerializableEvent {
     source_id: SourceIdErased,

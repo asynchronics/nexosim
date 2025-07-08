@@ -517,7 +517,8 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for UniRequestor<T, R> {
     }
 }
 
-// TODO validate this
+// A helper struct to provide a failsafe option for an invalid UniRequestor
+// deserialization.
 #[derive(Clone)]
 struct EmptySender;
 impl<T, R> Sender<T, R> for EmptySender {

@@ -92,7 +92,7 @@ impl InitService {
         )
     }
 
-    /// Restore the simulation based on the serialized state.
+    /// Restore the simulation from a serialized state.
     pub(crate) fn restore(
         &mut self,
         request: RestoreRequest,
