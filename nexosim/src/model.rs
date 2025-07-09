@@ -412,7 +412,9 @@ impl<M: Model<Env = ()>> ProtoModel for M {
 /// An internal helper struct used to handle (de)serialization of the models.
 pub(crate) struct RegisteredModel {
     pub name: String,
+    #[allow(clippy::type_complexity)]
     pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
+    #[allow(clippy::type_complexity)]
     pub deserialize:
         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
