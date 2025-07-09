@@ -402,6 +402,7 @@ mod tests {
     use std::thread;
 
     use futures_executor::block_on;
+    use serde::{Deserialize, Serialize};
 
     use crate::channel::Receiver;
 

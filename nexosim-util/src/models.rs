@@ -37,10 +37,12 @@ use nexosim::{schedulable, Model};
 /// let t0 = MonotonicTime::EPOCH;
 ///
 /// // Assembly and initialization.
-/// let (mut simu, mut scheduler) = SimInit::new()
+/// let mut simu = SimInit::new()
 ///    .add_model(ticker, ticker_mbox, "ticker")
 ///    .set_clock(AutoSystemClock::new())
 ///    .init(t0).unwrap();
+///
+/// let mut scheduler = simu.scheduler();
 ///
 /// // Simulation thread.
 /// let simulation_handle = thread::spawn(move || {

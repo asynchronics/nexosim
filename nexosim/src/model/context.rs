@@ -56,7 +56,9 @@ use crate::channel::Receiver;
 /// use nexosim::ports::Output;
 /// use nexosim::{schedulable, Model};
 ///
-/// #[derive(Default)]
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Default, Serialize, Deserialize)]
 /// pub struct DelayedGreeter {
 ///     msg_out: Output<String>,
 /// }
@@ -81,7 +83,6 @@ use crate::channel::Receiver;
 ///         self.msg_out.send(msg).await;
 ///     }
 /// }
-/// impl Model for DelayedGreeter {}
 /// ```
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
@@ -148,9 +149,12 @@ impl<M: Model> Context<M> {
     /// use std::time::Duration;
     ///
     /// use nexosim::model::Context;
-    /// use nexosim::{schedulable, Model;
+    /// use nexosim::{schedulable, Model};
+    ///
+    /// use serde::{Serialize, Deserialize};
     ///
     /// // A timer.
+    /// #[derive(Serialize, Deserialize)]
     /// pub struct Timer {}
     ///
     /// #[Model]
@@ -196,14 +200,16 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use nexosim::model::Context;
-    /// use nexosim::simulation::ActionKey;
+    /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
     /// use nexosim::{schedulable, Model};
     ///
+    /// use serde::{Serialize, Deserialize};
+    ///
     /// // An alarm clock that can be cancelled.
-    /// #[derive(Default)]
+    /// #[derive(Default, Serialize, Deserialize)]
     /// pub struct CancellableAlarmClock {
-    ///     event_key: Option<ActionKey>,
+    ///     event_key: Option<EventKey>,
     /// }
     ///
     /// #[Model]
@@ -262,7 +268,10 @@ impl<M: Model> Context<M> {
     /// use nexosim::time::MonotonicTime;
     /// use nexosim::{schedulable, Model};
     ///
+    /// use serde::{Serialize, Deserialize};
+    ///
     /// // An alarm clock beeping at 1Hz.
+    /// #[derive(Serialize, Deserialize)]
     /// pub struct BeepingAlarmClock {}
     ///
     /// #[Model]
@@ -317,15 +326,17 @@ impl<M: Model> Context<M> {
     /// use std::time::Duration;
     ///
     /// use nexosim::model::Context;
-    /// use nexosim::simulation::ActionKey;
+    /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
     /// use nexosim::{schedulable, Model};
     ///
+    /// use serde::{Serialize, Deserialize};
+    ///
     /// // An alarm clock beeping at 1Hz that can be cancelled before it sets off, or
     /// // stopped after it sets off.
-    /// #[derive(Default)]
+    /// #[derive(Default, Serialize, Deserialize)]
     /// pub struct CancellableBeepingAlarmClock {
-    ///     event_key: Option<ActionKey>,
+    ///     event_key: Option<EventKey>,
     /// }
     ///
     /// #[Model]
@@ -418,7 +429,9 @@ impl<M: Model> fmt::Debug for Context<M> {
 /// use nexosim::simulation::Mailbox;
 /// use nexosim::Model;
 ///
-/// #[derive(Default)]
+/// use serde::{Serialize, Deserialize};
+///
+/// #[derive(Default, Serialize, Deserialize)]
 /// struct MultiplyBy2 {
 ///     pub output: Output<i32>,
 /// }
@@ -429,6 +442,7 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///     }
 /// }
 ///
+/// #[derive(Serialize, Deserialize)]
 /// pub struct MultiplyBy4 {
 ///     // Private forwarding output.
 ///     forward: Output<i32>,
@@ -449,7 +463,7 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///     fn build(
 ///         self,
 ///         cx: &mut BuildContext<Self>)
-///     -> MultiplyBy4 {
+///     -> (MultiplyBy4, ()) {
 ///         let mut mult = MultiplyBy4 { forward: Output::default() };
 ///         let mut submult1 = MultiplyBy2::default();
 ///
@@ -468,7 +482,7 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///         cx.add_submodel(submult1, submult1_mbox, "submultiplier 1");
 ///         cx.add_submodel(submult2, submult2_mbox, "submultiplier 2");
 ///
-///         mult
+///         (mult, ())
 ///     }
 /// }
 /// ```

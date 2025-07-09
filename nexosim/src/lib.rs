@@ -105,7 +105,9 @@
 //! use nexosim::Model;
 //! use nexosim::ports::Output;
 //!
-//! #[derive(Default)]
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Multiplier {
 //!     pub output: Output<f64>,
 //! }
@@ -130,11 +132,14 @@
 //!
 //! ```
 //! use std::time::Duration;
+//!
+//! use serde::{Serialize, Deserialize};
+//!
 //! use nexosim::model::Context;
 //! use nexosim::ports::Output;
 //! use nexosim::{schedulable, Model};
 //!
-//! #[derive(Default)]
+//! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Delay {
 //!    pub output: Output<f64>,
 //! }
@@ -194,10 +199,13 @@
 //! ```
 //! # mod models {
 //! #     use std::time::Duration;
+//! #
+//! #     use serde::{Serialize, Deserialize};
+//! #
 //! #     use nexosim::model::Context;
 //! #     use nexosim::ports::Output;
 //! #     use nexosim::{schedulable, Model};
-//! #     #[derive(Default)]
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
 //! #     }
@@ -207,7 +215,7 @@
 //! #             self.output.send(2.0 * value).await;
 //! #         }
 //! #     }
-//! #     #[derive(Default)]
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Delay {
 //! #        pub output: Output<f64>,
 //! #     }
@@ -254,7 +262,7 @@
 //!
 //! // Pick an arbitrary simulation start time and build the simulation.
 //! let t0 = MonotonicTime::EPOCH;
-//! let (mut simu, scheduler) = SimInit::new()
+//! let mut simu = SimInit::new()
 //!     .add_model(multiplier1, multiplier1_mbox, "multiplier1")
 //!     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //!     .add_model(delay1, delay1_mbox, "delay1")
@@ -297,10 +305,13 @@
 //! ```
 //! # mod models {
 //! #     use std::time::Duration;
+//! #
+//! #     use serde::{Serialize, Deserialize};
+//! #
 //! #     use nexosim::model::Context;
 //! #     use nexosim::ports::Output;
 //! #     use nexosim::{schedulable, Model};
-//! #     #[derive(Default)]
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
 //! #     }
@@ -310,7 +321,7 @@
 //! #             self.output.send(2.0 * value).await;
 //! #         }
 //! #     }
-//! #     #[derive(Default)]
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Delay {
 //! #        pub output: Output<f64>,
 //! #     }
@@ -351,8 +362,7 @@
 //! #     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //! #     .add_model(delay1, delay1_mbox, "delay1")
 //! #     .add_model(delay2, delay2_mbox, "delay2")
-//! #     .init(t0)?
-//! #     .0;
+//! #     .init(t0)?;
 //! // Send a value to the first multiplier.
 //! simu.process_event(Multiplier::input, 21.0, &input_address)?;
 //!

@@ -43,7 +43,7 @@ impl<T: Clone, R> BroadcasterInner<T, R> {
         self.senders.push(sender);
         self.shared.outputs.push(None);
 
-        // The storage is alway an empty vector so we just book some capacity.
+        // The storage is always an empty vector so we just book some capacity.
         if let Some(storage) = self.shared.storage.as_mut() {
             let _ = storage.try_reserve(self.senders.len());
         };
@@ -508,6 +508,7 @@ mod tests {
     use std::thread;
 
     use futures_executor::block_on;
+    use serde::{Deserialize, Serialize};
 
     use crate::channel::Receiver;
 

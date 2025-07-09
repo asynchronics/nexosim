@@ -17,7 +17,7 @@ struct ModelWithOutput {
 impl ModelWithOutput {
     #[nexosim(schedulable)]
     pub async fn send(&mut self, input: u32) {
-        self.output.send(format!("{}", input)).await;
+        self.output.send(format!("{input}")).await;
     }
 }
 
@@ -204,7 +204,7 @@ fn model_init_restore() {
 
         let addr = mbox.address();
 
-        let mut bench = SimInit::new().add_model(model, mbox, "modelWithKey");
+        let bench = SimInit::new().add_model(model, mbox, "modelWithKey");
 
         (bench, addr)
     }
@@ -295,9 +295,11 @@ fn model_relative_order() {
 
     // Schedule two events at the same time
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &mul_id, 7);
+        .schedule_event(Duration::from_secs(1), &mul_id, 7)
+        .unwrap();
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &add_id, 19);
+        .schedule_event(Duration::from_secs(1), &add_id, 19)
+        .unwrap();
 
     // Store state with an initialized model and events scheduled.
     let mut state = Vec::new();
@@ -324,9 +326,11 @@ fn model_relative_order() {
 
     // Schedule two events at the same time
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &add_id, 19);
+        .schedule_event(Duration::from_secs(1), &add_id, 19)
+        .unwrap();
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &mul_id, 7);
+        .schedule_event(Duration::from_secs(1), &mul_id, 7)
+        .unwrap();
 
     // Store state with an initialized model and events scheduled.
     let mut state = Vec::new();

@@ -48,10 +48,15 @@
 //! ```
 //! use nexosim::model::Model;
 //!
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Serialize, Deserialize)]
 //! pub struct MyModel {
 //!     // ...
 //! }
-//! impl Model for MyModel {}
+//! impl Model for MyModel {
+//!     type Env = ();
+//! }
 //! ```
 //!
 //! If a default action is required during simulation initialization, the `init`
@@ -62,6 +67,9 @@
 //! use nexosim::model::{Context, InitializedModel};
 //! use nexosim::Model;
 //!
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Serialize, Deserialize)]
 //! pub struct MyModel {
 //!     // ...
 //! }
@@ -87,9 +95,12 @@
 //! ```
 //! use std::time::Duration;
 //!
-//! use nexosim::model::{Context, InitializedModel};
-//! use nexosim::Model;
+//! use serde::{Serialize, Deserialize};
 //!
+//! use nexosim::model::{Context, InitializedModel};
+//! use nexosim::{schedulable, Model};
+//!
+//! #[derive(Serialize, Deserialize)]
 //! pub struct MyModel {
 //!     // ...
 //! }
@@ -105,7 +116,7 @@
 //!         ctx: &mut Context<Self>
 //!     ) -> InitializedModel<Self> {
 //!         println!("...initialization...");
-//!         cx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), ())
+//!         ctx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), ())
 //!             .unwrap();
 //!         self.into()
 //!     }
@@ -122,7 +133,10 @@
 //! use nexosim::ports::Output;
 //! use nexosim::Model;
 //!
+//! use serde::{Serialize, Deserialize};
+//!
 //! /// The final model.
+//! #[derive(Serialize, Deserialize)]
 //! pub struct Multiplier {
 //!     // Private outputs and requestors stored in a form that constitutes an
 //!     // implementation detail and should not be exposed to the user.
@@ -161,8 +175,8 @@
 //!     fn build(
 //!         mut self,
 //!         _: &mut BuildContext<Self>
-//!     ) -> Multiplier {
-//!         Multiplier::new(self.value_times_1, self.value_times_2, self.value_times_3)
+//!     ) -> (Multiplier, ()) {
+//!         (Multiplier::new(self.value_times_1, self.value_times_2, self.value_times_3), ())
 //!     }
 //! }
 //! ```
@@ -193,6 +207,9 @@
 //! use nexosim::simulation::Mailbox;
 //! use nexosim::Model;
 //!
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Serialize, Deserialize)]
 //! pub struct ParentModel {
 //!     // Private internal port connected to the submodel.
 //!     to_child: Output<u64>,
@@ -211,7 +228,7 @@
 //! impl ProtoModel for ProtoParentModel {
 //!     type Model = ParentModel;
 //!
-//!     fn build(self, cx: &mut BuildContext<Self>) -> ParentModel {
+//!     fn build(self, cx: &mut BuildContext<Self>) -> (ParentModel, ()) {
 //!         // Move the output to the child model.
 //!         let child = ChildModel { output: self.output };
 //!         let mut parent = ParentModel {
@@ -228,10 +245,11 @@
 //!         // Add the child model to the simulation.
 //!         cx.add_submodel(child, child_mailbox, "child");
 //!
-//!         parent
+//!         (parent, ())
 //!     }
 //! }
 //!
+//! #[derive(Serialize, Deserialize)]
 //! struct ChildModel {
 //!     output: Output<u64>,
 //! }
@@ -293,13 +311,18 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     /// use std::future::Future;
     /// use std::pin::Pin;
     ///
+    /// use serde::{Serialize, Deserialize};
+    ///
     /// use nexosim::model::{Context, InitializedModel, Model};
     ///
+    /// #[derive(Serialize, Deserialize)]
     /// pub struct MyModel {
     ///     // ...
     /// }
     ///
     /// impl Model for MyModel {
+    ///     type Env = ();
+    ///
     ///     async fn init(
     ///         self,
     ///         cx: &mut Context<Self>

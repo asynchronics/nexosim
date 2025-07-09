@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::ports::{Output, QuerySource, Requestor};
+use nexosim::ports::{Output, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 use nexosim::Model;
@@ -107,27 +107,20 @@ fn no_input_from_scheduler(num_threads: usize) {
     }
 }
 
-/// Send a query from the scheduler to a dead input.
-fn no_replier_from_scheduler(num_threads: usize) {
+/// Process a query on a dead input.
+fn no_replier_from_query(num_threads: usize) {
     let bad_mbox = Mailbox::new();
-
-    let mut src = QuerySource::new();
-    src.connect(TestModel::activate_requestor, &bad_mbox);
-    let query = src.query(()).0;
+    let addr = bad_mbox.address();
 
     drop(bad_mbox);
 
     let t0 = MonotonicTime::EPOCH;
     let mut simu = SimInit::with_num_threads(num_threads).init(t0).unwrap();
-    let scheduler = simu.scheduler();
 
-    // TODO this test is not valid anymore?
-    // scheduler.schedule(Duration::from_secs(1), query).unwrap();
+    let result = simu.process_query(TestModel::activate_requestor, (), addr);
 
-    match simu.step() {
-        Err(ExecutionError::NoRecipient { model }) => {
-            assert_eq!(model, None);
-        }
+    match result {
+        Err(ExecutionError::BadQuery) => (),
         _ => panic!("missing recipient not detected"),
     }
 }
@@ -162,14 +155,12 @@ fn no_input_from_scheduler_mt() {
     no_input_from_scheduler(MT_NUM_THREADS);
 }
 
-#[ignore]
 #[test]
-fn no_replier_from_scheduler_st() {
-    no_replier_from_scheduler(1);
+fn no_replier_from_query_st() {
+    no_replier_from_query(1);
 }
 
-#[ignore]
 #[test]
-fn no_replier_from_scheduler_mt() {
-    no_replier_from_scheduler(MT_NUM_THREADS);
+fn no_replier_from_query_mt() {
+    no_replier_from_query(MT_NUM_THREADS);
 }

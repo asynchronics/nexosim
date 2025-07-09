@@ -8,23 +8,27 @@
 //! ## Simple observable value
 //!
 //! ```rust
-//! use nexosim::model::{Context, InitializedModel, Model};
+//! use nexosim::model::{Context, InitializedModel};
 //! use nexosim::ports::{EventSlot, Output};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
+//! use nexosim::Model;
+//!
+//! use serde::{Serialize, Deserialize};
 //!
 //! /// Initial count.
 //! const INITIAL: u64 = 5;
 //!
 //! /// The `Counter` Model.
+//! #[derive(Serialize, Deserialize)]
 //! pub struct Counter {
 //!     /// Pulses count.
 //!     pub count: Output<u64>,
 //!     /// Counter.
 //!     acc: Observable<u64>,
 //! }
-//!
+//! #[Model]
 //! impl Counter {
 //!     /// Creates a new `Counter` model with initial count.
 //!     fn new(initial_count: u64) -> Self {
@@ -39,9 +43,8 @@
 //!     pub async fn pulse(&mut self) {
 //!         self.acc.modify(|x| *x += 1).await;
 //!     }
-//! }
 //!
-//! impl Model for Counter {
+//!     #[nexosim(init)]
 //!     /// Propagate the internal state.
 //!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
 //!         self.acc.propagate().await;
@@ -72,7 +75,7 @@
 //! // Assembly and initialization.
 //! let mut simu = SimInit::new()
 //!     .add_model(counter, counter_mbox, "counter")
-//!     .init(t0).unwrap().0;
+//!     .init(t0).unwrap();
 //!
 //! // ----------
 //! // Simulation.
@@ -94,14 +97,17 @@
 //! ```rust
 //! use std::time::Duration;
 //!
-//! use nexosim::model::{Context, InitializedModel, Model};
+//! use serde::{Serialize, Deserialize};
+//!
+//! use nexosim::model::{Context, InitializedModel};
 //! use nexosim::ports::{EventSlot, Output};
-//! use nexosim::simulation::{AutoActionKey, Mailbox, SimInit};
+//! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
+//! use nexosim::{schedulable, Model};
 //!
 //! /// Processor mode ID.
-//! #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+//! #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 //! pub enum ModeId {
 //!     #[default]
 //!     Off,
@@ -110,12 +116,12 @@
 //! }
 //!
 //! /// Processor state.
-//! #[derive(Default)]
+//! #[derive(Default, Serialize, Deserialize)]
 //! pub enum State {
 //!     #[default]
 //!     Off,
 //!     Idle,
-//!     Processing(AutoActionKey),
+//!     Processing(AutoEventKey),
 //! }
 //!
 //! impl Observe<ModeId> for State {
@@ -129,6 +135,7 @@
 //! }
 //!
 //! /// Processor model.
+//! #[derive(Serialize, Deserialize)]
 //! pub struct Processor {
 //!     /// Mode output.
 //!     pub mode: Output<ModeId>,
@@ -137,6 +144,7 @@
 //!     state: Observable<State, ModeId>,
 //! }
 //!
+//! #[Model]
 //! impl Processor {
 //!     /// Create a new processor.
 //!     pub fn new() -> Self {
@@ -161,7 +169,7 @@
 //!         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
 //!             self.state
 //!                 .set(State::Processing(
-//!                     cx.schedule_keyed_event(Duration::from_millis(dt), Self::finish_processing, ())
+//!                     cx.schedule_keyed_event(Duration::from_millis(dt), schedulable!(Self::finish_processing), ())
 //!                         .unwrap()
 //!                         .into_auto(),
 //!                 ))
@@ -170,12 +178,12 @@
 //!     }
 //!
 //!     /// Finish processing.
+//!     #[nexosim(schedulable)]
 //!     async fn finish_processing(&mut self) {
 //!         self.state.set(State::Idle).await;
 //!     }
-//! }
 //!
-//! impl Model for Processor {
+//!     #[nexosim(init)]
 //!     /// Propagate all internal states.
 //!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
 //!         self.state.propagate().await;
@@ -205,8 +213,7 @@
 //! // Assembly and initialization.
 //! let mut simu = SimInit::new()
 //!     .add_model(proc, proc_mbox, "proc")
-//!     .init(t0).unwrap()
-//!     .0;
+//!     .init(t0).unwrap();
 //!
 //! // ----------
 //! // Simulation.
