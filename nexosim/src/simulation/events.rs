@@ -27,6 +27,7 @@ use super::ExecutionError;
 scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
+// This value has to be lower than the `SchedulableId::Mask`.
 const MAX_SOURCE_ID: usize = 1 << (usize::BITS - 1) as usize;
 
 /// A unique, type-safe id for schedulable event sources.

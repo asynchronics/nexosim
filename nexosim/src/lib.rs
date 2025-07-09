@@ -78,7 +78,7 @@
 //!   network connection or configuring hardware devices,
 //! * connect submodels and add them to the simulation.
 //!
-//! In typical scenarios the [`Model`](model::Model) trait cane be implemented
+//! In typical scenarios the [`Model`](model::Model) trait can be implemented
 //! by a [`Model`](crate::Model) proc-macro, applied to the main `impl` block of
 //! the model struct. Methods such as `init` and `restore` can be provided by
 //! using custom attributes (`#[nexosim(init)]` and `#[nexosim(restore)]`).
