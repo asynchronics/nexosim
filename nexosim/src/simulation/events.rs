@@ -511,7 +511,7 @@ impl<'de> Deserialize<'de> for EventKey {
 
 /// A one-shot action that can be processed immediately.
 ///
-/// `Actions` can be created from an [`EventSource`](crate::ports::EventSource)
+/// `Actions` can be created from an [`EventSource`]
 /// or [`QuerySource`](crate::ports::QuerySource). They can be used to process
 /// events and requests immediately with
 /// [`Simulation::process_action`](crate::simulation::Simulation::process_action).

@@ -193,7 +193,7 @@ impl SimInit {
         self
     }
 
-    /// Registers EventSource<T> as schedulable.
+    /// Registers `EventSource<T>` as schedulable.
     pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -233,7 +233,7 @@ impl SimInit {
     }
 
     /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`](crate::model::Model::init) method on all
+    /// executing the [`Model::init`] method on all
     /// model initializers.
     ///
     /// The simulation object is returned upon success.
@@ -258,7 +258,7 @@ impl SimInit {
     }
 
     /// Restores a simulation from a previously persisted state.
-    /// executing the [`Model::restore`](crate::model::Model::restore) method on
+    /// executing the [`Model::restore`] method on
     /// all registered models.
     ///
     /// The simulation object is returned upon success.
