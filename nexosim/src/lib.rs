@@ -515,3 +515,8 @@ pub mod tracing;
 #[cfg(feature = "dev-hooks")]
 #[doc(hidden)]
 pub mod dev_hooks;
+
+#[cfg(feature = "server")]
+pub use nexosim_macros::Message;
+#[cfg(feature = "server")]
+pub use schemars::JsonSchema;

@@ -23,7 +23,7 @@ pub(crate) enum ControllerService {
         cfg: Vec<u8>,
         simulation: Simulation,
         event_source_registry: Arc<EventSourceRegistry>,
-        query_source_registry: QuerySourceRegistry,
+        query_source_registry: Arc<QuerySourceRegistry>,
     },
 }
 

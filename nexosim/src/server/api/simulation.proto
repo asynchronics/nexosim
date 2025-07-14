@@ -127,6 +127,83 @@ message StepUnboundedReply {
   }
 }
 
+message ListEventSourcesRequest {}
+message ListEventSourcesReply {
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned
+  repeated string source_names = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
+message GetEventSourceSchemasRequest {
+  repeated string source_names = 1;
+}
+message GetEventSourceSchemasReply {
+  // This field is hoisted because protobuf3 does not support `map` within
+  // a `oneof`. It is Always empty if an error is returned
+  map<string, string> schemas = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
+message ListQuerySourcesRequest {}
+message ListQuerySourcesReply {
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned
+  repeated string source_names = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
+message QuerySchema {
+  string request = 1;
+  string reply = 2;
+}
+
+message GetQuerySourceSchemasRequest {
+  repeated string source_names = 1;
+}
+message GetQuerySourceSchemasReply {
+  // This field is hoisted because protobuf3 does not support `map` within
+  // a `oneof`. It is Always empty if an error is returned
+  map<string, QuerySchema> schemas = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
+message ListEventSinksRequest {}
+message ListEventSinksReply {
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned
+  repeated string sink_names = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
+message GetEventSinkSchemasRequest {
+  repeated string sink_names = 1;
+}
+message GetEventSinkSchemasReply {
+  // This field is hoisted because protobuf3 does not support `map` within
+  // a `oneof`. It is Always empty if an error is returned
+  map<string, string> schemas = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
 message ScheduleEventRequest {
   oneof deadline { // Expects exactly 1 variant.
     google.protobuf.Timestamp time = 1;
@@ -247,6 +324,12 @@ service Simulation {
   rpc Step(StepRequest) returns (StepReply);
   rpc StepUntil(StepUntilRequest) returns (StepUntilReply);
   rpc StepUnbounded(StepUnboundedRequest) returns (StepUnboundedReply);
+  rpc ListEventSources(ListEventSourcesRequest) returns (ListEventSourcesReply);
+  rpc GetEventSourceSchemas(GetEventSourceSchemasRequest) returns (GetEventSourceSchemasReply);
+  rpc ListQuerySources(ListQuerySourcesRequest) returns (ListQuerySourcesReply);
+  rpc GetQuerySourceSchemas(GetQuerySourceSchemasRequest) returns (GetQuerySourceSchemasReply);
+  rpc ListEventSinks(ListEventSinksRequest) returns (ListEventSinksReply);
+  rpc GetEventSinkSchemas(GetEventSinkSchemasRequest) returns (GetEventSinkSchemasReply);
   rpc ScheduleEvent(ScheduleEventRequest) returns (ScheduleEventReply);
   rpc CancelEvent(CancelEventRequest) returns (CancelEventReply);
   rpc ProcessEvent(ProcessEventRequest) returns (ProcessEventReply);

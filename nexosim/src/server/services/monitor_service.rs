@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::registry::EventSinkRegistry;
@@ -12,7 +13,7 @@ use super::{simulation_not_started_error, to_error, to_positive_duration};
 /// [`Simulation`](crate::simulation::Simulation).
 pub(crate) enum MonitorService {
     Started {
-        event_sink_registry: EventSinkRegistry,
+        event_sink_registry: Arc<Mutex<EventSinkRegistry>>,
     },
     NotStarted,
 }
@@ -26,10 +27,15 @@ impl MonitorService {
             } => move || -> Result<Vec<Vec<u8>>, Error> {
                 let sink_name = &request.sink_name;
 
-                let mut sink = event_sink_registry.get(sink_name).ok_or(to_error(
-                    ErrorCode::SinkNotFound,
-                    format!("no sink is registered with the name '{sink_name}'"),
-                ))?;
+                let mut sink =
+                    event_sink_registry
+                        .lock()
+                        .unwrap()
+                        .get(sink_name)
+                        .ok_or(to_error(
+                            ErrorCode::SinkNotFound,
+                            format!("no sink is registered with the name '{sink_name}'"),
+                        ))?;
 
                 sink.collect().map_err(|e| {
                     to_error(
@@ -65,10 +71,15 @@ impl MonitorService {
             } => move || -> Result<Vec<u8>, Error> {
                 let sink_name = &request.sink_name;
 
-                let mut sink = event_sink_registry.get(sink_name).ok_or(to_error(
-                    ErrorCode::SinkNotFound,
-                    format!("no sink is registered with the name '{sink_name}'"),
-                ))?;
+                let mut sink =
+                    event_sink_registry
+                        .lock()
+                        .unwrap()
+                        .get(sink_name)
+                        .ok_or(to_error(
+                            ErrorCode::SinkNotFound,
+                            format!("no sink is registered with the name '{sink_name}'"),
+                        ))?;
 
                 let timeout = request.timeout.map_or(Ok(Duration::ZERO), |timeout| {
                     to_positive_duration(timeout).ok_or(to_error(
@@ -108,7 +119,7 @@ impl MonitorService {
             } => {
                 let sink_name = &request.sink_name;
 
-                if let Some(sink) = event_sink_registry.get_mut(sink_name) {
+                if let Some(sink) = event_sink_registry.lock().unwrap().get_mut(sink_name) {
                     sink.open();
 
                     open_sink_reply::Result::Empty(())
@@ -135,7 +146,7 @@ impl MonitorService {
             } => {
                 let sink_name = &request.sink_name;
 
-                if let Some(sink) = event_sink_registry.get_mut(sink_name) {
+                if let Some(sink) = event_sink_registry.lock().unwrap().get_mut(sink_name) {
                     sink.close();
 
                     close_sink_reply::Result::Empty(())

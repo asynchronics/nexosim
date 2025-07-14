@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::ports::{QuerySource, ReplyReceiver};
 use crate::simulation::Action;
 
-use super::RegistryError;
+use super::{Message, MessageSchema, RegistryError};
 
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
@@ -30,12 +30,46 @@ impl QuerySourceRegistry {
         name: impl Into<String>,
     ) -> Result<(), QuerySource<T, R>>
     where
+        T: Message + DeserializeOwned + Clone + Send + 'static,
+        R: Message + Serialize + Send + 'static,
+    {
+        self.insert_entry(source, name, || (T::schema(), R::schema()))
+    }
+
+    /// Adds a query source to the registry without a schema definition.
+    ///
+    /// If the specified name is already in use for another query source, the
+    /// source provided as argument is returned in the error.
+    pub(crate) fn add_raw<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+    ) -> Result<(), QuerySource<T, R>>
+    where
         T: DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
+        self.insert_entry(source, name, || (String::new(), String::new()))
+    }
+
+    fn insert_entry<T, R, F>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+        schema_gen: F,
+    ) -> Result<(), QuerySource<T, R>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+        R: Serialize + Send + 'static,
+        F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
+    {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
-                s.insert(Box::new(source));
+                let entry = QuerySourceEntry {
+                    inner: source,
+                    schema_gen,
+                };
+                s.insert(Box::new(entry));
 
                 Ok(())
             }
@@ -47,6 +81,23 @@ impl QuerySourceRegistry {
     /// the registry.
     pub(crate) fn get(&self, name: &str) -> Option<&dyn QuerySourceAny> {
         self.0.get(name).map(|s| s.as_ref())
+    }
+
+    /// Returns an iterator over the names of the registered query sources.
+    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    /// Returns the input and output schemas of the specified query source if it
+    /// is in the registry.
+    pub(crate) fn get_source_schema(
+        &self,
+        name: &str,
+    ) -> Result<(MessageSchema, MessageSchema), RegistryError> {
+        Ok(self
+            .get(name)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get_schema())
     }
 }
 
@@ -73,12 +124,31 @@ pub(crate) trait QuerySourceAny: Any + Send + Sync + 'static {
     /// Human-readable name of the reply type, as returned by
     /// `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
+
+    /// Returns the input and output schemas of the query source.
+    ///
+    /// The first element of the tuple being the input schema, the second one
+    /// the output schema.
+    /// If the query was added via `add_raw` method, it returns an empty schema
+    /// strings.
+    fn get_schema(&self) -> (MessageSchema, MessageSchema);
 }
 
-impl<T, R> QuerySourceAny for QuerySource<T, R>
+struct QuerySourceEntry<T, R, F>
 where
     T: DeserializeOwned + Clone + Send + 'static,
     R: Serialize + Send + 'static,
+    F: Fn() -> (MessageSchema, MessageSchema),
+{
+    inner: QuerySource<T, R>,
+    schema_gen: F,
+}
+
+impl<T, R, F> QuerySourceAny for QuerySourceEntry<T, R, F>
+where
+    T: DeserializeOwned + Clone + Send + 'static,
+    R: Serialize + Send + 'static,
+    F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
 {
     fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError> {
         ciborium::from_reader(arg)
@@ -95,6 +165,10 @@ where
 
     fn reply_type_name(&self) -> &'static str {
         std::any::type_name::<R>()
+    }
+
+    fn get_schema(&self) -> (MessageSchema, MessageSchema) {
+        (self.schema_gen)()
     }
 }
 

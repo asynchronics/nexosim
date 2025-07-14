@@ -24,6 +24,10 @@ use super::markers;
 ///     T: Clone + Send + 'static,
 ///     R: Send + 'static,
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "The trait `InputFn` is not implemented for {Self}",
+    note = "Make sure the method has a mutable `self` reference."
+)]
 pub trait InputFn<'a, M: Model, T, S>: Send + 'static {
     /// The `Future` returned by the asynchronous method.
     type Future: Future<Output = ()> + Send + 'a;
@@ -127,6 +131,10 @@ where
 ///     T: Clone + Send + 'static,
 ///     R: Send + 'static,
 /// ```
+#[diagnostic::on_unimplemented(
+    message = "The trait `ReplierFn` is not implemented for {Self}",
+    note = "Make sure the method has a mutable `self` reference and returns a future."
+)]
 pub trait ReplierFn<'a, M: Model, T, R, S>: Send + 'static {
     /// The `Future` returned by the asynchronous method.
     type Future: Future<Output = R> + Send + 'a;
