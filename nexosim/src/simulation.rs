@@ -900,30 +900,3 @@ impl<F: Future> Future for ModelFuture<F> {
         poll
     }
 }
-
-#[cfg(all(test, not(nexosim_loom)))]
-impl Simulation {
-    /// Creates a dummy simulation for testing purposes.
-    pub(crate) fn new_dummy() -> Self {
-        Self::new(
-            crate::executor::Executor::new_single_threaded(
-                crate::executor::SimulationContext {
-                    #[cfg(feature = "tracing")]
-                    time_reader: crate::util::sync_cell::SyncCell::new(
-                        crate::time::TearableAtomicTime::new(crate::time::MonotonicTime::EPOCH),
-                    )
-                    .reader(),
-                },
-                crate::executor::Signal::new(),
-            ),
-            Arc::new(std::sync::Mutex::new(SchedulerQueue::new())),
-            AtomicTime::new(crate::time::TearableAtomicTime::new(MonotonicTime::EPOCH)),
-            Box::new(crate::time::NoClock::new()),
-            None,
-            std::time::Duration::from_secs(1),
-            Vec::new(),
-            Vec::new(),
-            Arc::new(std::sync::atomic::AtomicBool::default()),
-        )
-    }
-}

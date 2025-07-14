@@ -1,5 +1,6 @@
 mod controller_service;
 mod init_service;
+mod inspector_service;
 mod monitor_service;
 mod scheduler_service;
 
@@ -14,6 +15,7 @@ use crate::simulation::{ExecutionError, SchedulingError, SimulationError};
 
 pub(crate) use controller_service::ControllerService;
 pub(crate) use init_service::InitService;
+pub(crate) use inspector_service::InspectorService;
 pub(crate) use monitor_service::MonitorService;
 pub(crate) use scheduler_service::SchedulerService;
 
