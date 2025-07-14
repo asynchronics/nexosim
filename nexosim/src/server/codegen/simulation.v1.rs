@@ -287,9 +287,9 @@ pub mod list_query_sources_reply {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QuerySchema {
     #[prost(string, tag = "1")]
-    pub input: ::prost::alloc::string::String,
+    pub request: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub output: ::prost::alloc::string::String,
+    pub reply: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetQuerySourceSchemasRequest {
@@ -590,7 +590,7 @@ pub struct AnyRequest {
     /// Expects exactly 1 variant.
     #[prost(
         oneof = "any_request::Request",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"
     )]
     pub request: ::core::option::Option<any_request::Request>,
 }
@@ -602,36 +602,32 @@ pub mod any_request {
         #[prost(message, tag = "1")]
         InitRequest(super::InitRequest),
         #[prost(message, tag = "2")]
-        RestoreRequest(super::RestoreRequest),
-        #[prost(message, tag = "3")]
         HaltRequest(super::HaltRequest),
-        #[prost(message, tag = "4")]
-        SaveRequest(super::SaveRequest),
-        #[prost(message, tag = "5")]
+        #[prost(message, tag = "3")]
         TimeRequest(super::TimeRequest),
-        #[prost(message, tag = "6")]
+        #[prost(message, tag = "4")]
         StepRequest(super::StepRequest),
-        #[prost(message, tag = "7")]
+        #[prost(message, tag = "5")]
         StepUntilRequest(super::StepUntilRequest),
-        #[prost(message, tag = "8")]
+        #[prost(message, tag = "6")]
         ScheduleEventRequest(super::ScheduleEventRequest),
-        #[prost(message, tag = "9")]
+        #[prost(message, tag = "7")]
         CancelEventRequest(super::CancelEventRequest),
-        #[prost(message, tag = "10")]
+        #[prost(message, tag = "8")]
         ProcessEventRequest(super::ProcessEventRequest),
-        #[prost(message, tag = "11")]
+        #[prost(message, tag = "9")]
         ProcessQueryRequest(super::ProcessQueryRequest),
-        #[prost(message, tag = "12")]
+        #[prost(message, tag = "10")]
         ReadEventsRequest(super::ReadEventsRequest),
-        #[prost(message, tag = "13")]
+        #[prost(message, tag = "11")]
         OpenSinkRequest(super::OpenSinkRequest),
-        #[prost(message, tag = "14")]
+        #[prost(message, tag = "12")]
         CloseSinkRequest(super::CloseSinkRequest),
-        #[prost(message, tag = "15")]
+        #[prost(message, tag = "13")]
         AwaitEventRequest(super::AwaitEventRequest),
-        #[prost(message, tag = "16")]
+        #[prost(message, tag = "14")]
         StepUnboundedRequest(super::StepUnboundedRequest),
-        #[prost(message, tag = "17")]
+        #[prost(message, tag = "15")]
         TerminateRequest(super::TerminateRequest),
     }
 }
@@ -660,6 +656,9 @@ pub enum ErrorCode {
     SimulationTimeOutOfRange = 21,
     SourceNotFound = 30,
     SinkNotFound = 31,
+    Unregistered = 32,
+    InvalidType = 33,
+    DeserializationError = 34,
     SaveError = 40,
     RestoreError = 41,
 }
@@ -692,6 +691,9 @@ impl ErrorCode {
             Self::SimulationTimeOutOfRange => "SIMULATION_TIME_OUT_OF_RANGE",
             Self::SourceNotFound => "SOURCE_NOT_FOUND",
             Self::SinkNotFound => "SINK_NOT_FOUND",
+            Self::Unregistered => "UNREGISTERED",
+            Self::InvalidType => "INVALID_TYPE",
+            Self::DeserializationError => "DESERIALIZATION_ERROR",
             Self::SaveError => "SAVE_ERROR",
             Self::RestoreError => "RESTORE_ERROR",
         }
@@ -721,6 +723,9 @@ impl ErrorCode {
             "SIMULATION_TIME_OUT_OF_RANGE" => Some(Self::SimulationTimeOutOfRange),
             "SOURCE_NOT_FOUND" => Some(Self::SourceNotFound),
             "SINK_NOT_FOUND" => Some(Self::SinkNotFound),
+            "UNREGISTERED" => Some(Self::Unregistered),
+            "INVALID_TYPE" => Some(Self::InvalidType),
+            "DESERIALIZATION_ERROR" => Some(Self::DeserializationError),
             "SAVE_ERROR" => Some(Self::SaveError),
             "RESTORE_ERROR" => Some(Self::RestoreError),
             _ => None,

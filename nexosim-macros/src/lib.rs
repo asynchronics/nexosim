@@ -351,4 +351,4 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn:
         return Ok(true);
     }
     Ok(false)
-
+}

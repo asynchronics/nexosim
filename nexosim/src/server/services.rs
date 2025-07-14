@@ -84,6 +84,9 @@ fn map_registry_error(error: RegistryError) -> Error {
     let error_code = match error {
         RegistryError::SourceNotFound(_) => ErrorCode::SourceNotFound,
         RegistryError::SinkNotFound(_) => ErrorCode::SinkNotFound,
+        RegistryError::Unregistered => ErrorCode::Unregistered,
+        RegistryError::InvalidType(_) => ErrorCode::InvalidType,
+        RegistryError::DeserializationError(_) => ErrorCode::DeserializationError,
     };
     let error_message = error.to_string();
 

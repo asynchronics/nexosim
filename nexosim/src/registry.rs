@@ -144,7 +144,7 @@ impl EndpointRegistry {
         (self
             .query_source_registry
             .get(name)
-            .ok_or(RegistryError::NotFound)? as &dyn Any)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))? as &dyn Any)
             .downcast_ref()
             .ok_or(RegistryError::InvalidType(std::any::type_name::<
                 QuerySource<T, R>,
@@ -160,12 +160,13 @@ impl EndpointRegistry {
         Ok((self
             .event_source_registry
             .get(name)
-            .ok_or(RegistryError::NotFound)? as &dyn Any)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))? as &dyn Any)
             .downcast_ref::<Arc<EventSource<T>>>()
             .ok_or(RegistryError::InvalidType(std::any::type_name::<
                 Arc<EventSource<T>>,
             >()))?
             .as_ref())
+    }
 }
 
 /// An error returned when an invalid endpoint registry action is taken.
@@ -223,4 +224,3 @@ where
         schemars::schema_for!(T).as_value().to_string()
     }
 }
-

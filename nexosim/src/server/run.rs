@@ -316,7 +316,7 @@ impl GrpcSimulationService {
 
         let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
         let query_source_registry = Arc::new(endpoint_registry.query_source_registry);
-        let event_sink_registry = Arch::new(Mutex::new(endpoint_registry.event_sink_registry));
+        let event_sink_registry = Arc::new(Mutex::new(endpoint_registry.event_sink_registry));
 
         *self.controller_service.lock().unwrap() = ControllerService::Started {
             cfg,

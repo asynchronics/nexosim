@@ -140,8 +140,8 @@ impl InspectorService {
                             Ok((
                                 a.to_string(),
                                 QuerySchema {
-                                    input: schema.0,
-                                    output: schema.1,
+                                    request: schema.0,
+                                    reply: schema.1,
                                 },
                             ))
                         })
@@ -155,8 +155,8 @@ impl InspectorService {
                             Ok((
                                 a.to_string(),
                                 QuerySchema {
-                                    input: schema.0,
-                                    output: schema.1,
+                                    request: schema.0,
+                                    reply: schema.1,
                                 },
                             ))
                         })
@@ -495,8 +495,8 @@ mod tests {
         );
         assert_eq!(query_reply.schemas.len(), 1);
         assert_eq!(query_reply.schemas.keys().next().unwrap(), "raw");
-        assert_eq!(query_reply.schemas.values().next().unwrap().input, "");
-        assert_eq!(query_reply.schemas.values().next().unwrap().output, "");
+        assert_eq!(query_reply.schemas.values().next().unwrap().request, "");
+        assert_eq!(query_reply.schemas.values().next().unwrap().reply, "");
 
         let sink_reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
             sink_names: vec!["raw".to_string()],

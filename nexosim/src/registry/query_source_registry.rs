@@ -153,7 +153,7 @@ where
     fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError> {
         ciborium::from_reader(arg)
             .map(|arg| {
-                let (action, receiver) = self.query(arg);
+                let (action, receiver) = self.inner.query(arg);
                 (action, Box::new(receiver) as Box<dyn ReplyReceiverAny>)
             })
             .map_err(RegistryError::DeserializationError)
