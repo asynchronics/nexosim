@@ -45,7 +45,9 @@ impl InspectorService {
     /// Retrieves the input event schemas for the specified event sources.
     ///
     /// If the `source_names` field is left empty, it returns schemas for all
-    /// the registered sources.
+    /// the registered sources. Sources added with
+    /// [`EndpointRegistry::add_event_source_raw`] would provide an empty string
+    /// as their schema.
     pub(crate) fn get_event_source_schemas(
         &self,
         request: GetEventSourceSchemasRequest,
@@ -117,7 +119,9 @@ impl InspectorService {
     /// sources.
     ///
     /// If the `source_names` field is left empty, it returns schemas for all
-    /// the registered sources.
+    /// the registered sources. Sources added with
+    /// [`EndpointRegistry::add_query_source_raw`] would provide an empty string
+    /// as their schema.
     pub(crate) fn get_query_source_schemas(
         &self,
         request: GetQuerySourceSchemasRequest,
@@ -208,7 +212,9 @@ impl InspectorService {
     /// Returns the schemas of the specified event sinks.
     ///
     /// If `sink_names` field is empty, it returns schemas for all the
-    /// registered sinks.
+    /// the registered sinks. Sinks added with
+    /// [`EndpointRegistry::add_event_sink_raw`] would provide an empty string
+    /// as their schema.
     pub(crate) fn get_event_sink_schemas(
         &self,
         request: GetEventSinkSchemasRequest,

@@ -199,7 +199,7 @@ fn run_local_service(
 struct GrpcSimulationService {
     init_service: Mutex<InitService>,
     controller_service: Arc<Mutex<ControllerService>>,
-    endpoint_service: Mutex<InspectorService>,
+    inspector_service: Mutex<InspectorService>,
     monitor_service: Arc<RwLock<MonitorService>>,
     scheduler_service: Mutex<SchedulerService>,
 }
@@ -219,7 +219,7 @@ impl GrpcSimulationService {
         Self {
             init_service: Mutex::new(InitService::new(sim_gen)),
             controller_service: Arc::new(Mutex::new(ControllerService::NotStarted)),
-            endpoint_service: Mutex::new(InspectorService::NotStarted),
+            inspector_service: Mutex::new(InspectorService::NotStarted),
             monitor_service: Arc::new(RwLock::new(MonitorService::NotStarted)),
             scheduler_service: Mutex::new(SchedulerService::NotStarted),
         }
@@ -241,13 +241,13 @@ impl GrpcSimulationService {
         Ok(Response::new(res))
     }
 
-    /// Executes a method of the endpoint service.
-    fn execute_endpoint_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
+    /// Executes a method of the inspector service.
+    fn execute_inspector_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
     where
         F: Fn(&InspectorService, T) -> U,
     {
         Ok(Response::new(f(
-            &self.endpoint_service.lock().unwrap(),
+            &self.inspector_service.lock().unwrap(),
             request,
         )))
     }
@@ -324,7 +324,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 event_source_registry: event_source_registry.clone(),
                 query_source_registry: query_source_registry.clone(),
             };
-            *self.endpoint_service.lock().unwrap() = InspectorService::Started {
+            *self.inspector_service.lock().unwrap() = InspectorService::Started {
                 event_sink_registry: event_sink_registry.clone(),
                 event_source_registry: event_source_registry.clone(),
                 query_source_registry,
@@ -346,7 +346,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         _request: Request<TerminateRequest>,
     ) -> Result<Response<TerminateReply>, Status> {
         *self.controller_service.lock().unwrap() = ControllerService::NotStarted;
-        *self.endpoint_service.lock().unwrap() = InspectorService::NotStarted;
+        *self.inspector_service.lock().unwrap() = InspectorService::NotStarted;
         *self.monitor_service.write().unwrap() = MonitorService::NotStarted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::NotStarted;
 
@@ -410,7 +410,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<ListEventSourcesReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_endpoint_fn(request, InspectorService::list_event_sources)
+        self.execute_inspector_fn(request, InspectorService::list_event_sources)
     }
     async fn get_event_source_schemas(
         &self,
@@ -418,7 +418,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<GetEventSourceSchemasReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_endpoint_fn(request, InspectorService::get_event_source_schemas)
+        self.execute_inspector_fn(request, InspectorService::get_event_source_schemas)
     }
     async fn list_query_sources(
         &self,
@@ -426,7 +426,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<ListQuerySourcesReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_endpoint_fn(request, InspectorService::list_query_sources)
+        self.execute_inspector_fn(request, InspectorService::list_query_sources)
     }
     async fn get_query_source_schemas(
         &self,
@@ -434,7 +434,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<GetQuerySourceSchemasReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_endpoint_fn(request, InspectorService::get_query_source_schemas)
+        self.execute_inspector_fn(request, InspectorService::get_query_source_schemas)
     }
     async fn list_event_sinks(
         &self,
@@ -442,7 +442,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<ListEventSinksReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_endpoint_fn(request, InspectorService::list_event_sinks)
+        self.execute_inspector_fn(request, InspectorService::list_event_sinks)
     }
     async fn get_event_sink_schemas(
         &self,
@@ -450,7 +450,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<GetEventSinkSchemasReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_endpoint_fn(request, InspectorService::get_event_sink_schemas)
+        self.execute_inspector_fn(request, InspectorService::get_event_sink_schemas)
     }
     async fn process_event(
         &self,
