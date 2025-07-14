@@ -45,7 +45,7 @@ impl EndpointRegistry {
         self.event_source_registry.add(source, name)
     }
 
-    /// Adds an event source to the registry without requiring a `Schema`
+    /// Adds an event source to the registry without requiring a `Message`
     /// implementation for its item type.
     ///
     /// If the specified name is already in use for another event source, the
@@ -77,7 +77,7 @@ impl EndpointRegistry {
         self.query_source_registry.add(source, name)
     }
 
-    /// Adds a query source to the registry without requiring `Schema`
+    /// Adds a query source to the registry without requiring `Message`
     /// implementations for its query and response types.
     ///
     /// If the specified name is already in use for another query source, the
@@ -106,7 +106,7 @@ impl EndpointRegistry {
         self.event_sink_registry.add(sink, name)
     }
 
-    /// Adds an event sink to the registry without requiring a `Schema`
+    /// Adds an event sink to the registry without requiring a `Message`
     /// implementation for its item type.
     ///
     /// If the specified name is already in use for another event sink, the
@@ -124,7 +124,7 @@ impl EndpointRegistry {
 pub type MessageSchema = String;
 
 /// An optional helper trait for event and query input / output arguments.
-/// Enables json schema generation to precisely describe types of the exchanged
+/// Enables json schema generation to precisely describe the types of exchanged
 /// data.
 pub trait Message {
     /// Returns a schema defining message type.

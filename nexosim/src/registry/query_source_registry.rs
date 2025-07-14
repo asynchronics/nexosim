@@ -88,7 +88,7 @@ impl QuerySourceRegistry {
         self.0.keys()
     }
 
-    /// Returns the input and output schemas of a specified query source if it
+    /// Returns the input and output schemas of the specified query source if it
     /// is in the registry.
     pub(crate) fn get_source_schema(
         &self,
