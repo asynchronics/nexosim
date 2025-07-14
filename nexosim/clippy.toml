@@ -1,0 +1,3 @@
+# Threshold increased to avoid tonic Result lint errors.
+# Possibly to remove after bumping tonic version.
+large-error-threshold = 256

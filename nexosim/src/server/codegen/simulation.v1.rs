@@ -164,6 +164,169 @@ pub mod step_unbounded_reply {
         Error(super::Error),
     }
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListEventSourcesRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListEventSourcesReply {
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(string, repeated, tag = "1")]
+    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "list_event_sources_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<list_event_sources_reply::Result>,
+}
+/// Nested message and enum types in `ListEventSourcesReply`.
+pub mod list_event_sources_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEventSourceSchemasRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEventSourceSchemasReply {
+    /// This field is hoisted because protobuf3 does not support `map` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(map = "string, string", tag = "1")]
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "get_event_source_schemas_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<get_event_source_schemas_reply::Result>,
+}
+/// Nested message and enum types in `GetEventSourceSchemasReply`.
+pub mod get_event_source_schemas_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListQuerySourcesRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListQuerySourcesReply {
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(string, repeated, tag = "1")]
+    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "list_query_sources_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<list_query_sources_reply::Result>,
+}
+/// Nested message and enum types in `ListQuerySourcesReply`.
+pub mod list_query_sources_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QuerySchema {
+    #[prost(string, tag = "1")]
+    pub input: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub output: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetQuerySourceSchemasRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetQuerySourceSchemasReply {
+    /// This field is hoisted because protobuf3 does not support `map` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(map = "string, message", tag = "1")]
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        QuerySchema,
+    >,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "get_query_source_schemas_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<get_query_source_schemas_reply::Result>,
+}
+/// Nested message and enum types in `GetQuerySourceSchemasReply`.
+pub mod get_query_source_schemas_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ListEventSinksRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListEventSinksReply {
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(string, repeated, tag = "1")]
+    pub sink_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "list_event_sinks_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<list_event_sinks_reply::Result>,
+}
+/// Nested message and enum types in `ListEventSinksReply`.
+pub mod list_event_sinks_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEventSinkSchemasRequest {
+    #[prost(string, repeated, tag = "1")]
+    pub sink_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetEventSinkSchemasReply {
+    /// This field is hoisted because protobuf3 does not support `map` within
+    /// a `oneof`. It is Always empty if an error is returned
+    #[prost(map = "string, string", tag = "1")]
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "get_event_sink_schemas_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<get_event_sink_schemas_reply::Result>,
+}
+/// Nested message and enum types in `GetEventSinkSchemasReply`.
+pub mod get_event_sink_schemas_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScheduleEventRequest {
     #[prost(string, tag = "3")]
@@ -551,6 +714,48 @@ pub mod simulation_server {
             request: tonic::Request<super::StepUnboundedRequest>,
         ) -> std::result::Result<
             tonic::Response<super::StepUnboundedReply>,
+            tonic::Status,
+        >;
+        async fn list_event_sources(
+            &self,
+            request: tonic::Request<super::ListEventSourcesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListEventSourcesReply>,
+            tonic::Status,
+        >;
+        async fn get_event_source_schemas(
+            &self,
+            request: tonic::Request<super::GetEventSourceSchemasRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetEventSourceSchemasReply>,
+            tonic::Status,
+        >;
+        async fn list_query_sources(
+            &self,
+            request: tonic::Request<super::ListQuerySourcesRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListQuerySourcesReply>,
+            tonic::Status,
+        >;
+        async fn get_query_source_schemas(
+            &self,
+            request: tonic::Request<super::GetQuerySourceSchemasRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetQuerySourceSchemasReply>,
+            tonic::Status,
+        >;
+        async fn list_event_sinks(
+            &self,
+            request: tonic::Request<super::ListEventSinksRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ListEventSinksReply>,
+            tonic::Status,
+        >;
+        async fn get_event_sink_schemas(
+            &self,
+            request: tonic::Request<super::GetEventSinkSchemasRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetEventSinkSchemasReply>,
             tonic::Status,
         >;
         async fn schedule_event(
@@ -966,6 +1171,279 @@ pub mod simulation_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StepUnboundedSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/ListEventSources" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListEventSourcesSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListEventSourcesRequest>
+                    for ListEventSourcesSvc<T> {
+                        type Response = super::ListEventSourcesReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListEventSourcesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::list_event_sources(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListEventSourcesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/GetEventSourceSchemas" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetEventSourceSchemasSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::GetEventSourceSchemasRequest>
+                    for GetEventSourceSchemasSvc<T> {
+                        type Response = super::GetEventSourceSchemasReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetEventSourceSchemasRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::get_event_source_schemas(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetEventSourceSchemasSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/ListQuerySources" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListQuerySourcesSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListQuerySourcesRequest>
+                    for ListQuerySourcesSvc<T> {
+                        type Response = super::ListQuerySourcesReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListQuerySourcesRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::list_query_sources(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListQuerySourcesSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/GetQuerySourceSchemas" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetQuerySourceSchemasSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::GetQuerySourceSchemasRequest>
+                    for GetQuerySourceSchemasSvc<T> {
+                        type Response = super::GetQuerySourceSchemasReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetQuerySourceSchemasRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::get_query_source_schemas(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetQuerySourceSchemasSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/ListEventSinks" => {
+                    #[allow(non_camel_case_types)]
+                    struct ListEventSinksSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListEventSinksRequest>
+                    for ListEventSinksSvc<T> {
+                        type Response = super::ListEventSinksReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ListEventSinksRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::list_event_sinks(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ListEventSinksSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/GetEventSinkSchemas" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetEventSinkSchemasSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::GetEventSinkSchemasRequest>
+                    for GetEventSinkSchemasSvc<T> {
+                        type Response = super::GetEventSinkSchemasReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GetEventSinkSchemasRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::get_event_sink_schemas(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetEventSinkSchemasSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

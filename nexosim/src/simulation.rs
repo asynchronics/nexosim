@@ -53,8 +53,8 @@
 //! rare in practice, these may occur due to one of the below:
 //!
 //! 1. *query loopback*: if a model sends a query which loops back to itself
-//!    (either directly or transitively via other models), that model
-//!    would in effect wait for its own response and block,
+//!    (either directly or transitively via other models), that model would in
+//!    effect wait for its own response and block,
 //! 2. *mailbox saturation loopback*: if an asynchronous model method sends in
 //!    the same call many events that end up saturating its own mailbox (either
 //!    directly or transitively via other models), then any attempt to send

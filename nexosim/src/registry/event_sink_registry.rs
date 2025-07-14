@@ -9,6 +9,8 @@ use serde::Serialize;
 
 use crate::ports::EventSinkReader;
 
+use super::{Message, MessageSchema, RegistryError};
+
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
 /// A registry that holds all sinks meant to be accessed through remote
@@ -24,11 +26,41 @@ impl EventSinkRegistry {
     pub(crate) fn add<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
+        S::Item: Serialize + Message,
+    {
+        self.insert_entry(sink, name, S::Item::schema)
+    }
+
+    /// Adds a sink to the registry without a schema definition.
+    ///
+    /// If the specified name is already in use for another sink, the sink
+    /// provided as argument is returned in the error.
+    pub(crate) fn add_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    where
+        S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,
+    {
+        self.insert_entry(sink, name, String::new)
+    }
+
+    fn insert_entry<S, F>(
+        &mut self,
+        sink: S,
+        name: impl Into<String>,
+        schema_gen: F,
+    ) -> Result<(), S>
+    where
+        S: EventSinkReader + Send + Sync + 'static,
+        S::Item: Serialize,
+        F: Fn() -> MessageSchema + Clone + Send + Sync + 'static,
     {
         match self.0.entry(name.into()) {
             Entry::Vacant(s) => {
-                s.insert(Box::new(sink));
+                let entry = EventSinkEntry {
+                    inner: sink,
+                    schema_gen,
+                };
+                s.insert(Box::new(entry));
 
                 Ok(())
             }
@@ -45,6 +77,19 @@ impl EventSinkRegistry {
     /// Returns a clone of the specified sink if it is in the registry.
     pub(crate) fn get(&self, name: &str) -> Option<Box<dyn EventSinkReaderAny>> {
         self.0.get(name).map(|s| dyn_clone::clone_box(&**s))
+    }
+
+    /// Returns an iterator over the names of all sinks in the registry.
+    pub(crate) fn list_sinks(&self) -> impl Iterator<Item = &String> {
+        self.0.keys()
+    }
+
+    /// Returns the schema of the specified sink if it is in the registry.
+    pub(crate) fn get_sink_schema(&self, name: &str) -> Result<MessageSchema, RegistryError> {
+        Ok(self
+            .get(name)
+            .ok_or(RegistryError::SinkNotFound(name.to_string()))?
+            .get_schema())
     }
 }
 
@@ -71,46 +116,67 @@ pub(crate) trait EventSinkReaderAny: DynClone + Send + Sync + 'static {
 
     /// Waits for an event and encodes it in bytes.
     fn await_event(&mut self, timeout: Duration) -> Result<Vec<u8>, SerializationError>;
+
+    /// Returns the schema of the events provided by the sink.
+    /// If the sink was added via `add_raw` method, it returns an empty schema
+    /// string.
+    fn get_schema(&self) -> MessageSchema;
+}
+
+#[derive(Clone)]
+struct EventSinkEntry<E, F>
+where
+    E: EventSinkReader + Send + Sync + 'static,
+    F: Fn() -> MessageSchema,
+{
+    inner: E,
+    schema_gen: F,
 }
 
 dyn_clone::clone_trait_object!(EventSinkReaderAny);
 
-impl<E> EventSinkReaderAny for E
+impl<E, F> EventSinkReaderAny for EventSinkEntry<E, F>
 where
     E: EventSinkReader + Send + Sync + 'static,
     E::Item: Serialize,
+    F: Fn() -> MessageSchema + Clone + Send + Sync + 'static,
 {
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<E::Item>()
     }
 
     fn open(&mut self) {
-        self.open();
+        self.inner.open();
     }
 
     fn close(&mut self) {
-        self.close();
+        self.inner.close();
     }
 
     fn collect(&mut self) -> Result<Vec<Vec<u8>>, SerializationError> {
-        self.set_blocking(false);
-        self.__try_fold(Vec::new(), |mut encoded_events, event| {
-            let mut buffer = Vec::new();
-            ciborium::into_writer(&event, &mut buffer).map(|_| {
-                encoded_events.push(buffer);
+        self.inner.set_blocking(false);
+        self.inner
+            .__try_fold(Vec::new(), |mut encoded_events, event| {
+                let mut buffer = Vec::new();
+                ciborium::into_writer(&event, &mut buffer).map(|_| {
+                    encoded_events.push(buffer);
 
-                encoded_events
+                    encoded_events
+                })
             })
-        })
     }
 
     fn await_event(&mut self, timeout: Duration) -> Result<Vec<u8>, SerializationError> {
-        self.set_timeout(timeout);
-        self.set_blocking(true);
+        self.inner.set_timeout(timeout);
+        self.inner.set_blocking(true);
         // Blocking call.
-        let event = self.next();
+        let event = self.inner.next();
         let mut buffer = Vec::new();
         ciborium::into_writer(&event, &mut buffer)?;
         Ok(buffer)
+    }
+
+    fn get_schema(&self) -> MessageSchema {
+        (self.schema_gen)()
     }
 }
