@@ -97,8 +97,8 @@ impl EventSourceRegistry {
             .copied()
     }
 
-    /// Registers registry sources in the scheduler queue in order to make them
-    /// schedulable.
+    /// Registers event sources in the scheduler's registry in order to make
+    /// them schedulable.
     pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
         for entry in self.0.values_mut() {
             entry.register(registry);
@@ -170,7 +170,7 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
     /// `any::type_name`.
     fn event_type_name(&self) -> &'static str;
 
-    /// Register the source in the scheduler queue to make it schedulable.
+    /// Register the source in the scheduler's registry to make it schedulable.
     fn register(&self, registry: &mut SchedulerSourceRegistry);
 
     /// Returns the schema of the event type.
