@@ -127,7 +127,7 @@ impl EndpointRegistry {
     /// Returns a typed SourceId for an EventSource registered by a given name.
     ///
     /// SourceId can be used to schedule events on the Scheduler instance.
-    pub fn get_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
+    pub fn get_event_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
     where
         T: Clone + Send + 'static,
     {

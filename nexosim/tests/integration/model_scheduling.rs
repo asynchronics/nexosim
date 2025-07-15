@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::Context;
+use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -49,6 +49,67 @@ fn model_schedule_event(num_threads: usize) {
     assert!(output.next().is_some());
     simu.step().unwrap();
     assert!(output.next().is_none());
+}
+
+// This test mainly checks that ModelRegistry and SchedulableId with bitmasking
+// works properly when multiple models are involved (the won't override their
+// inputs).
+fn multiple_models_scheduling(num_threads: usize) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const MODEL_COUNT: usize = 3;
+    static STATE: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Serialize, Deserialize)]
+    struct TestModel {
+        delay: u64,
+        val: usize,
+    }
+    #[Model]
+    impl TestModel {
+        #[nexosim(init)]
+        async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+            cx.schedule_event(
+                Duration::from_secs(self.delay),
+                schedulable!(Self::action),
+                (),
+            )
+            .unwrap();
+            self.into()
+        }
+
+        // Does nothing, but alters the ModelRegistry
+        #[nexosim(schedulable)]
+        async fn dead_input(&mut self) {}
+
+        #[nexosim(schedulable)]
+        async fn action(&mut self) {
+            STATE.store(self.val, Ordering::Relaxed);
+        }
+    }
+
+    let t0 = MonotonicTime::EPOCH;
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    // Iterate in reverse, so the first added model would trigger last.
+    for idx in (0..MODEL_COUNT).rev() {
+        let model = TestModel {
+            delay: idx as u64 + 1,
+            val: 13 * (idx + 1),
+        };
+        let mbox = Mailbox::new();
+        bench = bench.add_model(model, mbox, format!("Model_{idx}"));
+    }
+
+    let mut simu = bench.init(t0).unwrap();
+
+    for idx in 0..MODEL_COUNT {
+        simu.step().unwrap();
+        // This should assert that the order of the SourceIds is correct.
+        // If bitmasking is removed from `SchedulableId::__from_decorated` this would
+        // fail.
+        assert_eq!(STATE.load(Ordering::Relaxed), 13 * (idx + 1));
+    }
 }
 
 fn model_cancel_future_keyed_event(num_threads: usize) {
@@ -261,6 +322,16 @@ fn model_schedule_event_st() {
 #[test]
 fn model_schedule_event_mt() {
     model_schedule_event(MT_NUM_THREADS);
+}
+
+#[test]
+fn multiple_models_scheduling_st() {
+    multiple_models_scheduling(1);
+}
+
+#[test]
+fn multiple_models_scheduling_mt() {
+    multiple_models_scheduling(MT_NUM_THREADS);
 }
 
 #[test]
