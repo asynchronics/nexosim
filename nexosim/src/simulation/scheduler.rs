@@ -434,3 +434,19 @@ impl GlobalScheduler {
         GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_running)
     }
 }
+
+#[cfg(all(test, not(nexosim_loom)))]
+impl Scheduler {
+    /// Creates a dummy scheduler for testing purposes.
+    pub(crate) fn new_dummy() -> Self {
+        Self(GlobalScheduler::new_dummy())
+    }
+    /// Allows to inspect the queue - for testing purposes.
+    pub(crate) fn queue(&self) -> std::sync::MutexGuard<SchedulerQueue> {
+        self.0.scheduler_queue.lock().unwrap()
+    }
+    /// Returns Arc<AtomicBool> `is_halted`
+    pub(crate) fn is_halted(&self) -> Arc<AtomicBool> {
+        self.0.is_halted.clone()
+    }
+}
