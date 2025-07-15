@@ -36,6 +36,12 @@ pub(crate) type PortsReg = Mutex<VecDeque<Box<dyn Any>>>;
 /// When an `Output` is cloned, the information on connected ports remains
 /// shared and therefore all clones use and modify the same list of connected
 /// ports.
+///
+/// Note on serialization: Output types support `serde` based serialization and
+/// deserialization with some limitations. Successful state restoration relies
+/// on consistent ordering of the Outputs within the models. Therefore storing
+/// Outputs in data structures that do not guarantee ordering (such as hashmaps
+/// or hashsets) might lead to unpredictable results after deserialization.
 #[derive(Clone)]
 pub struct Output<T: Clone + Send + 'static> {
     broadcaster: CachedRwLock<EventBroadcaster<T>>,
@@ -211,6 +217,13 @@ impl<'de, T: Clone + Send> Deserialize<'de> for Output<T> {
 /// When a `Requestor` is cloned, the information on connected ports remains
 /// shared and therefore all clones use and modify the same list of connected
 /// ports.
+///
+/// Note on serialization: Requestor types support `serde` based serialization
+/// and deserialization with some limitations. Successful state restoration
+/// relies on consistent ordering of the Requestors within the models. Therefore
+/// storing Requestors in data structures that do not guarantee ordering (such
+/// as hashmaps or hashsets) might lead to unpredictable results after
+/// deserialization.
 pub struct Requestor<T: Clone + Send + 'static, R: Send + 'static> {
     broadcaster: CachedRwLock<QueryBroadcaster<T, R>>,
 }
@@ -371,6 +384,13 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for Requestor<T, R> {
 ///
 /// A `UniRequestor` port is connected to a replier port, i.e. to an
 /// asynchronous model method that returns a value.
+///
+/// Note on serialization: Requestor types support `serde` based serialization
+/// and deserialization with some limitations. Successful state restoration
+/// relies on consistent ordering of the Requestors within the models. Therefore
+/// storing Requestors in data structures that do not guarantee ordering (such
+/// as hashmaps or hashsets) might lead to unpredictable results after
+/// deserialization.
 pub struct UniRequestor<T: Clone + Send + 'static, R: Send + 'static> {
     sender: Box<dyn Sender<T, R>>,
 }
