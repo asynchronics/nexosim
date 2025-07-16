@@ -171,3 +171,198 @@ impl fmt::Debug for MonitorService {
         f.debug_struct("SimulationService").finish_non_exhaustive()
     }
 }
+
+#[cfg(all(test, not(nexosim_loom)))]
+mod tests {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    use crate::ports::EventSinkReader;
+
+    use super::*;
+
+    const U8_CBOR_HEADER: u8 = 0x18;
+    const NULL_CBOR_HEADER: u8 = 0xf6;
+
+    // TODO The fixtures here might be overengineered, reconsider.
+
+    #[derive(Clone, Debug, Default)]
+    struct DummyState<T> {
+        queue: VecDeque<T>,
+        open: bool,
+        blocking: bool,
+        timeout: Duration,
+    }
+
+    #[derive(Clone, Debug)]
+    struct DummySink<T>(Arc<Mutex<DummyState<T>>>);
+    impl<T: Default> DummySink<T> {
+        fn new() -> Self {
+            Self(Arc::new(Mutex::new(DummyState {
+                open: true,
+                ..Default::default()
+            })))
+        }
+    }
+    impl<T> Iterator for DummySink<T> {
+        type Item = T;
+        fn next(&mut self) -> Option<T> {
+            let mut state = self.0.lock().unwrap();
+            if !state.blocking {
+                return state.queue.pop_front();
+            }
+            drop(state);
+
+            let start = Instant::now();
+            loop {
+                let mut state = self.0.lock().unwrap();
+                let front = state.queue.pop_front();
+                if front.is_some() {
+                    break front;
+                }
+                if !state.timeout.is_zero() && start.elapsed() > state.timeout {
+                    break None;
+                }
+                // Release the MutexGuard so the queue can be pushed into.
+                drop(state);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+    impl<T: Clone> EventSinkReader for DummySink<T> {
+        fn open(&mut self) {
+            self.0.lock().unwrap().open = true;
+        }
+        fn close(&mut self) {
+            self.0.lock().unwrap().open = false;
+        }
+        fn set_blocking(&mut self, val: bool) {
+            self.0.lock().unwrap().blocking = val;
+        }
+        fn set_timeout(&mut self, val: Duration) {
+            self.0.lock().unwrap().timeout = val;
+        }
+    }
+
+    #[derive(Default)]
+    struct TestParams<'a> {
+        event_sinks: Vec<&'a str>,
+    }
+
+    fn get_service(params: TestParams) -> (MonitorService, Vec<Arc<Mutex<DummyState<u8>>>>) {
+        let mut event_sink_registry = EventSinkRegistry::default();
+        let mut states = Vec::new();
+
+        for sink_name in params.event_sinks {
+            let sink = DummySink::new();
+            states.push(sink.0.clone());
+            event_sink_registry.add(sink, sink_name).unwrap();
+        }
+
+        (
+            MonitorService::Started {
+                event_sink_registry: Arc::new(Mutex::new(event_sink_registry)),
+            },
+            states,
+        )
+    }
+
+    #[test]
+    fn read_events() {
+        let (service, states) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        // Should read events from `1` only.
+        // Have to use values > 23 here, as CBOR encodes low uints with no header ;)
+        states[0].lock().unwrap().queue.extend(&[48]);
+        states[1].lock().unwrap().queue.extend(&[54, 57]);
+
+        let reply = service.read_events(ReadEventsRequest {
+            sink_name: "sink".to_string(),
+        });
+
+        assert_eq!(reply.result, Some(read_events_reply::Result::Empty(())));
+        assert_eq!(
+            reply.events,
+            vec![vec![U8_CBOR_HEADER, 54], vec![U8_CBOR_HEADER, 57]]
+        );
+    }
+
+    #[test]
+    fn await_event() {
+        let (service, states) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_secs(1));
+                states[1].lock().unwrap().queue.extend(&[48]);
+            });
+            let reply = service.await_event(AwaitEventRequest {
+                sink_name: "sink".to_string(),
+                timeout: Some(prost_types::Duration {
+                    seconds: 5,
+                    nanos: 0,
+                }),
+            });
+
+            if let Some(await_event_reply::Result::Event(v)) = reply.result {
+                assert_eq!(vec![U8_CBOR_HEADER, 48], v);
+            } else {
+                panic!("Invalid response!");
+            }
+        });
+    }
+
+    #[test]
+    fn await_event_timeout() {
+        let (service, states) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_secs(1));
+                states[1].lock().unwrap().queue.extend(&[48]);
+            });
+
+            let reply = service.await_event(AwaitEventRequest {
+                sink_name: "sink".to_string(),
+                timeout: Some(prost_types::Duration {
+                    seconds: 0,
+                    nanos: 5000,
+                }),
+            });
+
+            if let Some(await_event_reply::Result::Event(v)) = reply.result {
+                assert_eq!(vec![NULL_CBOR_HEADER], v);
+            } else {
+                panic!("Invalid response!");
+            }
+        });
+    }
+
+    #[test]
+    fn close_and_open_sink() {
+        let (mut service, states) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        let reply = service.close_sink(CloseSinkRequest {
+            sink_name: "sink".to_string(),
+        });
+        assert_eq!(reply.result, Some(close_sink_reply::Result::Empty(())));
+        // Check that only the requested sink has closed.
+        assert!(states[0].lock().unwrap().open);
+        assert!(!states[1].lock().unwrap().open);
+
+        let reply = service.open_sink(OpenSinkRequest {
+            sink_name: "sink".to_string(),
+        });
+        assert_eq!(reply.result, Some(open_sink_reply::Result::Empty(())));
+        assert!(states[1].lock().unwrap().open);
+    }
+}

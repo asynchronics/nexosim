@@ -256,6 +256,27 @@ mod tests {
     }
 
     #[test]
+    fn time() {
+        let mut service = get_service(TestParams::default());
+        let reply = service.time(TimeRequest {});
+
+        if let SchedulerService::Started { scheduler, .. } = service {
+            // TODO this test is not very strict as it is currently testing on a default
+            // time.
+            let time = scheduler.time();
+            assert_eq!(
+                reply.result,
+                Some(time_reply::Result::Time(prost_types::Timestamp {
+                    seconds: time.as_secs(),
+                    nanos: time.subsec_nanos() as i32
+                }))
+            );
+        } else {
+            panic!("Scheduler service is not started!");
+        }
+    }
+
+    #[test]
     fn schedule_event() {
         let mut service = get_service(TestParams {
             event_sources: vec!["input"],
@@ -459,9 +480,7 @@ mod tests {
 
     #[test]
     fn halt() {
-        let mut service = get_service(TestParams {
-            event_sources: vec!["input"],
-        });
+        let mut service = get_service(TestParams::default());
 
         let reply = service.halt(HaltRequest {});
         assert_eq!(reply.result, Some(halt_reply::Result::Empty(())));

@@ -262,13 +262,12 @@ impl InspectorService {
 
 #[cfg(all(test, not(nexosim_loom)))]
 mod tests {
-
-    use super::*;
-
     use std::collections::HashSet;
     use std::time::Duration;
 
     use crate::ports::{EventSinkReader, EventSource, QuerySource};
+
+    use super::*;
 
     #[derive(Clone, Debug)]
     struct DummySink<T>(T);
