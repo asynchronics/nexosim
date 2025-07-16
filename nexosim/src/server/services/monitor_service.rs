@@ -309,11 +309,10 @@ mod tests {
                 }),
             });
 
-            if let Some(await_event_reply::Result::Event(v)) = reply.result {
-                assert_eq!(vec![U8_CBOR_HEADER, 48], v);
-            } else {
-                panic!("Invalid response!");
-            }
+            assert_eq!(
+                reply.result,
+                Some(await_event_reply::Result::Event(vec![U8_CBOR_HEADER, 48]))
+            );
         });
     }
 
@@ -337,11 +336,10 @@ mod tests {
                 }),
             });
 
-            if let Some(await_event_reply::Result::Event(v)) = reply.result {
-                assert_eq!(vec![NULL_CBOR_HEADER], v);
-            } else {
-                panic!("Invalid response!");
-            }
+            assert_eq!(
+                reply.result,
+                Some(await_event_reply::Result::Event(vec![NULL_CBOR_HEADER]))
+            );
         });
     }
 

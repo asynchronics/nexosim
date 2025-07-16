@@ -290,3 +290,306 @@ impl fmt::Debug for ControllerService {
         f.debug_struct("ControllerService").finish_non_exhaustive()
     }
 }
+
+#[cfg(all(test, not(nexosim_loom)))]
+mod tests {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use tai_time::TaiTime;
+
+    use crate as nexosim;
+    use crate::ports::{EventSource, QuerySource};
+    use crate::simulation::{Mailbox, SimInit};
+    use crate::Model;
+
+    use super::*;
+
+    const U8_CBOR_HEADER: u8 = 0x18;
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct DummyModel {
+        #[serde(skip)]
+        value: Arc<AtomicU8>,
+    }
+    #[Model]
+    impl DummyModel {
+        fn input(&mut self, arg: u8) {
+            self.value
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |a| Some(a + arg))
+                .unwrap();
+        }
+        async fn query(&mut self, arg: u8) -> u8 {
+            7 * arg
+        }
+    }
+
+    #[derive(Default)]
+    struct TestParams<'a> {
+        event_sources: Vec<&'a str>,
+        query_sources: Vec<&'a str>,
+    }
+
+    fn get_service(params: TestParams) -> (ControllerService, Vec<Arc<AtomicU8>>) {
+        let mut bench = SimInit::new();
+        let mut state = Vec::new();
+
+        let mut event_source_registry = EventSourceRegistry::default();
+        for source_name in params.event_sources {
+            let value = Arc::new(AtomicU8::new(0));
+            state.push(value.clone());
+            let model = DummyModel { value };
+            let mbox = Mailbox::new();
+
+            let mut source = EventSource::new();
+            source.connect(DummyModel::input, mbox.address());
+            event_source_registry
+                .add::<u8>(source, source_name)
+                .unwrap();
+
+            bench = bench.add_model(model, mbox, "Model");
+        }
+        event_source_registry.register_scheduler(bench.scheduler_registry());
+
+        let mut query_source_registry = QuerySourceRegistry::default();
+        for source_name in params.query_sources {
+            let model = DummyModel {
+                value: Arc::new(AtomicU8::new(0)),
+            };
+            let mbox = Mailbox::new();
+            let mut source = QuerySource::new();
+            source.connect(DummyModel::query, mbox.address());
+
+            query_source_registry
+                .add::<u8, u8>(source, source_name)
+                .unwrap();
+
+            bench = bench.add_model(model, mbox, "Model");
+        }
+
+        (
+            ControllerService::Started {
+                cfg: vec![],
+                simulation: bench.init(TaiTime::from_unix_timestamp(0, 0, 0)).unwrap(),
+                event_source_registry: Arc::new(event_source_registry),
+                query_source_registry: Arc::new(query_source_registry),
+            },
+            state,
+        )
+    }
+
+    #[test]
+    fn step() {
+        let (mut service, state) = get_service(TestParams {
+            event_sources: vec!["input"],
+            ..Default::default()
+        });
+
+        if let ControllerService::Started {
+            ref mut simulation,
+            ref event_source_registry,
+            ..
+        } = service
+        {
+            let source = event_source_registry.get("input").unwrap();
+            let event = source.event(&[U8_CBOR_HEADER, 47]).unwrap();
+            simulation
+                .scheduler()
+                .schedule(Duration::from_secs(3), event)
+                .unwrap();
+        } else {
+            panic!("Service is not started!");
+        }
+
+        let reply = service.step(StepRequest {});
+        assert_eq!(
+            reply.result,
+            Some(step_reply::Result::Time(prost_types::Timestamp {
+                seconds: 3,
+                nanos: 0
+            }))
+        );
+        if let ControllerService::Started { ref simulation, .. } = service {
+            assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(3, 0, 0));
+        } else {
+            panic!("Service is not started!");
+        }
+        // The event should be fired once.
+        assert_eq!(state[0].load(Ordering::Relaxed), 47);
+    }
+
+    #[test]
+    fn step_until() {
+        let (mut service, state) = get_service(TestParams {
+            event_sources: vec!["input"],
+            ..Default::default()
+        });
+
+        if let ControllerService::Started {
+            ref mut simulation,
+            ref event_source_registry,
+            ..
+        } = service
+        {
+            let source = event_source_registry.get("input").unwrap();
+            let event = source.event(&[U8_CBOR_HEADER, 47]).unwrap();
+            simulation
+                .scheduler()
+                .schedule(Duration::from_secs(3), event)
+                .unwrap();
+        } else {
+            panic!("Service is not started!");
+        }
+
+        let reply = service.step_until(StepUntilRequest {
+            deadline: Some(step_until_request::Deadline::Duration(
+                prost_types::Duration {
+                    seconds: 2,
+                    nanos: 0,
+                },
+            )),
+        });
+        assert_eq!(
+            reply.result,
+            Some(step_until_reply::Result::Time(prost_types::Timestamp {
+                seconds: 2,
+                nanos: 0
+            }))
+        );
+        if let ControllerService::Started { ref simulation, .. } = service {
+            assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(2, 0, 0));
+        } else {
+            panic!("Service is not started!");
+        }
+        // The scheduled event should not get fired.
+        assert_eq!(state[0].load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn step_unbounded() {
+        let (mut service, state) = get_service(TestParams {
+            event_sources: vec!["input"],
+            ..Default::default()
+        });
+
+        if let ControllerService::Started {
+            ref mut simulation,
+            ref event_source_registry,
+            ..
+        } = service
+        {
+            let source = event_source_registry.get("input").unwrap();
+            for i in 1..=5 {
+                let event = source.event(&[U8_CBOR_HEADER, 30]).unwrap();
+                simulation
+                    .scheduler()
+                    .schedule(Duration::from_secs(3 * i), event)
+                    .unwrap();
+            }
+        } else {
+            panic!("Service is not started!");
+        }
+
+        let reply = service.step_unbounded(StepUnboundedRequest {});
+        assert_eq!(
+            reply.result,
+            Some(step_unbounded_reply::Result::Time(prost_types::Timestamp {
+                seconds: 15,
+                nanos: 0
+            }))
+        );
+        if let ControllerService::Started { ref simulation, .. } = service {
+            assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(15, 0, 0));
+        } else {
+            panic!("Service is not started!");
+        }
+        // The event should be fired 5 times.
+        assert_eq!(state[0].load(Ordering::Relaxed), 150);
+    }
+
+    #[test]
+    fn process_event() {
+        let (mut service, state) = get_service(TestParams {
+            event_sources: vec!["other", "input"],
+            ..Default::default()
+        });
+
+        let reply = service.process_event(ProcessEventRequest {
+            source_name: "input".to_string(),
+            event: vec![U8_CBOR_HEADER, 49],
+        });
+        assert_eq!(reply.result, Some(process_event_reply::Result::Empty(())));
+        if let ControllerService::Started { ref simulation, .. } = service {
+            // Fires immediately, simulation time does not advance.
+            assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(0, 0, 0));
+        } else {
+            panic!("Service is not started!");
+        }
+        assert_eq!(state[0].load(Ordering::Relaxed), 0);
+        assert_eq!(state[1].load(Ordering::Relaxed), 49);
+    }
+
+    #[test]
+    fn process_query() {
+        let (mut service, _) = get_service(TestParams {
+            query_sources: vec!["input"],
+            ..Default::default()
+        });
+
+        let reply = service.process_query(ProcessQueryRequest {
+            source_name: "input".to_string(),
+            request: vec![U8_CBOR_HEADER, 11],
+        });
+        assert_eq!(reply.result, Some(process_query_reply::Result::Empty(())));
+        assert_eq!(reply.replies, vec![vec![U8_CBOR_HEADER, 77]]);
+
+        if let ControllerService::Started { ref simulation, .. } = service {
+            // Fires immediately, simulation time does not advance.
+            assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(0, 0, 0));
+        } else {
+            panic!("Service is not started!");
+        }
+    }
+
+    #[test]
+    fn save() {
+        let (mut service, _) = get_service(TestParams {
+            event_sources: vec!["input"],
+            ..Default::default()
+        });
+
+        if let ControllerService::Started {
+            ref mut simulation,
+            ref event_source_registry,
+            ..
+        } = service
+        {
+            // Let's schedule something to populate the queue.
+            let source = event_source_registry.get("input").unwrap();
+            let event = source.event(&[U8_CBOR_HEADER, 47]).unwrap();
+            simulation
+                .scheduler()
+                .schedule(Duration::from_secs(3), event)
+                .unwrap();
+        } else {
+            panic!("Service is not started!");
+        }
+
+        let reply = service.save(SaveRequest {});
+
+        if let Some(save_reply::Result::State(state)) = reply.result {
+            if let ControllerService::Started {
+                ref mut simulation, ..
+            } = service
+            {
+                // Verify that a valid state has been received.
+                simulation.restore(&state[..]).unwrap();
+            } else {
+                panic!("Service is not started!")
+            }
+        } else {
+            panic!("Invalid reply!");
+        }
+    }
+}
