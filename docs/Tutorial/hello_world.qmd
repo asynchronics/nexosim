@@ -4,29 +4,25 @@ filters:
   - line-highlight
 ---
 
-In this section we will create a very basic simulation with a single model that
+In this section we will create a very simple simulation with a single model that
 prints out "Hello World!" when it receives an event. Then we will set up a
 server with the simulation so we can control the simulation through the python
-client.
-
-This will serve as an exploration of the general structure and usage of NeXosim.
-
--------
+client. This will serve as an introduction to the general structure and usage of
+NeXosim.
 
 ### Setting up a project
 
 To start let's create a new project:
 
 ```bash
-$ cargo new my-sim
-$ cd my-sim
+cargo new my-sim
+cd my-sim
 ```
 
-We need to add NeXosim to the project's dependencies. In `Cargo.toml` add
-the following under `[dependencies]`.
+We also need to add NeXosim to the project's dependencies.
 
-```{.TOML}
-nexosim = "0.3.2"
+```bash
+cargo add nexosim
 ```
 
 ### Creating the model
@@ -477,7 +473,10 @@ fn main() {
 
 ```{.rust filename="main.rs"}
 use nexosim::model::Model;
-use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::ports::EventSource;
+use nexosim::registry::EndpointRegistry;
+use nexosim::server;
+use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
 use nexosim::time::MonotonicTime;
 
 struct HelloWorld;
@@ -490,26 +489,33 @@ impl HelloWorld {
 
 impl Model for HelloWorld {}
 
-fn main() {
+fn simulation(_: ()) -> Result<(Simulation, EndpointRegistry), SimulationError> {
     let model = HelloWorld;
     let mbox = Mailbox::new();
     let addr = mbox.address();
 
-    let t0 = MonotonicTime::EPOCH;
+    let mut input = EventSource::new();
+    input.connect(HelloWorld::say_hello, addr);
 
-    let (mut sim, _) = SimInit::new()
+    let mut registry = EndpointRegistry::new();
+    registry.add_event_source(input, "say_hello").unwrap();
+
+    let (sim, _) = SimInit::new()
         .add_model(model, mbox, "HELLO_WORLD")
-        .init(t0)
-        .unwrap();
+        .init(MonotonicTime::EPOCH)?;
 
-    sim.process_event(HelloWorld::say_hello, (), addr).unwrap();
+    Ok((sim, registry))
+}
+
+fn main() {
+    server::run(simulation, "0.0.0.0:41633".parse().unwrap()).unwrap();
 }
 ```
 
 ```{.python filename="run.py"}
 from nexosim import Simulation
 
-with Simulation("0.0.0.0:41366") as sim:
+with Simulation("0.0.0.0:41633") as sim:
     sim.start()
     sim.process_event("say_hello")
 ```

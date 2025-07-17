@@ -1,0 +1,572 @@
+---
+title: "Dynamic topology on a simulation server"
+filters:
+  - line-highlight
+---
+When controlling the simulation using a remote client such as [NeXosim-Py], you
+have limited ability to influence the structure of the simulation bench, since
+the bench is defined server-side. To mitigate this constraint, the simulation
+constructor function can be defined in such a way to dynamically determine
+the topology of the simulation.
+
+:::{.callout-note}
+In this guide we'll be using NeXosim-Py to run the simulation. You can install
+it in a virtual environment with:
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install nexosim-py
+```
+
+Make sure NeXosim is installed with the `server` feature.
+
+```bash
+cargo add nexosim --features server
+```
+:::
+
+We'll demonstrate this using two models. First is the `PowerSupply` model which
+queries the current drawn by connected loads, and broadcasts the resulting total
+power consumption through the `power` output.
+
+```{.rust filename="main.rs"}
+use nexosim::model::Model;
+use nexosim::ports::{Output, Requestor};
+
+#[derive(Default)]
+struct PowerSupply {
+    pub power_out: Requestor<f64, f64>,
+    pub power: Output<f64>,
+}
+
+impl PowerSupply {
+    pub async fn voltage_setting(&mut self, voltage: f64) {
+        if voltage < 0.0 {
+            return;
+        }
+
+        let mut total_current = 0.0;
+        for current in self.power_out.send(voltage).await {
+            total_current += current;
+        }
+
+        self.power.send(voltage * total_current).await;
+    }
+}
+
+impl Model for PowerSupply {}
+```
+
+The other is the `Load` model. `Load` will represent a device drawing current
+from the power supply. The `power_in` replier is used by the `PowerSupply` model
+to query the current drawn by the load for a given voltage. When the voltage is
+applied, the model broadcasts its power consumption through the `power` output.
+
+
+```{.rust filename="main.rs"}
+// ...
+
+pub struct Load {
+    pub power: Output<f64>,
+    resistance: f64,
+}
+
+impl Load {
+    fn new(resistance: f64) -> Self {
+        assert!(resistance > 0.0);
+
+        Self {
+            power: Output::default(),
+            resistance,
+        }
+    }
+
+    pub async fn power_in(&mut self, voltage: f64) -> f64 {
+        let current = voltage / self.resistance;
+        self.power.send(voltage * current).await;
+
+        current
+    }
+}
+
+impl Model for Load {}
+```
+
+We'll set up our bench with two different parameterized topologies. The topology
+will be selected based on the `Topology` enum's variant sent to the server
+during initialization.
+
+* The `AB` topology has two different loads. The two `f64` values are resistances
+of load A and load B respectively.
+* The `Many` topology will connect multiple identical loads to the power supply.
+The `u8` is the number of connected devices and the `f64` is their resistance.
+
+
+The enum must be deserializable to allow sending the enum from the client.
+
+```{.rust filename="main.rs"}
+use serde::Deserialize;
+
+// ...
+
+#[derive(Deserialize)]
+enum Topology {
+    /// Topology with two different loads.
+    AB(f64, f64),
+    /// Topology with multiple identical loads
+    Many(u8, f64),
+}
+```
+
+We'll also define a Python counterpart to the `Topology` enum in the client
+script.
+
+```{.python filename="run.py"}
+from nexosim.types import tuple_type, enumclass
+
+@enumclass
+class Topology:
+    class AB(tuple_type(float, float)): ...
+    class Many(tuple_type(int, float)): ...
+```
+
+We'll start assembling the bench by setting up the `PowerSupply` model. The
+`PowerSupply::voltage_setting` input and `PowerSupply::power` output are
+connected to their respective endpoints, and the endpoints are added to the
+registry.
+
+Since we'll be connecting loads to the `PowerSupply` model's requestor, the
+simulation builder is instantiated first, and after we're done with defining the
+connections in the match block, we'll add the model to the builder and
+initialize the simulation.
+
+```{.rust filename="main.rs"}
+use nexosim::ports::{EventSlot, EventSource};
+use nexosim::registry::EndpointRegistry;
+use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
+use nexosim::time::MonotonicTime;
+
+// ...
+
+fn simulation(
+    topology: Topology,
+) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+
+    let mut registry = EndpointRegistry::new();
+
+    let mut power_supply = PowerSupply::default();
+    let ps_mbox = Mailbox::new();
+
+    let mut voltage = EventSource::new();
+    voltage.connect(PowerSupply::voltage_setting, &ps_mbox);
+    registry.add_event_source(voltage, "voltage").unwrap();
+
+    let sink = EventSlot::new();
+    power_supply.power.connect_sink(&sink);
+    registry.add_event_sink(sink, "ps_power").unwrap();
+
+    let mut builder = SimInit::new();
+
+    match topology {
+        Topology::AB(resistance_a, resistance_b) => todo!(),
+        Topology::Many(n) => todo!(),
+    }
+
+    let (sim, _) = builder
+        .add_model(power_supply, ps_mbox, "POWER_SUPPLY")
+        .init(MonotonicTime::EPOCH)?;
+    Ok((sim, registry))
+}
+```
+
+The simulation constructor function accepts a `Topology` instance as an argument,
+which we'll match against when constructing the dynamic part of our bench.
+
+```rust
+match topology {
+    Topology::AB(resistance_a, resistance_b) => todo!(),
+    Topology::Many(n) => todo!(),
+}
+```
+
+The `AB` topology is constructed by instantiating the two loads with mailboxes.
+We connect the models' `Load::power_in` repliers to the power supply's
+requestor. Each load's `power` output is connected to their respective sinks.
+Finally, the sinks are added to the endpoint registry and the models are added
+to the simulation builder.
+
+Note that the builder is reassigned since the `SimInit::add_model` method
+consumes and returns the builder.
+
+```rust
+Topology::AB(resistance_a, resistance_b) => {
+    // Load A
+    let mut load_a = Load::new(resistance_a);
+    let mbox_a = Mailbox::new();
+
+    power_supply.power_out.connect(Load::power_in, &mbox_a);
+    let sink = EventSlot::new();
+    load_a.power.connect_sink(&sink);
+    registry.add_event_sink(sink, "power_A").unwrap();
+
+    builder = builder.add_model(load_a, mbox_a, "LOAD_A");
+
+    // Load B
+    let mut load_b = Load::new(resistance_b);
+    let mbox_b = Mailbox::new();
+
+    power_supply.power_out.connect(Load::power_in, &mbox_b);
+    let sink = EventSlot::new();
+    load_b.power.connect_sink(&sink);
+    registry.add_event_sink(sink, "power_B").unwrap();
+
+    builder = builder.add_model(load_b, mbox_b, "LOAD_B");
+}
+```
+
+For the `Many` topology, we'll create a loop that in each of the `n` iterations
+creates a `Load` instance and connects it the same way we did for loads in the
+`AB` topology. This time the `Load` power outputs are connected to a common
+`EventQueue`.
+
+```rust
+Topology::Many(n, resistance) => {
+    let sink = EventQueue::new();
+    for i in (0..n).into_iter() {
+        let mut load = Load::new(resistance);
+        let mbox = Mailbox::new();
+
+        power_supply.power_out.connect(Load::power_in, &mbox);
+
+        load.power.connect_sink(&sink);
+
+        builder =
+            builder.add_model(load, mbox, format!("LOAD_{}", i + 1));
+    }
+    registry
+        .add_event_sink(sink.into_reader(), "load_power")
+        .unwrap();
+}
+```
+
+Finally in the `main` function we simply start a server with the simulation
+constructor we defined earlier.
+
+```{.rust filename="main.rs"}
+use nexosim::server
+
+fn main() -> Result<(), Box<dyn Error>> {
+    server::run(simulation, "0.0.0.0:41366".parse().unwrap())
+}
+```
+
+To test out our setup we'll run two simple simulations. First we initialize the
+simulation with the `AB` topology, set the voltage
+to 12V, read the events from all of the sinks, drop the voltage to 10V and again
+read the events. Then, we reinitialize the  simulation with the `Many` topology
+and repeat the steps from the `AB` simulation.
+
+```python
+from nexosim import Simulation
+
+with Simulation("0.0.0.0:41366") as sim:
+    print("\nInitializing the simulation with the `AB` topology.")
+
+    cfg = Topology.AB(100.0, 500.0)
+    sim.start(cfg)
+
+    print("\nSetting voltage to 12 V.\n")
+    sim.process_event("voltage", 12.0)
+
+    print(f"Power Supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(f"Load A's power: {sim.read_events('power_A')[0]:.2f}W")
+    print(f"Load B's power: {sim.read_events('power_B')[0]:.2f}W")
+
+    print("\nDropping voltage to 10 V.\n")
+
+    sim.process_event("voltage", 10.0)
+
+    print(f"Power Supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(f"Load A's power: {sim.read_events('power_A')[0]:.2f}W")
+    print(f"Load B's power: {sim.read_events('power_B')[0]:.2f}W")
+
+    print("\nReinitializing the simulation with the `Many` topology.")
+
+    cfg = Topology.Many(5, 100.0)
+
+    sim.start(cfg)
+
+    print("\nSetting voltage to 12 V.\n")
+    sim.process_event("voltage", 12.0)
+
+    print(f"Power supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(
+        "Each load's power:",
+        ", ".join([f"{p:.2f}W" for p in sim.read_events("load_power")]),
+    )
+
+    print("\nDropping voltage to 10 V.\n")
+
+    sim.process_event("voltage", 10.0)
+
+    print(f"Power supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(
+        "Each load's power:",
+        ", ".join([f"{p:.2f}W" for p in sim.read_events("load_power")]),
+    )
+```
+------
+
+When we start the server:
+
+```bash
+cargo run
+```
+
+and in another terminal run the python script:
+
+```bash
+source venv/bin/activate
+python run.py
+```
+
+the client terminal prints out:
+
+```markdown
+Initializing the simulation with the `AB` topology.
+
+Setting voltage to 12 V.
+
+Power Supply's power: 1.73W
+Load A's power: 1.44W
+Load B's power: 0.29W
+
+Dropping voltage to 10 V.
+
+Power Supply's power: 1.20W
+Load A's power: 1.00W
+Load B's power: 0.20W
+
+Reinitializing the simulation with the `Many` topology.
+
+Setting voltage to 12 V.
+
+Power supply's power: 7.20W
+Each load's power: 1.44W, 1.44W, 1.44W, 1.44W, 1.44W
+
+Dropping voltage to 10 V.
+
+Power supply's power: 5.00W
+Each load's power: 1.00W, 1.00W, 1.00W, 1.00W, 1.00W
+```
+
+The final code should look like this:
+
+:::{.panel-tabset}
+
+## main.rs
+
+```rust
+use std::error::Error;
+
+use nexosim::model::Model;
+use nexosim::ports::{EventQueue, EventSlot, EventSource, Output, Requestor};
+use nexosim::registry::EndpointRegistry;
+use nexosim::server;
+use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError};
+use nexosim::time::MonotonicTime;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+enum Topology {
+    /// Topology with two different loads.
+    AB(f64, f64),
+    /// Topology with multiple identical loads
+    Many(u8, f64),
+}
+
+#[derive(Default)]
+struct PowerSupply {
+    pub power_out: Requestor<f64, f64>,
+    pub power: Output<f64>,
+}
+
+impl PowerSupply {
+    pub async fn voltage_setting(&mut self, voltage: f64) {
+        if voltage < 0.0 {
+            return;
+        }
+
+        let mut total_current = 0.0;
+        for current in self.power_out.send(voltage).await {
+            total_current += current;
+        }
+
+        self.power.send(voltage * total_current).await;
+    }
+}
+
+impl Model for PowerSupply {}
+
+pub struct Load {
+    pub power: Output<f64>,
+    resistance: f64,
+}
+
+impl Load {
+    fn new(resistance: f64) -> Self {
+        assert!(resistance > 0.0);
+
+        Self {
+            power: Output::default(),
+            resistance,
+        }
+    }
+
+    pub async fn power_in(&mut self, voltage: f64) -> f64 {
+        let current = voltage / self.resistance;
+        self.power.send(voltage * current).await;
+
+        current
+    }
+}
+
+impl Model for Load {}
+
+fn simulation(
+    topology: Topology,
+) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+    let mut power_supply = PowerSupply::default();
+    let ps_mbox = Mailbox::new();
+
+    let mut registry = EndpointRegistry::new();
+
+    let mut voltage = EventSource::new();
+    voltage.connect(PowerSupply::voltage_setting, &ps_mbox);
+    registry.add_event_source(voltage, "voltage").unwrap();
+
+    let sink = EventSlot::new();
+    power_supply.power.connect_sink(&sink);
+    registry.add_event_sink(sink, "ps_power").unwrap();
+
+    let mut builder = SimInit::new();
+
+    match topology {
+        Topology::AB(resistance_a, resistance_b) => {
+            // Load A
+            let mut load_a = Load::new(resistance_a);
+            let mbox_a = Mailbox::new();
+
+            power_supply.power_out.connect(Load::power_in, &mbox_a);
+            let sink = EventSlot::new();
+            load_a.power.connect_sink(&sink);
+            registry.add_event_sink(sink, "power_A").unwrap();
+
+            builder = builder.add_model(load_a, mbox_a, "LOAD_A");
+
+            // Load B
+            let mut load_b = Load::new(resistance_b);
+            let mbox_b = Mailbox::new();
+
+            power_supply.power_out.connect(Load::power_in, &mbox_b);
+            let sink = EventSlot::new();
+            load_b.power.connect_sink(&sink);
+            registry.add_event_sink(sink, "power_B").unwrap();
+
+            builder = builder.add_model(load_b, mbox_b, "LOAD_B");
+        }
+        Topology::Many(n, resistance) => {
+            let sink = EventQueue::new();
+            for i in (0..n).into_iter() {
+                let mut load = Load::new(resistance);
+                let mbox = Mailbox::new();
+
+                power_supply.power_out.connect(Load::power_in, &mbox);
+
+                load.power.connect_sink(&sink);
+
+                builder =
+                    builder.add_model(load, mbox, format!("LOAD_{}", i + 1));
+            }
+            registry
+                .add_event_sink(sink.into_reader(), "load_power")
+                .unwrap();
+        }
+    }
+
+    let (sim, _) = builder
+        .add_model(power_supply, ps_mbox, "POWER_SUPPLY")
+        .init(MonotonicTime::EPOCH)?;
+    Ok((sim, registry))
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    server::run(simulation, "0.0.0.0:41366".parse().unwrap())
+}
+```
+
+## run.py
+
+```python
+from nexosim import Simulation
+from nexosim.types import tuple_type, enumclass
+
+
+@enumclass
+class Topology:
+    class AB(tuple_type(float, float)): ...
+
+    class Many(tuple_type(int, float)): ...
+
+
+with Simulation("0.0.0.0:41366") as sim:
+    print("\nInitializing the simulation with the `AB` topology.")
+
+    cfg = Topology.AB(100.0, 500.0)
+    sim.start(cfg)
+
+    print("\nSetting voltage to 12 V.\n")
+    sim.process_event("voltage", 12.0)
+
+    print(f"Power Supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(f"Load A's power: {sim.read_events('power_A')[0]:.2f}W")
+    print(f"Load B's power: {sim.read_events('power_B')[0]:.2f}W")
+
+    print("\nDropping voltage to 10 V.\n")
+
+    sim.process_event("voltage", 10.0)
+
+    print(f"Power Supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(f"Load A's power: {sim.read_events('power_A')[0]:.2f}W")
+    print(f"Load B's power: {sim.read_events('power_B')[0]:.2f}W")
+
+    print("\nReinitializing the simulation with the `Many` topology.")
+
+    cfg = Topology.Many(5, 100.0)
+
+    sim.start(cfg)
+
+    print("\nSetting voltage to 12 V.\n")
+    sim.process_event("voltage", 12.0)
+
+    print(f"Power supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(
+        "Each load's power:",
+        ", ".join([f"{p:.2f}W" for p in sim.read_events("load_power")]),
+    )
+
+    print("\nDropping voltage to 10 V.\n")
+
+    sim.process_event("voltage", 10.0)
+
+    print(f"Power supply's power: {sim.read_events('ps_power')[0]:.2f}W")
+    print(
+        "Each load's power:",
+        ", ".join([f"{p:.2f}W" for p in sim.read_events("load_power")]),
+    )
+```
+
+:::
+
+[NeXosim-Py]: https://github.com/asynchronics/nexosim-py
