@@ -231,3 +231,60 @@ where
     let simulation = sim_init.restore(state)?;
     Ok((simulation, endpoint_registry))
 }
+
+#[cfg(all(test, not(nexosim_loom)))]
+mod tests {
+    use tai_time::TaiTime;
+
+    use super::*;
+
+    const U8_CBOR_HEADER: u8 = 0x18;
+    const EXPECTED_CONFIG: u8 = 53;
+
+    fn sim_gen(arg: u8) -> (SimInit, EndpointRegistry) {
+        assert_eq!(arg, EXPECTED_CONFIG);
+        (SimInit::new(), EndpointRegistry::new())
+    }
+
+    fn get_service() -> InitService {
+        InitService::new(sim_gen)
+    }
+
+    #[test]
+    fn init() {
+        let mut service = get_service();
+
+        let (reply, bench) = service.init(InitRequest {
+            time: Some(prost_types::Timestamp {
+                seconds: 2,
+                nanos: 57,
+            }),
+            cfg: vec![U8_CBOR_HEADER, EXPECTED_CONFIG],
+        });
+
+        assert_eq!(reply.result, Some(init_reply::Result::Empty(())));
+        let (simulation, _, _) = bench.unwrap();
+        assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(2, 57, 0));
+    }
+
+    #[test]
+    fn restore() {
+        let (sim_init, _) = sim_gen(EXPECTED_CONFIG);
+        let mut simulation = sim_init
+            .init(MonotonicTime::from_unix_timestamp(3, 73, 0))
+            .unwrap();
+
+        let mut state = Vec::new();
+        simulation
+            .save_with_serialized_cfg(vec![U8_CBOR_HEADER, EXPECTED_CONFIG], &mut state)
+            .unwrap();
+
+        let mut service = get_service();
+
+        let (reply, bench) = service.restore(RestoreRequest { state, cfg: None });
+
+        assert_eq!(reply.result, Some(restore_reply::Result::Empty(())));
+        let (simulation, _, _) = bench.unwrap();
+        assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(3, 73, 0));
+    }
+}
