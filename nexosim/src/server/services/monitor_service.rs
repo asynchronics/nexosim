@@ -180,6 +180,7 @@ mod tests {
 
     use crate::ports::EventSinkReader;
 
+    use super::super::assert_reply_err;
     use super::*;
 
     const U8_CBOR_HEADER: u8 = 0x18;
@@ -291,6 +292,27 @@ mod tests {
     }
 
     #[test]
+    fn read_events_invalid_sink() {
+        let (service, _) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        let reply = service.read_events(ReadEventsRequest {
+            sink_name: "nonexsting".to_string(),
+        });
+        assert_reply_err!(reply, read_events_reply, ErrorCode::SinkNotFound);
+    }
+
+    #[test]
+    fn read_events_not_started() {
+        let service = MonitorService::NotStarted;
+        let reply = service.read_events(ReadEventsRequest {
+            sink_name: "sink".to_string(),
+        });
+        assert_reply_err!(reply, read_events_reply, ErrorCode::SimulationNotStarted);
+    }
+
+    #[test]
     fn await_event() {
         let (service, states) = get_service(TestParams {
             event_sinks: vec!["other", "sink"],
@@ -314,6 +336,16 @@ mod tests {
                 Some(await_event_reply::Result::Event(vec![U8_CBOR_HEADER, 48]))
             );
         });
+    }
+
+    #[test]
+    fn await_not_started() {
+        let service = MonitorService::NotStarted;
+        let reply = service.await_event(AwaitEventRequest {
+            sink_name: "sink".to_string(),
+            timeout: None,
+        });
+        assert_reply_err!(reply, await_event_reply, ErrorCode::SimulationNotStarted);
     }
 
     #[test]
@@ -344,6 +376,38 @@ mod tests {
     }
 
     #[test]
+    fn await_event_invalid_timeout() {
+        let (service, _) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        let reply = service.await_event(AwaitEventRequest {
+            sink_name: "sink".to_string(),
+            timeout: Some(prost_types::Duration {
+                seconds: 0,
+                nanos: -5000,
+            }),
+        });
+        assert_reply_err!(reply, await_event_reply, ErrorCode::InvalidTimeout);
+    }
+
+    #[test]
+    fn await_event_invalid_sink() {
+        let (service, _) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        let reply = service.await_event(AwaitEventRequest {
+            sink_name: "nonexsiting".to_string(),
+            timeout: Some(prost_types::Duration {
+                seconds: 5,
+                nanos: 0,
+            }),
+        });
+        assert_reply_err!(reply, await_event_reply, ErrorCode::SinkNotFound);
+    }
+
+    #[test]
     fn close_and_open_sink() {
         let (mut service, states) = get_service(TestParams {
             event_sinks: vec!["other", "sink"],
@@ -362,5 +426,47 @@ mod tests {
         });
         assert_eq!(reply.result, Some(open_sink_reply::Result::Empty(())));
         assert!(states[1].lock().unwrap().open);
+    }
+
+    #[test]
+    fn close_invalid_sink() {
+        let (mut service, _) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        let reply = service.close_sink(CloseSinkRequest {
+            sink_name: "nonexisting".to_string(),
+        });
+        assert_reply_err!(reply, close_sink_reply, ErrorCode::SinkNotFound);
+    }
+
+    #[test]
+    fn open_invalid_sink() {
+        let (mut service, _) = get_service(TestParams {
+            event_sinks: vec!["other", "sink"],
+        });
+
+        let reply = service.open_sink(OpenSinkRequest {
+            sink_name: "nonexisting".to_string(),
+        });
+        assert_reply_err!(reply, open_sink_reply, ErrorCode::SinkNotFound);
+    }
+
+    #[test]
+    fn close_sink_not_started() {
+        let mut service = MonitorService::NotStarted;
+        let reply = service.close_sink(CloseSinkRequest {
+            sink_name: "sink".to_string(),
+        });
+        assert_reply_err!(reply, close_sink_reply, ErrorCode::SimulationNotStarted);
+    }
+
+    #[test]
+    fn open_sink_not_started() {
+        let mut service = MonitorService::NotStarted;
+        let reply = service.open_sink(OpenSinkRequest {
+            sink_name: "sink".to_string(),
+        });
+        assert_reply_err!(reply, open_sink_reply, ErrorCode::SimulationNotStarted);
     }
 }

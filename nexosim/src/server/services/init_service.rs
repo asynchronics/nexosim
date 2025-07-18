@@ -236,6 +236,9 @@ where
 mod tests {
     use tai_time::TaiTime;
 
+    use crate::server::codegen::simulation::{Error, ErrorCode};
+
+    use super::super::assert_reply_err;
     use super::*;
 
     const U8_CBOR_HEADER: u8 = 0x18;
@@ -268,6 +271,35 @@ mod tests {
     }
 
     #[test]
+    fn init_no_time() {
+        let mut service = get_service();
+
+        let (reply, bench) = service.init(InitRequest {
+            time: None,
+            cfg: vec![U8_CBOR_HEADER, EXPECTED_CONFIG],
+        });
+
+        assert_reply_err!(reply, init_reply, ErrorCode::InvalidTime);
+        assert!(bench.is_none());
+    }
+
+    #[test]
+    fn init_invalid_cfg() {
+        let mut service = get_service();
+
+        let (reply, bench) = service.init(InitRequest {
+            time: Some(prost_types::Timestamp {
+                seconds: 2,
+                nanos: 57,
+            }),
+            cfg: vec![],
+        });
+
+        assert_reply_err!(reply, init_reply, ErrorCode::InvalidMessage);
+        assert!(bench.is_none());
+    }
+
+    #[test]
     fn restore() {
         let (sim_init, _) = sim_gen(EXPECTED_CONFIG);
         let mut simulation = sim_init
@@ -286,5 +318,41 @@ mod tests {
         assert_eq!(reply.result, Some(restore_reply::Result::Empty(())));
         let (simulation, _, _) = bench.unwrap();
         assert_eq!(simulation.time(), TaiTime::from_unix_timestamp(3, 73, 0));
+    }
+
+    #[test]
+    fn restore_invalid_state() {
+        let mut service = get_service();
+
+        let (reply, bench) = service.restore(RestoreRequest {
+            state: vec![0],
+            cfg: None,
+        });
+
+        assert_reply_err!(reply, restore_reply, ErrorCode::InvalidMessage);
+        assert!(bench.is_none());
+    }
+
+    #[test]
+    fn restore_invalid_cfg() {
+        let (sim_init, _) = sim_gen(EXPECTED_CONFIG);
+        let mut simulation = sim_init
+            .init(MonotonicTime::from_unix_timestamp(3, 73, 0))
+            .unwrap();
+
+        let mut state = Vec::new();
+        simulation
+            .save_with_serialized_cfg(vec![U8_CBOR_HEADER, EXPECTED_CONFIG], &mut state)
+            .unwrap();
+
+        let mut service = get_service();
+
+        let (reply, bench) = service.restore(RestoreRequest {
+            state,
+            cfg: Some(vec![88]),
+        });
+
+        assert_reply_err!(reply, restore_reply, ErrorCode::InvalidMessage);
+        assert!(bench.is_none());
     }
 }

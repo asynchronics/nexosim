@@ -158,3 +158,15 @@ pub(crate) fn to_strictly_positive_duration(duration: prost_types::Duration) -> 
         duration.nanos as u32,
     ))
 }
+
+#[cfg(test)]
+macro_rules! assert_reply_err {
+    ($reply: ident, $namespace: ident, $code: expr) => {
+        let Some($namespace::Result::Error(Error { code, .. })) = $reply.result else {
+            panic!("Invalid reply!")
+        };
+        assert_eq!(code, $code as i32);
+    };
+}
+#[cfg(test)]
+pub(crate) use assert_reply_err;
