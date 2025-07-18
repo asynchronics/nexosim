@@ -55,15 +55,13 @@ fn model_schedule_event(num_threads: usize) {
 // works properly when multiple models are involved (the won't override their
 // inputs).
 fn multiple_models_scheduling(num_threads: usize) {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
     const MODEL_COUNT: usize = 3;
-    static STATE: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Serialize, Deserialize)]
     struct TestModel {
         delay: u64,
         val: usize,
+        output: Output<usize>,
     }
     #[Model]
     impl TestModel {
@@ -84,31 +82,37 @@ fn multiple_models_scheduling(num_threads: usize) {
 
         #[nexosim(schedulable)]
         async fn action(&mut self) {
-            STATE.store(self.val, Ordering::Relaxed);
+            self.output.send(self.val).await;
         }
     }
 
     let t0 = MonotonicTime::EPOCH;
     let mut bench = SimInit::with_num_threads(num_threads);
 
-    // Iterate in reverse, so the first added model would trigger last.
+    let output = EventQueue::new();
+
+    // Iterate in reverse, to avoid happy accidents.
+    // Last added model will be scheduled first, etc.
     for idx in (0..MODEL_COUNT).rev() {
-        let model = TestModel {
+        let mut model = TestModel {
             delay: idx as u64 + 1,
             val: 13 * (idx + 1),
+            output: Output::default(),
         };
         let mbox = Mailbox::new();
+        model.output.connect_sink(&output);
         bench = bench.add_model(model, mbox, format!("Model_{idx}"));
     }
 
     let mut simu = bench.init(t0).unwrap();
+    let mut output = output.into_reader();
 
     for idx in 0..MODEL_COUNT {
         simu.step().unwrap();
         // This should assert that the order of the SourceIds is correct.
         // If bitmasking is removed from `SchedulableId::__from_decorated` this would
         // fail.
-        assert_eq!(STATE.load(Ordering::Relaxed), 13 * (idx + 1));
+        assert_eq!(output.next(), Some(13 * (idx + 1)));
     }
 }
 
