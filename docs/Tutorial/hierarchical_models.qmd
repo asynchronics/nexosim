@@ -1,0 +1,136 @@
+---
+title: "Hierarchical Models"
+filters:
+  - line-highlight
+---
+
+Sometimes we can have a collection of models, that are strongly linked
+conceptually such as a device and its connectors or a motor and its driver.
+We can use model prototypes to group multiple models into a cohesive unit. The
+resulting model combines the behavior of its component models.
+
+Let's take a look at a pair of models:
+
+```rust
+use nexosim::model::{BuildContext, Model, ProtoModel};
+use nexosim::ports::Output;
+use nexosim::simulation::Mailbox;
+
+
+struct MultiplyBy2 {
+    output: Output<u64>,
+}
+impl MultiplyBy2 {
+    async fn input(&mut self, value: u64) {
+        self.output.send(value * 2).await;
+    }
+}
+impl Model for MultiplyBy2 {}
+
+pub struct MultiplyBy4 {
+    output: Output<u64>,
+}
+impl MultiplyBy4 {
+    async fn input(&mut self, value: u64) {
+        self.output.send(value).await;
+    }
+}
+impl Model for MultiplyBy4 {}
+```
+
+The `MultiplyBy2` model multiplies by 2 and broadcasts any value received on the
+`MultiplyBy2::input` port. `MultiplyBy4` simply forwards the received value to
+its output. To make the model return received values multiplied by 4 we'll use
+two `MultiplyBy2` instances as its sub-models.
+
+```rust
+use nexosim::model::{BuildContext, ProtoModel};
+
+// ...
+
+#[derive(Default)]
+pub struct ProtoMultiplyBy4 {
+    pub output: Output<u64>,
+}
+
+impl ProtoModel for ProtoMultiplyBy4 {
+    type Model = MultiplyBy4;
+
+    fn build(self, cx: &mut BuildContext<Self>) -> Self::Model {
+
+        // Parent model.
+        let mut parent = MultiplyBy4 {
+            output: Output::default(),
+        };
+
+        // First submodel.
+        let mut sub_1 = MultiplyBy2 {
+            output: Output::default(),
+        };
+        let m_box_1 = Mailbox::new();
+        parent.output.connect(MultiplyBy2::input, &m_box_1);
+
+        // Second submodel.
+        let sub_2 = MultiplyBy2 {
+            output: self.output,
+        };
+        let m_box_2 = Mailbox::new();
+        sub_1.output.connect(MultiplyBy2::input, &m_box_2);
+
+        cx.add_submodel(sub_1, m_box_1, "SUB_1");
+        cx.add_submodel(sub_2, m_box_2, "SUB_2");
+
+        parent
+    }
+}
+```
+
+The builder definition exposes `output` so that it can be connected during bench
+assembly. Inside the build method we instantiate the parent `MultiplyBy4` and
+two `MultiplyBy2` sub-models. The `MultiplyBy4` output is connected to the first
+sub-model's input and in turn the first sub-model's input is connected to the
+second sub-model's input.
+
+Note that the builder's output is moved to be used by the final sub-model, so
+that any already established connections are retained.
+
+The model prototype can be used as we would a use normal model. We instantiate
+`ProtoMultiplyBy4` with its mailbox and keep the address. The output is
+connected to an event slot and the model to the simulation.
+After the simulation is initialized we send an event to the model and read the
+resulting value from the event sink.
+
+```rust
+use nexosim::ports:: EventSlot;
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+// ...
+
+fn main() {
+    let mut model = ProtoMultiplyBy4::default();
+    let mbox = Mailbox::new();
+    let addr = mbox.address();
+
+    let mut sink = EventSlot::new();
+    model.output.connect_sink(&sink);
+
+    let (mut sim, _) = SimInit::new()
+        .add_model(model, mbox, "MODEL")
+        .init(MonotonicTime::EPOCH)
+        .unwrap();
+
+    let multiplicand = 42;
+
+    sim.process_event(MultiplyBy4::input, multiplicand, &addr).unwrap();
+
+    let product = sink.next().unwrap();
+    println!("{} * 4 = {}", multiplicand, product);
+}
+```
+
+When we run the program the terminal prints out:
+
+```
+42 * 4 = 168
+```

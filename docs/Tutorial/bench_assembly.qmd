@@ -9,7 +9,7 @@ ports to allow them to communicate with each other and learn about the different
 types of connections we can use in NeXosim simulations. We'll also cover the use
 of simulation endpoints and how to create a gRPC server with our simulation
 allowing us to control the simulation with the python client –
-[NeXosim-py](https://github.com/asynchronics/nexosim-py/)
+[NeXosim-py][nexosim-py]
 
 ## Connections
 
@@ -212,7 +212,7 @@ fn main() {
         &dynamics_mbox,
     );
 
-    let mut sensor = sensor::SunSensor::new(SENSOR_ADDR, requestor);
+    let mut sensor = sensor::ProtoSunSensor::new(SENSOR_ADDR, requestor);
     let sensor_mbox = Mailbox::new();
     let sensor_addr = sensor_mbox.address();
 
@@ -293,7 +293,7 @@ obc.tc.filter_map_connect(
 ```
 
 In the other direction, we have a filtered connection from the `SunSensor::tm`
-output to the `OBC::tm:` input. Here we only check if the
+output to the `Obc::tm` input. Here we only check if the
 `SampleReply::dest_address` field matches the OBC's address.
 
 ```rust
@@ -327,11 +327,11 @@ To be able to do that we need to set up the simulation's endpoints.
 
 Event sinks are used to gather events sent from connected outputs.
 We've already used one type of event sink to test model outputs – the
-`EventSlot`. Event slots keep only a single event. Any incoming event will
+[`EventSlot`]. Event slots keep only a single event. Any incoming event will
 overwrite the old one.
 
 Often we would like to gather many events from the simulation and read them all
-at once. For such cases we can use an `EventQueue` which gather received events
+at once. For such cases we can use an [`EventQueue`] which gather received events
 into a buffer that we can iterate over. We'll change the sensor_sink to an event
 queue, so it'll be easier to see how the sun vector changes over time.
 
@@ -340,7 +340,7 @@ use nexosim::ports::{EventQueue, UniRequestor};
 
 // ...
 
-let mut sensor = sensor::SunSensor::new(SENSOR_ADDR, requestor);
+let mut sensor = sensor::ProtoSunSensor::new(SENSOR_ADDR, requestor);
 let sensor_mbox = Mailbox::new();
 let sensor_addr = sensor_mbox.address();
 
@@ -373,7 +373,7 @@ method and opened to resume it with the `EventSink::open` method.
 ### Event and query sources
 
 NeXosim also has endpoints for sending events to model inputs. These are called
-event sources. We can connect an `EventSource` to multiple models and send an
+event sources. We can connect an [`EventSource`] to multiple models and send an
 event to all of them, for example to simulate multiple devices connected to
 the same power rail.
 
@@ -409,7 +409,7 @@ sim.step_until(MonotonicTime::new(42, 0).unwrap()).unwrap();
 sim.process_event(Obc::send_sample_cmd, (), &obc_addr)
     .unwrap();
 ```
-<!-- TODO -->
+
 Note that we've replaced the two `Simulation::process_event` calls to the
 voltage inputs with:
 
@@ -417,14 +417,14 @@ voltage inputs with:
 sim.process(voltage_source.event(5.0)).unwrap();
 ```
 
-There are also query sources. A `QuerySource` can be used the same way as an
-an `EventSource`, but can be used to retrieve replies from all connected
-replier ports.
+In addition to event sources, there are also query sources. A [`QuerySource`]
+analogously to an [`EventSource`], send queries to replier ports, but also retrieve
+the returned replies.
 
 ## Server
 
 NeXosim includes a gRPC server that allows you to control the simulation using
-[`NeXosim-py`](https://github.com/asynchronics/nexosim-py) - the Python client
+[`NeXosim-py`][nexosim-py] - the Python client
 for NeXosim. Let's take a look at how to set it up.
 
 To use the server, first we must make sure NeXosim is installed with the
@@ -473,7 +473,7 @@ fn simulation(cfg: Config) -> Result<(Simulation, EndpointRegistry), SimulationE
         &dynamics_mbox,
     );
 
-    let mut sensor = sensor::SunSensor::new(cfg.sensor_address, requestor);
+    let mut sensor = sensor::ProtoSunSensor::new(cfg.sensor_address, requestor);
     let sensor_mbox = Mailbox::new();
 
     let mut obc = Obc::new(cfg.obc_address, cfg.sensor_address);
@@ -546,7 +546,7 @@ fn simulation(cfg: Config) -> Result<(Simulation, EndpointRegistry), SimulationE
 and we later use it when instantiating our models:
 
 ```rust
-let mut sensor = sensor::SunSensor::new(cfg.sensor_address, requestor);
+let mut sensor = sensor::ProtoSunSensor::new(cfg.sensor_address, requestor);
 let sensor_mbox = Mailbox::new();
 
 let mut obc = Obc::new(cfg.obc_address, cfg.sensor_address);
@@ -741,3 +741,7 @@ refer to the
 [nexosim-py documentation][nexosim-py].
 
 [nexosim-py]: https://nexosim-py.readthedocs.io/en/latest/
+[`EventSource`]: https://docs.rs/nexosim/latest/nexosim/ports/struct.EventSource.html
+[`QuerySource`]: https://docs.rs/nexosim/latest/nexosim/ports/struct.QuerySource.html
+[`EventSlot`]: https://docs.rs/nexosim/latest/nexosim/ports/struct.EventSlot.html
+[`EventQueue`]: https://docs.rs/nexosim/latest/nexosim/ports/struct.EventQueue.html

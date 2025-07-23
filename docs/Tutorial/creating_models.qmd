@@ -717,11 +717,10 @@ The ports can accept events sent from connected requestor ports, query sources,
 and from `Simulation::process_query()` calls.
 
 Replier ports are functions that implement the
-[`ReplierFn`](https://docs.rs/nexosim/latest/nexosim/ports/trait.ReplierFn.html)
-trait. The trait is implemented for model asynchronous methods with a mutable
-self reference, and optionally, an argument with a type implementing `Clone` and
-`Send` and an argument that is a mutable reference to the model's `Context`.
-The returned future must implement `Send`.
+[`ReplierFn`][ReplierFn] trait. The trait is implemented for model asynchronous
+methods with a mutable self reference, and optionally, an argument with a type
+implementing `Clone` and `Send` and an argument that is a mutable reference to
+the model's `Context`. The returned future must implement `Send`.
 
 ```rust
 async fn(&mut M) -> R
@@ -759,15 +758,14 @@ impl Dynamics {
 We arbitrarily chose the sun position to move in a straight line with time in
 the coordinate frame of the `Dynamics` model.
 
-#### Context objects
-
+::: {.callout-note}
+## Context objects
 We mentioned in passing the `Context` type earlier. The context is available to
 models within input and replier port methods and the `init` method of the Model
 trait. `Context` can be used by a model to find out the current simulation time,
 as we do here, and schedule events on itself. We'll go over scheduling later in
 this tutorial.
-
-----
+:::
 
 Let's check how the replier port works. Change the `main.rs` to:
 
@@ -998,7 +996,6 @@ impl SunSensor {
 ```
 
 The major difference in use of unirequestors instead of regular requestors is
-<!-- TODO: Is the use of 'agnostic' here correct -->
 that we can't construct the instance agnostic of other models like we did the
 `Requestor` earlier. To ensure that the unirequestor is connected to exactly one
 replier, connecting occurs during instantiation. Generally we'd create the
@@ -1090,16 +1087,136 @@ length of 1.
 SampleReply { src_address: 17, dest_address: 16, x: 0.9588968, y: 0.18328935, z: 0.21661466 }
 ```
 
+### Model builders and initializers
+
+#### Model prototypes
+
+The models we use in this tutorial are rather simple, and don't require more
+complicated logic during construction. Models for which this is not the case
+can be constructed by a model prototype. Model prototypes are types that
+implement the `ProtoModel` trait.
+
+Let's say we want to add a `Counter` component to the SunSensor model that
+counts and broadcasts the number of sample commands the sensor has received.
+
+```{.rust source-line-numbers="1-11,14,15,17"}
+struct Counter {
+    out: Output<u32>,
+    count: u32,
+}
+
+impl Counter {
+    async fn increment(&mut self) {
+        self.count += 1;
+        self.out.send(self.count).await;
+    }
+}
+
+pub struct SunSensor {
+    pub tm: Output<SampleReply>,
+    pub requestor: UniRequestor<(), [f32; 3]>,
+    voltage: f32,
+    address: u8
+    counter: Counter,
+}
+```
+
+The sun sensor model prototype `ProtoSunSensor` has to expose the output and
+requestor ports of both the model and the counter, so that the ports can be
+connected to.
+
+```rust
+pub struct ProtoSunSensor {
+    pub sample_count: Output<u32>,
+    pub tm: Output<SampleReply>,
+    pub requestor: UniRequestor<(), [f32; 3]>,
+    address: u8
+}
+
+impl ProtoSunSensor {
+    pub fn new(address: u8, sensor_req: UniRequestor<(), [f32; 3]>) -> Self {
+        Self {
+            sample_count: Output::default(),
+            out: Output::default(),
+            requestor: sensor_req,
+            address,
+        }
+    }
+}
+```
+
+The `ProtoModel` trait requires an implementation of the `build` method. Here
+we create a `Counter` instance where we move the `sample_count` output to.
+In turn, the counter is moved to the new `SunSensor` along with the `out` output
+and the `requestor` UniRequestor.
+
+```rust
+impl ProtoModel for ProtoSunSensor {
+    type Model = SunSensor;
+
+    fn build(self, _: &mut BuildContext<Self>) -> Self::Model {
+        let counter = Counter {
+            out: self.sample_count,
+            count: 0,
+        };
+
+        SunSensor {
+            out: self.out,
+            requestor: self.requestor,
+            voltage: 0.0,
+            counter,
+        }
+    }
+}
+
+```
+
+The `build` method is called by the simulation builder when the model prototype
+is added to the simulation.
+
+Note that now the `SunSensor` output and requestor ports no longer need to be
+public.
+
+```{.rust source-line-numbers="2,3"}
+pub struct SunSensor {
+    out: Output<SampleReply>,
+    requestor: UniRequestor<(), [f32; 3]>,
+    voltage: f32,
+    counter: Counter,
+}
+```
+
+The model prototype can be used the same way we use regular models. In `main.rs`
+we can replace:
+
+```rust
+let mut sensor = sensor::SunSensor::new(SENSOR_ADDR, requestor);
+```
+
+with:
+
+```rust
+let mut sensor = sensor::ProtoSunSensor::new(SENSOR_ADDR, requestor);
+```
+
+#### The model init method
+
+The `Model` trait defines the `init` method, which is called once, when the
+simulation is initialized using the `SimInit::init` method. At this point
+the connections between models are established. This means the method can be
+used to broadcast initial events or let the model schedule events for itself
+using the `Context` object.
+
 ------
 
-<!-- TODO: Conclusion -->
-
-While testing out the models we used event slots and created the first
-connection between models when we instantiated the UniRequestor, but we didn't
-delve too deep into
+We've defined the models, how they behave upon receiving an event, and what
+events they can broadcast. The next step is to set up how the models interact
+with each other, which we'll go over in the [bench assembly](bench_assembly.qmd)
+tutorial.
 
 
 [InputFn]: https://docs.rs/nexosim/latest/nexosim/ports/trait.InputFn.html
+[ReplierFn]: https://docs.rs/nexosim/latest/nexosim/ports/trait.ReplierFn.html
 [Output]: https://docs.rs/nexosim/latest/nexosim/ports/struct.Output.html
 [Requestor]: https://docs.rs/nexosim/latest/nexosim/ports/struct.Requestor.html
 [UniRequestor]: https://docs.rs/nexosim/latest/nexosim/ports/struct.UniRequestor.html

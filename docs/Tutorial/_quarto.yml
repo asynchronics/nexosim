@@ -20,6 +20,7 @@ website:
         contents:
         - hardware_in_the_loop.qmd
         - connection_failures.qmd
+        - hierarchical_models.qmd
         - dynamic_topology.qmd
 
 format:
