@@ -12,6 +12,21 @@ use crate::channel;
 use crate::channel::SendError;
 use crate::model::Model;
 use crate::ports::{EventSinkWriter, InputFn, ReplierFn};
+use crate::util::traits::Sealed;
+
+/// An event or query sender abstracting over the target model and input or
+/// replier method that always return a future.
+pub(super) trait InfallibleSender<T, R>: DynClone + Send + Sealed {
+    /// Asynchronously sends a message using a reference to the message.
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<R, SendError>>;
+
+    /// Asynchronously sends an owned message.
+    fn send_owned(&mut self, arg: T) -> RecycledFuture<'_, Result<R, SendError>> {
+        self.send(&arg)
+    }
+}
+
+dyn_clone::clone_trait_object!(<T, R> InfallibleSender<T, R>);
 
 /// An event or query sender abstracting over the target model and input or
 /// replier method.
@@ -27,6 +42,21 @@ pub(super) trait Sender<T, R>: DynClone + Send {
 
 dyn_clone::clone_trait_object!(<T, R> Sender<T, R>);
 
+impl<S, T, R> Sender<T, R> for S
+where
+    S: InfallibleSender<T, R>,
+{
+    /// Asynchronously sends a message using a reference to the message.
+    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<R, SendError>>> {
+        Some(self.send(arg))
+    }
+
+    /// Asynchronously sends an owned message.
+    fn send_owned(&mut self, arg: T) -> Option<RecycledFuture<'_, Result<R, SendError>>> {
+        Some(self.send_owned(arg))
+    }
+}
+
 /// An object that can send events to an input port.
 pub(super) struct InputSender<M, F, T, S>
 where
@@ -38,6 +68,8 @@ where
     _phantom_closure: PhantomData<fn(&mut M, T)>,
     _phantom_closure_marker: PhantomData<S>,
 }
+
+impl<M, F, T, S> Sealed for InputSender<M, F, T, S> {}
 
 impl<M, F, T, S> InputSender<M, F, T, S>
 where
@@ -54,18 +86,18 @@ where
     }
 }
 
-impl<M, F, T, S> Sender<T, ()> for InputSender<M, F, T, S>
+impl<M, F, T, S> InfallibleSender<T, ()> for InputSender<M, F, T, S>
 where
     M: Model,
     F: for<'a> InputFn<'a, M, T, S> + Clone,
     T: Clone + Send + 'static,
     S: Send,
 {
-    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<(), SendError>>> {
-        self.send_owned(arg.clone())
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<(), SendError>> {
+        InfallibleSender::send_owned(self, arg.clone())
     }
 
-    fn send_owned(&mut self, arg: T) -> Option<RecycledFuture<'_, Result<(), SendError>>> {
+    fn send_owned(&mut self, arg: T) -> RecycledFuture<'_, Result<(), SendError>> {
         let func = self.func.clone();
 
         let fut = self.sender.send(move |model, scheduler, recycle_box| {
@@ -74,7 +106,7 @@ where
             coerce_box!(RecycleBox::recycle(recycle_box, fut))
         });
 
-        Some(RecycledFuture::new(&mut self.fut_storage, fut))
+        RecycledFuture::new(&mut self.fut_storage, fut)
     }
 }
 
@@ -125,7 +157,9 @@ where
     }
 }
 
-impl<M, C, F, T, U, S> Sender<T, ()> for MapInputSender<M, C, F, T, U, S>
+impl<M, C, F, T, U, S> Sealed for MapInputSender<M, C, F, T, U, S> {}
+
+impl<M, C, F, T, U, S> InfallibleSender<T, ()> for MapInputSender<M, C, F, T, U, S>
 where
     M: Model,
     C: Fn(&T) -> U + Send + Sync,
@@ -134,7 +168,7 @@ where
     U: Send + 'static,
     S: Send,
 {
-    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<(), SendError>>> {
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<(), SendError>> {
         let func = self.func.clone();
         let arg = (self.map)(arg);
 
@@ -144,7 +178,7 @@ where
             coerce_box!(RecycleBox::recycle(recycle_box, fut))
         });
 
-        Some(RecycledFuture::new(&mut self.fut_storage, fut))
+        RecycledFuture::new(&mut self.fut_storage, fut)
     }
 }
 
@@ -256,23 +290,25 @@ impl<T, W> EventSinkSender<T, W> {
     }
 }
 
-impl<T, W> Sender<T, ()> for EventSinkSender<T, W>
+impl<T, W> Sealed for EventSinkSender<T, W> {}
+
+impl<T, W> InfallibleSender<T, ()> for EventSinkSender<T, W>
 where
     T: Clone + Send + 'static,
     W: EventSinkWriter<T>,
 {
-    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<(), SendError>>> {
-        self.send_owned(arg.clone())
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<(), SendError>> {
+        InfallibleSender::send_owned(self, arg.clone())
     }
 
-    fn send_owned(&mut self, arg: T) -> Option<RecycledFuture<'_, Result<(), SendError>>> {
+    fn send_owned(&mut self, arg: T) -> RecycledFuture<'_, Result<(), SendError>> {
         let writer = &mut self.writer;
 
-        Some(RecycledFuture::new(&mut self.fut_storage, async move {
+        RecycledFuture::new(&mut self.fut_storage, async move {
             writer.write(arg);
 
             Ok(())
-        }))
+        })
     }
 }
 
@@ -311,22 +347,24 @@ where
     }
 }
 
-impl<T, U, W, C> Sender<T, ()> for MapEventSinkSender<T, U, W, C>
+impl<T, U, W, C: Fn(&T) -> U> Sealed for MapEventSinkSender<T, U, W, C> {}
+
+impl<T, U, W, C> InfallibleSender<T, ()> for MapEventSinkSender<T, U, W, C>
 where
     T: Send + 'static,
     U: Send + 'static,
     C: Fn(&T) -> U + Send + Sync,
     W: EventSinkWriter<U>,
 {
-    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<(), SendError>>> {
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<(), SendError>> {
         let writer = &mut self.writer;
         let arg = (self.map)(arg);
 
-        Some(RecycledFuture::new(&mut self.fut_storage, async move {
+        RecycledFuture::new(&mut self.fut_storage, async move {
             writer.write(arg);
 
             Ok(())
-        }))
+        })
     }
 }
 
@@ -434,7 +472,9 @@ where
     }
 }
 
-impl<M, F, T, R, S> Sender<T, R> for ReplierSender<M, F, T, R, S>
+impl<M: Model, F, T, R, S> Sealed for ReplierSender<M, F, T, R, S> {}
+
+impl<M, F, T, R, S> InfallibleSender<T, R> for ReplierSender<M, F, T, R, S>
 where
     M: Model,
     F: for<'a> ReplierFn<'a, M, T, R, S> + Clone,
@@ -442,11 +482,11 @@ where
     R: Send + 'static,
     S: Send,
 {
-    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<R, SendError>>> {
-        self.send_owned(arg.clone())
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<R, SendError>> {
+        InfallibleSender::send_owned(self, arg.clone())
     }
 
-    fn send_owned(&mut self, arg: T) -> Option<RecycledFuture<'_, Result<R, SendError>>> {
+    fn send_owned(&mut self, arg: T) -> RecycledFuture<'_, Result<R, SendError>> {
         let func = self.func.clone();
         let sender = &mut self.sender;
         let reply_receiver = &mut self.receiver;
@@ -465,7 +505,7 @@ where
             coerce_box!(RecycleBox::recycle(recycle_box, fut))
         });
 
-        Some(RecycledFuture::new(fut_storage, async move {
+        RecycledFuture::new(fut_storage, async move {
             // Send the message.
             send_fut.await?;
 
@@ -473,7 +513,7 @@ where
             // If an error is received, it most likely means the mailbox was
             // dropped before the message was processed.
             reply_receiver.recv().await.map_err(|_| SendError)
-        }))
+        })
     }
 }
 
@@ -532,7 +572,10 @@ where
     }
 }
 
-impl<M, C, D, F, T, R, U, Q, S> Sender<T, R> for MapReplierSender<M, C, D, F, T, R, U, Q, S>
+impl<M: Model, C, D, F, T, R, U, Q, S> Sealed for MapReplierSender<M, C, D, F, T, R, U, Q, S> {}
+
+impl<M, C, D, F, T, R, U, Q, S> InfallibleSender<T, R>
+    for MapReplierSender<M, C, D, F, T, R, U, Q, S>
 where
     M: Model,
     C: Fn(&T) -> U + Send + Sync,
@@ -544,7 +587,7 @@ where
     Q: Send + 'static,
     S: Send,
 {
-    fn send(&mut self, arg: &T) -> Option<RecycledFuture<'_, Result<R, SendError>>> {
+    fn send(&mut self, arg: &T) -> RecycledFuture<'_, Result<R, SendError>> {
         let func = self.func.clone();
         let arg = (self.query_map)(arg);
         let sender = &mut self.sender;
@@ -565,7 +608,7 @@ where
             coerce_box!(RecycleBox::recycle(recycle_box, fut))
         });
 
-        Some(RecycledFuture::new(fut_storage, async move {
+        RecycledFuture::new(fut_storage, async move {
             // Send the message.
             send_fut.await?;
 
@@ -577,7 +620,7 @@ where
                 .await
                 .map_err(|_| SendError)
                 .map(reply_map)
-        }))
+        })
     }
 }
 

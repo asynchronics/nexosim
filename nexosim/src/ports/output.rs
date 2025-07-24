@@ -14,10 +14,11 @@ use crate::ports::EventSink;
 use crate::ports::{InputFn, ReplierFn};
 use crate::simulation::Address;
 use crate::util::cached_rw_lock::CachedRwLock;
+use crate::util::traits::Sealed;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
 use broadcaster::{EventBroadcaster, QueryBroadcaster};
-use sender::{FilterMapReplierSender, Sender};
+use sender::{FilterMapReplierSender, InfallibleSender};
 
 use self::sender::{
     EventSinkSender, FilterMapEventSinkSender, FilterMapInputSender, InputSender,
@@ -392,7 +393,7 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for Requestor<T, R> {
 /// as hashmaps or hashsets) might lead to unpredictable results after
 /// deserialization.
 pub struct UniRequestor<T: Clone + Send + 'static, R: Send + 'static> {
-    sender: Box<dyn Sender<T, R>>,
+    sender: Box<dyn InfallibleSender<T, R>>,
 }
 
 impl<T: Clone + Send + 'static, R: Send + 'static> UniRequestor<T, R> {
@@ -448,50 +449,9 @@ impl<T: Clone + Send + 'static, R: Send + 'static> UniRequestor<T, R> {
         Self { sender }
     }
 
-    /// Creates an auto-converting, filtered `UniRequestor` port connected to a
-    /// replier port of the model specified by the address.
-    ///
-    /// Queries and replies are mapped to other types using the closures
-    /// provided in argument, or ignored if the query closure returns `None`.
-    ///
-    /// The replier port must be an asynchronous method of a model of type `M`
-    /// returning a value of the type returned by the reply mapping closure and
-    /// taking as argument a value of the type returned by the query mapping
-    /// closure plus, optionally, a context reference.
-    pub fn with_filter_map<M, C, D, F, U, Q, S>(
-        query_filter_map: C,
-        reply_map: D,
-        replier: F,
-        address: impl Into<Address<M>>,
-    ) -> Self
-    where
-        M: Model,
-        C: Fn(&T) -> Option<U> + Send + Sync + 'static,
-        D: Fn(Q) -> R + Send + Sync + 'static,
-        F: for<'a> ReplierFn<'a, M, U, Q, S> + Clone,
-        U: Send + 'static,
-        Q: Send + 'static,
-        S: Send + 'static,
-    {
-        let sender = Box::new(FilterMapReplierSender::new(
-            query_filter_map,
-            reply_map,
-            replier,
-            address.into().0,
-        ));
-
-        Self { sender }
-    }
-
     /// Sends a query to the connected replier port.
-    pub async fn send(&mut self, arg: T) -> Option<R> {
-        if let Some(fut) = self.sender.send_owned(arg) {
-            let output = fut.await.unwrap_or_throw();
-
-            Some(output)
-        } else {
-            None
-        }
+    pub async fn send(&mut self, arg: T) -> R {
+        self.sender.send_owned(arg).await.unwrap_or_throw()
     }
 }
 
@@ -527,12 +487,13 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for UniRequestor<T, R> {
         D: serde::Deserializer<'de>,
     {
         // Pop stored value from the registry.
-        // Since there is no ease way to create a default
-        // a dummy sender is used instead.
+        //
+        // Since there is no easy way to create a default, a dummy sender is
+        // used instead.
         Ok(*PORT_REG
             .map(|reg| reg.lock().unwrap().pop_front().unwrap().downcast().unwrap())
             .unwrap_or(Box::new(UniRequestor {
-                sender: Box::new(EmptySender),
+                sender: Box::new(FailSender),
             })))
     }
 }
@@ -540,18 +501,18 @@ impl<'de, T: Clone + Send, R: Send> Deserialize<'de> for UniRequestor<T, R> {
 // A helper struct to provide a failsafe option for an invalid UniRequestor
 // deserialization.
 #[derive(Clone)]
-struct EmptySender;
-impl<T, R> Sender<T, R> for EmptySender {
-    fn send(
-        &mut self,
-        _: &T,
-    ) -> Option<sender::RecycledFuture<'_, Result<R, crate::channel::SendError>>> {
-        None
+struct FailSender;
+
+impl Sealed for FailSender {}
+
+impl<T, R> InfallibleSender<T, R> for FailSender {
+    fn send(&mut self, _: &T) -> sender::RecycledFuture<'_, Result<R, crate::channel::SendError>> {
+        panic!();
     }
     fn send_owned(
         &mut self,
         _: T,
-    ) -> Option<sender::RecycledFuture<'_, Result<R, crate::channel::SendError>>> {
-        None
+    ) -> sender::RecycledFuture<'_, Result<R, crate::channel::SendError>> {
+        panic!();
     }
 }

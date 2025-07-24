@@ -61,7 +61,7 @@ impl Sensor {
     /// evaluates overheat state.
     #[nexosim(schedulable)]
     pub async fn tick(&mut self) {
-        let temp = self.temp.send(()).await.unwrap();
+        let temp = self.temp.send(()).await;
         if temp > self.threshold {
             if !self.oh.get() {
                 self.oh.set(true).await;
