@@ -63,7 +63,7 @@ num_cpus = "1.13"
 parking = "2"
 pin-project = "1"
 recycle-box = "0.2"
-serde = "1"
+serde = { workspace = true }
 slab = "0.4"
 spin_sleep = "1"
 st3 = "0.4"

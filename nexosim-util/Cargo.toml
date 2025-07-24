@@ -27,8 +27,7 @@ keywords = [
 
 [dependencies]
 nexosim = { version = "0.3.3", path = "../nexosim" }
-
-serde = "1"
+serde = { workspace = true }
 
 [dev-dependencies]
 rand = "0.8"
