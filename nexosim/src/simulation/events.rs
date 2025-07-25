@@ -363,7 +363,7 @@ fn deserialize_event_arg<T: DeserializeOwned + Send + 'static>(
     ))
 }
 
-/// Managed handle to a scheduled action.
+/// Managed handle to a scheduled event.
 ///
 /// An `AutoEventKey` is a managed handle to a scheduled action that cancels
 /// its associated action on drop.
@@ -401,7 +401,7 @@ impl Serialize for AutoEventKey {
     }
 }
 
-/// Handle to a scheduled action.
+/// Handle to a scheduled event.
 ///
 /// An `EventKey` can be used to cancel a scheduled action.
 #[derive(Clone, Debug)]
@@ -411,7 +411,7 @@ pub struct EventKey {
 }
 
 impl EventKey {
-    /// Creates a key for a pending action.
+    /// Creates a key for a pending event.
     pub(crate) fn new() -> Self {
         Self {
             is_cancelled: Arc::new(AtomicBool::new(false)),

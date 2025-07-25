@@ -605,7 +605,7 @@ impl<M: Model<Env = ()>> Context<M> {
 /// attribute are sequentially registered in the `SchedulerRegistry` and stored
 /// in the `ModelRegistry` under their compile-time assigned indices.
 ///
-/// Therefore it is possible to use the decorated method's index (which is
+/// Therefore it is possible to use the index of decorated method (which is
 /// basically its order of appearance in the model's impl block) to obtain a
 /// valid `SchedulerRegistry` entry.
 #[derive(Debug, Default)]
