@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
@@ -99,6 +99,33 @@ impl ModelWithSchedule {
     #[nexosim(schedulable)]
     async fn send(&mut self, arg: u32, cx: &mut Context<Self>) {
         self.output.send(cx.time().as_secs() as u32 * arg).await;
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ModelWithGenerics<T, U, const N: usize>
+where
+    U: Clone + Send + Sync + 'static,
+{
+    value: T,
+    output: Output<U>,
+}
+
+#[Model]
+impl<T, U, const N: usize> ModelWithGenerics<T, U, N>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    U: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+{
+    #[nexosim(schedulable)]
+    async fn input(&mut self, arg: (T, U)) {
+        self.value = arg.0;
+        self.output.send(arg.1).await;
+    }
+
+    #[nexosim(init)]
+    async fn init(self, _: &mut Context<Self>) -> InitializedModel<Self> {
+        self.into()
     }
 }
 
@@ -262,6 +289,53 @@ fn model_with_schedule() {
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
     assert_eq!(msg.next(), Some(21));
+}
+
+#[test]
+fn model_with_generics() {
+    fn get_bench() -> (SimInit, EventQueueReader<f64>, SourceId<(i32, f64)>) {
+        let mbox = Mailbox::new();
+        let mut model = ModelWithGenerics::<i32, f64, 13> {
+            value: 8,
+            output: Output::<f64>::default(),
+        };
+
+        let msg = EventQueue::new();
+        model.output.connect_sink(&msg);
+        let address = mbox.address();
+
+        let mut bench = SimInit::new().add_model(model, mbox, "modelWithGenerics");
+        let input_id = bench.register_input(ModelWithGenerics::input, address);
+
+        (bench, msg.into_reader(), input_id)
+    }
+
+    let (bench, mut msg, input_id) = get_bench();
+    let t0 = MonotonicTime::EPOCH;
+
+    let mut simu = bench.init(t0).unwrap();
+    let scheduler = simu.scheduler();
+    scheduler
+        .schedule_event(Duration::from_secs(2), &input_id, (-5, 5.14))
+        .unwrap();
+    scheduler
+        .schedule_event(Duration::from_secs(5), &input_id, (-5, 7.14))
+        .unwrap();
+    simu.step().unwrap();
+
+    assert_eq!(msg.next(), Some(5.14));
+
+    // Store state with a scheduled model after one step.
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
+
+    // Recreate the bench with the state restored.
+    let (bench, mut msg, _) = get_bench();
+    let mut simu = bench.restore(&state[..]).unwrap();
+
+    // Verify that the scheduled event gets fired as step two.
+    simu.step().unwrap();
+    assert_eq!(msg.next(), Some(7.14));
 }
 
 #[test]

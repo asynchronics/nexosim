@@ -4,8 +4,8 @@ use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprAssign, ExprPath, FnArg, Ident, ImplItem, ImplItemFn, Meta, Path, PathSegment, Type,
-    TypeTuple,
+    Expr, ExprAssign, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, Meta, Path,
+    PathSegment, Type, TypeTuple,
 };
 
 #[proc_macro_attribute]
@@ -89,27 +89,27 @@ pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
 
 fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenStream, syn::Error> {
     let name = &ast.self_ty;
-
-    let name_ident = if let Type::Path(path) = &**name {
-        path.path.get_ident().unwrap()
-    } else {
-        return Err(syn::Error::new_spanned(
-            name,
-            "invalid impl. block name identifier",
-        ));
-    };
-
     let env_expr = parse_env_expr(env_expr);
 
     let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
 
-    let registered_methods = get_registered_method_paths(name_ident, &schedulables);
-    let mut gen = get_impl_model_trait(name, &env_expr, init, restore, registered_methods);
+    let registered_methods = get_registered_method_paths(&schedulables);
+    let mut gen = get_impl_model_trait(
+        name,
+        &env_expr,
+        &ast.generics,
+        init,
+        restore,
+        registered_methods,
+    );
     let hidden_methods = get_hidden_method_impls(&schedulables);
+
+    // We do not use ty_generics as they're already present in `name`
+    let (impl_generics, _, where_clause) = ast.generics.split_for_impl();
 
     // Write hidden methods block.
     gen.extend(quote! {
-        impl #name {
+        impl #impl_generics #name #where_clause {
             #( #hidden_methods )*
         }
     });
@@ -144,13 +144,12 @@ fn parse_env_expr(expr: Option<Expr>) -> Expr {
 
 /// Get MyModel::input method paths from scheduled inputs.
 fn get_registered_method_paths<'a>(
-    name_ident: &'a Ident,
     schedulables: &'a [ImplItemFn],
 ) -> impl Iterator<Item = Expr> + use<'a> {
     schedulables.iter().map(|a| {
         let mut segments = Punctuated::new();
         segments.push_value(PathSegment {
-            ident: name_ident.clone(),
+            ident: Ident::new("Self", a.span()),
             arguments: syn::PathArguments::None,
         });
         segments.push_punct(PathSep::default());
@@ -231,12 +230,16 @@ fn parse_tagged_methods(
 fn get_impl_model_trait(
     name: &Type,
     env: &Expr,
+    generics: &Generics,
     init: Option<proc_macro2::TokenStream>,
     restore: Option<proc_macro2::TokenStream>,
     registered_methods: impl Iterator<Item = Expr>,
 ) -> proc_macro2::TokenStream {
+    // We do not use ty_generics as they're already present in `name`
+    let (impl_generics, _, where_clause) = generics.split_for_impl();
+
     quote! {
-        impl nexosim::model::Model for #name {
+        impl #impl_generics nexosim::model::Model for #name #where_clause {
             type #env;
 
             fn register_schedulables(
