@@ -156,7 +156,7 @@ impl ControllerService {
 
                 let source = event_source_registry.get(source_name).ok_or(to_error(
                     ErrorCode::SourceNotFound,
-                    "no source is registered with the name '{}'".to_string(),
+                    format!("no source is registered with the name '{source_name}'"),
                 ))?;
 
                 let event = source.event(event).map_err(|e| {
@@ -199,7 +199,7 @@ impl ControllerService {
 
                 let source = query_source_registry.get(source_name).ok_or(to_error(
                     ErrorCode::SourceNotFound,
-                    "no source is registered with the name '{}'".to_string(),
+                    format!("no source is registered with the name '{source_name}'"),
                 ))?;
 
                 let (query, mut promise) = source.query(request).map_err(|e| {
