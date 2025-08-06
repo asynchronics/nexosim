@@ -973,13 +973,10 @@ pub(crate) fn add_model<P>(
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
-    let mut cx = Context::new(
-        name.clone(),
-        env,
-        scheduler,
-        address.clone(),
-        model_registry,
-    );
+    let model_id = ModelId::new(registered_models.len());
+    registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
+
+    let mut cx = Context::new(name, env, scheduler, address, model_id.0, model_registry);
     let fut = async move {
         let mut model = if !is_resumed.load(Ordering::Relaxed) {
             model.init(&mut cx).await.0
@@ -988,9 +985,6 @@ pub(crate) fn add_model<P>(
         };
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };
-
-    let model_id = ModelId::new(registered_models.len());
-    registered_models.push(RegisteredModel::new(name, address));
 
     #[cfg(not(feature = "tracing"))]
     let fut = ModelFuture::new(fut, model_id);
