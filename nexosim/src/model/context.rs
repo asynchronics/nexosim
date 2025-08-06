@@ -102,14 +102,9 @@ impl<M: Model> Context<M> {
         env: M::Env,
         scheduler: GlobalScheduler,
         address: Address<M>,
+        origin_id: usize,
         model_registry: ModelRegistry,
     ) -> Self {
-        // The only requirement for the origin ID is that it must be (i)
-        // specific to each model and (ii) different from (usize::MAX - 1) (which is
-        // reserved for the global scheduler). The channel ID of the model
-        // mailbox fulfills this requirement.
-        let origin_id = address.0.channel_id();
-
         Self {
             name,
             env,
@@ -590,6 +585,7 @@ impl<M: Model<Env = ()>> Context<M> {
             (),
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
+            0,
             ModelRegistry::default(),
         )
     }
