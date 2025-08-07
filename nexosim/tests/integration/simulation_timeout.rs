@@ -19,7 +19,7 @@ const MT_NUM_THREADS: usize = 4;
 struct TestModel {
     output: Output<()>,
 }
-#[Model(Env=TestEnv)]
+#[Model(type Env=TestEnv)]
 impl TestModel {
     async fn input(&mut self) {
         self.output.send(()).await;

@@ -123,6 +123,55 @@ where
         self.output.send(arg.1).await;
     }
 
+    #[nexosim(schedulable)]
+    async fn process(&mut self) {}
+
+    #[nexosim(init)]
+    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        // Test if schedulable! macro works with generics.
+        cx.schedule_event(
+            Duration::from_secs(255),
+            schedulable!(ModelWithGenerics::<T, U, N>::process),
+            (),
+        )
+        .unwrap();
+        self.into()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ModelWithGenericEnv<T>(T);
+#[Model(type Env=T)]
+impl<T> ModelWithGenericEnv<T>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+{
+    #[nexosim(schedulable)]
+    async fn input(&mut self, arg: T, cx: &mut Context<Self>) {
+        *cx.env() = arg;
+    }
+
+    #[nexosim(init)]
+    async fn init(self, _: &mut Context<Self>) -> InitializedModel<Self> {
+        self.into()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ModelWithEnvWithGeneric<T>(T);
+#[derive(Default)]
+pub struct EnvWithGeneric<T>(T);
+
+#[Model(type Env=EnvWithGeneric<T>)]
+impl<T> ModelWithEnvWithGeneric<T>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+{
+    #[nexosim(schedulable)]
+    async fn input(&mut self, arg: T, cx: &mut Context<Self>) {
+        cx.env().0 = arg;
+    }
+
     #[nexosim(init)]
     async fn init(self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.into()
@@ -336,6 +385,25 @@ fn model_with_generics() {
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
     assert_eq!(msg.next(), Some(7.14));
+}
+
+#[test]
+fn model_with_generic_env() {
+    fn get_bench() -> SimInit {
+        let mbox_a = Mailbox::new();
+        let mbox_b = Mailbox::new();
+        let model_a = ModelWithGenericEnv(13);
+        let model_b = ModelWithEnvWithGeneric(27);
+
+        SimInit::new()
+            .add_model(model_a, mbox_a, "model_a")
+            .add_model(model_b, mbox_b, "model_b")
+    }
+
+    let bench = get_bench();
+    let t0 = MonotonicTime::EPOCH;
+
+    bench.init(t0).unwrap();
 }
 
 #[test]

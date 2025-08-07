@@ -82,7 +82,7 @@ pub struct Listener {
     message: Output<String>,
 }
 
-#[Model(Env=ListenerEnv)]
+#[Model(type Env=ListenerEnv)]
 impl Listener {
     /// Creates a Listener.
     pub fn new(message: Output<String>) -> Self {

@@ -1,11 +1,11 @@
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{quote, quote_token, ToTokens};
 use syn::{
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprAssign, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, Meta, Path,
-    PathSegment, Type, TypeTuple,
+    Expr, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, ItemType, Meta, Path,
+    PathArguments, PathSegment, Token, Type, TypeTuple,
 };
 
 #[proc_macro_attribute]
@@ -46,9 +46,12 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
             "invalid associated method path",
         ));
     }
+
+    let ty = ast.segments[0].clone();
     let hidden_name = Ident::new(&format!("__{}", ast.segments[1].ident), ast.span());
 
     let mut segments = ast.segments.clone();
+
     segments[1].ident = hidden_name.clone();
     let path = Path {
         leading_colon: None,
@@ -61,15 +64,23 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
         "method `{err_name}` is not a valid schedulable input for the model! Perhaps you forgot to include the #[nexosim(schedulable)] attribute or are using a method from another model."
     );
 
-    let gen = quote! {
-        {
-            // Call a hidden method in the array type definition
-            // to cast a custom error during a type-checking compilation phase.
-            let _: [(); { if !Self::____is_schedulable(stringify!(#hidden_name)) {
-                panic!(#err_msg)
-            }; 0} ] = [];
-            &#path
+    let is_generic = matches!(ty.arguments, PathArguments::AngleBracketed(_));
+
+    // Generic types cannot be used in a const context.
+    // Therefore we are not able to use our custom error message.
+    let gen = if !is_generic {
+        quote! {
+            {
+                // Call a hidden method in the array type definition
+                // to cast a custom error during a type-checking compilation phase.
+                let _: [(); { if !#ty::____is_schedulable(stringify!(#hidden_name)) {
+                    panic!(#err_msg)
+                }; 0} ] = [];
+                &#path
+            }
         }
+    } else {
+        quote! {&#path}
     };
     Ok(gen.into())
 }
@@ -77,31 +88,25 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
-    let mut ast = syn::parse(input.clone()).expect("Model: Can't parse macro input!");
-    let env_expr = syn::parse(attr).ok();
+    let mut ast: syn::ItemImpl =
+        syn::parse(input.clone()).expect("Model: Can't parse macro input!");
+    let env = parse_env(attr);
 
     let added_tokens: TokenStream =
-        impl_model(&mut ast, env_expr).unwrap_or_else(|e| e.to_compile_error().into());
+        impl_model(&mut ast, env).unwrap_or_else(|e| e.to_compile_error().into());
     let mut output: TokenStream = ast.to_token_stream().into();
     output.extend(added_tokens);
     output
 }
 
-fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenStream, syn::Error> {
+fn impl_model(ast: &mut syn::ItemImpl, env: ItemType) -> Result<TokenStream, syn::Error> {
     let name = &ast.self_ty;
-    let env_expr = parse_env_expr(env_expr);
 
     let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
 
     let registered_methods = get_registered_method_paths(&schedulables);
-    let mut gen = get_impl_model_trait(
-        name,
-        &env_expr,
-        &ast.generics,
-        init,
-        restore,
-        registered_methods,
-    );
+    let mut gen =
+        get_impl_model_trait(name, &env, &ast.generics, init, restore, registered_methods);
     let hidden_methods = get_hidden_method_impls(&schedulables);
 
     // We do not use ty_generics as they're already present in `name`
@@ -119,27 +124,29 @@ fn impl_model(ast: &mut syn::ItemImpl, env_expr: Option<Expr>) -> Result<TokenSt
 
 /// Checks whether Env type is provided by the user.
 /// If not uses `()` as a default.
-fn parse_env_expr(expr: Option<Expr>) -> Expr {
-    match expr {
-        Some(e) => e,
-        None => {
-            let unit = Expr::Verbatim(
-                TypeTuple {
-                    paren_token: Paren(expr.span()),
-                    elems: Punctuated::new(),
-                }
-                .to_token_stream(),
-            );
-            Expr::Assign(ExprAssign {
-                attrs: Vec::new(),
-                left: Box::new(Expr::Verbatim(
-                    Ident::new("Env", expr.span()).to_token_stream(),
-                )),
-                eq_token: syn::Token![=](expr.span()),
-                right: Box::new(unit),
-            })
-        }
+fn parse_env(tokens: TokenStream) -> ItemType {
+    if tokens.is_empty() {
+        // No tokens found -> generate `type Env=();`.
+        let span = proc_macro2::Span::call_site();
+        return ItemType {
+            attrs: vec![],
+            vis: syn::Visibility::Inherited,
+            type_token: Token![type](span),
+            ident: Ident::new("Env", span),
+            generics: Generics::default(),
+            eq_token: Token![=](span),
+            ty: Box::new(Type::Tuple(TypeTuple {
+                paren_token: Paren(span),
+                elems: Punctuated::new(),
+            })),
+            semi_token: Token![;](span),
+        };
     }
+
+    // Append semicolon at the end of the found token stream.
+    let mut with_semicolon = tokens.clone().into();
+    quote_token!(; with_semicolon);
+    syn::parse(with_semicolon.into()).expect("invalid associated type")
 }
 
 /// Get MyModel::input method paths from scheduled inputs.
@@ -229,7 +236,7 @@ fn parse_tagged_methods(
 /// Renders the impl Model for MyModel block.
 fn get_impl_model_trait(
     name: &Type,
-    env: &Expr,
+    env: &ItemType,
     generics: &Generics,
     init: Option<proc_macro2::TokenStream>,
     restore: Option<proc_macro2::TokenStream>,
@@ -240,7 +247,7 @@ fn get_impl_model_trait(
 
     quote! {
         impl #impl_generics nexosim::model::Model for #name #where_clause {
-            type #env;
+            #env
 
             fn register_schedulables(
                 &mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>
