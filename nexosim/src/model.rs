@@ -6,7 +6,7 @@
 //! asynchronous initialization method, [`Model::init`], which main purpose is
 //! to enable models to perform specific actions when the simulation starts,
 //! *i.e.* after all models have been connected and added to the simulation.
-//! ['Model::restore`] method is called whenever the model is restored from a
+//! [`Model::restore`] method is called whenever the model is restored from a
 //! saved state.
 //!
 //! It is frequently convenient to expose to users a model builder type—called a
