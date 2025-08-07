@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::future::Future;
+use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::time::Duration;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -175,6 +177,19 @@ where
     #[nexosim(init)]
     async fn init(self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.into()
+    }
+}
+
+/// This model uses a non random hasher to allow consistent (de)serialization
+/// order, needed by outputs.
+#[derive(Serialize, Deserialize)]
+pub struct ModelWithHashMap {
+    outputs: HashMap<usize, Output<usize>, BuildHasherDefault<DefaultHasher>>,
+}
+#[Model]
+impl ModelWithHashMap {
+    pub async fn send(&mut self, arg: usize) {
+        self.outputs.get_mut(&arg).unwrap().send(arg).await;
     }
 }
 
@@ -404,6 +419,60 @@ fn model_with_generic_env() {
     let t0 = MonotonicTime::EPOCH;
 
     bench.init(t0).unwrap();
+}
+
+#[test]
+fn model_with_hashmap() {
+    const COUNT: usize = 10;
+    const ITERATIONS: usize = 30;
+
+    fn get_bench() -> (
+        SimInit,
+        Address<ModelWithHashMap>,
+        Vec<EventQueueReader<usize>>,
+    ) {
+        let mut sinks = vec![];
+
+        let mbox = Mailbox::new();
+        let address = mbox.address();
+        let mut model = ModelWithHashMap {
+            outputs: HashMap::with_hasher(BuildHasherDefault::new()),
+        };
+        for idx in 0..COUNT {
+            let mut output = Output::new();
+            let msg = EventQueue::new();
+            output.connect_sink(&msg);
+            model.outputs.insert(idx, output);
+            sinks.push(msg.into_reader());
+        }
+
+        (
+            SimInit::new().add_model(model, mbox, "model"),
+            address,
+            sinks,
+        )
+    }
+    let (bench, _, _) = get_bench();
+    let t0 = MonotonicTime::EPOCH;
+
+    let mut simu = bench.init(t0).unwrap();
+
+    let mut state = Vec::new();
+    simu.save(&mut state).unwrap();
+
+    let (bench, address, mut sinks) = get_bench();
+    let mut simu = bench.restore(&state[..]).unwrap();
+
+    for _ in 0..ITERATIONS {
+        // Verify that after the deserialization output connections still point to
+        // assigned sinks. (fails when a standard RandomState HashMap is used)
+        #[allow(clippy::needless_range_loop)]
+        for idx in 0..COUNT {
+            simu.process_event(ModelWithHashMap::send, idx, &address)
+                .unwrap();
+            assert_eq!(sinks[idx].next(), Some(idx));
+        }
+    }
 }
 
 #[test]
