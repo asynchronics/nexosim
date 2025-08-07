@@ -43,7 +43,7 @@ impl<T: Clone, R> BroadcasterInner<T, R> {
         self.senders.push(sender);
         self.shared.outputs.push(None);
 
-        // The storage is alway an empty vector so we just book some capacity.
+        // The storage is always an empty vector so we just book some capacity.
         if let Some(storage) = self.shared.storage.as_mut() {
             let _ = storage.try_reserve(self.senders.len());
         };
@@ -508,6 +508,7 @@ mod tests {
     use std::thread;
 
     use futures_executor::block_on;
+    use serde::{Deserialize, Serialize};
 
     use crate::channel::Receiver;
 
@@ -528,8 +529,28 @@ mod tests {
             self.inner.fetch_add(by, Ordering::Relaxed);
         }
     }
-    impl Model for SumModel {}
+    impl Model for SumModel {
+        type Env = ();
+    }
+    impl Serialize for SumModel {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            serializer.serialize_u64(self.inner.load(Ordering::Relaxed) as u64)
+        }
+    }
+    impl<'de> Deserialize<'de> for SumModel {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            let counter = usize::deserialize(deserializer)?;
+            Ok(SumModel::new(Arc::new(AtomicUsize::new(counter))))
+        }
+    }
 
+    #[derive(Serialize, Deserialize)]
     struct DoubleModel {}
     impl DoubleModel {
         fn new() -> Self {
@@ -539,7 +560,9 @@ mod tests {
             2 * value
         }
     }
-    impl Model for DoubleModel {}
+    impl Model for DoubleModel {
+        type Env = ();
+    }
 
     #[test]
     fn broadcast_event_smoke() {
@@ -650,7 +673,8 @@ mod tests {
 
         assert_eq!(
             sum.load(Ordering::Relaxed),
-            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) // Twice the sum of all IDs + N_RECV times the special value
+            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) /* Twice the sum of all IDs + N_RECV times
+                                                     * the special value */
         );
     }
 
@@ -781,7 +805,9 @@ mod tests {
 
         assert_eq!(
             sum,
-            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) * 2 * 3, // Twice the sum of all IDs + N_RECV times the special value, then doubled and tripled
+            N_RECV * ((N_RECV - 1) + BROADCAST_ALL) * 2 * 3, /* Twice the sum of all IDs +
+                                                              * N_RECV times the special value,
+                                                              * then doubled and tripled */
         );
     }
 }

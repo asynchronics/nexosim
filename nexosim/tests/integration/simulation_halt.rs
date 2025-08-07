@@ -3,15 +3,20 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use nexosim::model::{Context, InitializedModel, Model};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
+use nexosim::{schedulable, Model};
 
+#[derive(Deserialize, Serialize)]
 struct RecurringModel {
     pub message: Output<()>,
     delay: Duration,
 }
+#[Model]
 impl RecurringModel {
     fn new(delay: Duration) -> Self {
         Self {
@@ -19,13 +24,15 @@ impl RecurringModel {
             message: Output::new(),
         }
     }
+
+    #[nexosim(schedulable)]
     async fn process(&mut self) {
         self.message.send(()).await;
     }
-}
-impl Model for RecurringModel {
+
+    #[nexosim(init)]
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        cx.schedule_periodic_event(self.delay, self.delay, RecurringModel::process, ())
+        cx.schedule_periodic_event(self.delay, self.delay, schedulable!(Self::process), ())
             .unwrap();
 
         self.into()
@@ -43,10 +50,12 @@ fn halt_and_resume() -> Result<(), SimulationError> {
 
     let t0 = MonotonicTime::EPOCH;
 
-    let (simu, mut scheduler) = SimInit::new()
+    let simu = SimInit::new()
         .add_model(model, mailbox, "timed_model")
         .set_clock(SystemClock::from_instant(t0, Instant::now()))
         .init(t0)?;
+
+    let mut scheduler = simu.scheduler();
 
     let simulation = Arc::new(Mutex::new(simu));
     let spawned_simulation = simulation.clone();

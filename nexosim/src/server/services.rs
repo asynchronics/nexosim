@@ -13,8 +13,10 @@ use super::codegen::simulation::{Error, ErrorCode};
 use crate::registry::RegistryError;
 use crate::simulation::{ExecutionError, SchedulingError, SimulationError};
 
+pub use init_service::{init_bench, restore_bench};
+
 pub(crate) use controller_service::ControllerService;
-pub(crate) use init_service::InitService;
+pub(crate) use init_service::{InitResult, InitService};
 pub(crate) use inspector_service::InspectorService;
 pub(crate) use monitor_service::MonitorService;
 pub(crate) use scheduler_service::SchedulerService;
@@ -48,6 +50,9 @@ fn map_execution_error(error: ExecutionError) -> Error {
         ExecutionError::Halted => ErrorCode::SimulationHalted,
         ExecutionError::Terminated => ErrorCode::SimulationTerminated,
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
+        ExecutionError::InvalidEvent(_) => ErrorCode::SourceNotFound,
+        ExecutionError::SaveError(_) => ErrorCode::SaveError,
+        ExecutionError::RestoreError(_) => ErrorCode::RestoreError,
     };
 
     let error_message = error.to_string();
@@ -79,6 +84,9 @@ fn map_registry_error(error: RegistryError) -> Error {
     let error_code = match error {
         RegistryError::SourceNotFound(_) => ErrorCode::SourceNotFound,
         RegistryError::SinkNotFound(_) => ErrorCode::SinkNotFound,
+        RegistryError::Unregistered => ErrorCode::Unregistered,
+        RegistryError::InvalidType(_) => ErrorCode::InvalidType,
+        RegistryError::DeserializationError(_) => ErrorCode::DeserializationError,
     };
     let error_message = error.to_string();
 

@@ -17,14 +17,17 @@
 
 use std::time::Duration;
 
-use nexosim::model::{Context, InitializedModel, Model};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
-use nexosim::simulation::{AutoActionKey, Mailbox, SimInit, SimulationError};
+use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
+use nexosim::{schedulable, Model};
 use nexosim_util::observable::{Observable, Observe};
 
 /// House keeping TM.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hk {
     pub voltage: f64,
     pub current: f64,
@@ -40,7 +43,7 @@ impl Default for Hk {
 }
 
 /// Processor mode ID.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ModeId {
     #[default]
     Off,
@@ -49,12 +52,12 @@ pub enum ModeId {
 }
 
 /// Processor state.
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 pub enum State {
     #[default]
     Off,
     Idle,
-    Processing(AutoActionKey),
+    Processing(AutoEventKey),
 }
 
 impl Observe<ModeId> for State {
@@ -68,6 +71,7 @@ impl Observe<ModeId> for State {
 }
 
 /// Processor model.
+#[derive(Serialize, Deserialize)]
 pub struct Processor {
     /// Mode output.
     pub mode: Output<ModeId>,
@@ -88,6 +92,7 @@ pub struct Processor {
     elc: Observable<Hk>,
 }
 
+#[Model]
 impl Processor {
     /// Create a new processor.
     pub fn new() -> Self {
@@ -127,9 +132,13 @@ impl Processor {
         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
             self.state
                 .set(State::Processing(
-                    cx.schedule_keyed_event(Duration::from_millis(dt), Self::finish_processing, ())
-                        .unwrap()
-                        .into_auto(),
+                    cx.schedule_keyed_event(
+                        Duration::from_millis(dt),
+                        schedulable!(Self::finish_processing),
+                        (),
+                    )
+                    .unwrap()
+                    .into_auto(),
                 ))
                 .await;
             self.elc.modify(|hk| hk.current = 1.0).await;
@@ -137,15 +146,15 @@ impl Processor {
     }
 
     /// Finish processing.
+    #[nexosim(schedulable)]
     async fn finish_processing(&mut self) {
         self.state.set(State::Idle).await;
         self.acc.modify(|a| *a += 1).await;
         self.elc.modify(|hk| hk.current = 0.1).await;
     }
-}
 
-impl Model for Processor {
     /// Propagate all internal states.
+    #[nexosim(init)]
     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
         self.state.propagate().await;
         self.acc.propagate().await;
@@ -182,10 +191,7 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let mut simu = SimInit::new()
-        .add_model(proc, proc_mbox, "proc")
-        .init(t0)?
-        .0;
+    let mut simu = SimInit::new().add_model(proc, proc_mbox, "proc").init(t0)?;
 
     // ----------
     // Simulation.

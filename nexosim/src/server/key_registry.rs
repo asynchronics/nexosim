@@ -1,37 +1,37 @@
-use crate::simulation::ActionKey;
+use crate::simulation::EventKey;
 use crate::time::MonotonicTime;
 use crate::util::indexed_priority_queue::{IndexedPriorityQueue, InsertKey};
 
 pub(crate) type KeyRegistryId = InsertKey;
 
-/// A collection of `ActionKey`s indexed by a unique identifier.
+/// A collection of `EventKey`s indexed by a unique identifier.
 #[derive(Default)]
 pub(crate) struct KeyRegistry {
-    keys: IndexedPriorityQueue<MonotonicTime, ActionKey>,
+    keys: IndexedPriorityQueue<MonotonicTime, EventKey>,
 }
 
 impl KeyRegistry {
-    /// Inserts an `ActionKey` into the registry.
+    /// Inserts an `EventKey` into the registry.
     ///
     /// The provided expiration deadline is the latest time at which the key is
     /// guaranteed to be extractable.
     pub(crate) fn insert_key(
         &mut self,
-        action_key: ActionKey,
+        event_key: EventKey,
         expiration: MonotonicTime,
     ) -> KeyRegistryId {
-        self.keys.insert(expiration, action_key)
+        self.keys.insert(expiration, event_key)
     }
 
-    /// Inserts a non-expiring `ActionKey` into the registry.
-    pub(crate) fn insert_eternal_key(&mut self, action_key: ActionKey) -> KeyRegistryId {
-        self.keys.insert(MonotonicTime::MAX, action_key)
+    /// Inserts a non-expiring `EventKey` into the registry.
+    pub(crate) fn insert_eternal_key(&mut self, event_key: EventKey) -> KeyRegistryId {
+        self.keys.insert(MonotonicTime::MAX, event_key)
     }
 
-    /// Removes an `ActionKey` from the registry and returns it.
+    /// Removes an `EventKey` from the registry and returns it.
     ///
     /// Returns `None` if the key was not found in the registry.
-    pub(crate) fn extract_key(&mut self, key_id: KeyRegistryId) -> Option<ActionKey> {
+    pub(crate) fn extract_key(&mut self, key_id: KeyRegistryId) -> Option<EventKey> {
         self.keys.extract(key_id).map(|(_, key)| key)
     }
 

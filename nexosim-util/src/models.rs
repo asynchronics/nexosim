@@ -1,12 +1,14 @@
 //! Helper models.
 //!
 //! This module contains helper models useful for simulation bench assembly.
-//!
 
 use std::fmt;
 use std::time::Duration;
 
-use nexosim::model::{Context, InitializedModel, Model};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{Context, InitializedModel};
+use nexosim::{schedulable, Model};
 
 /// A ticker model.
 ///
@@ -35,10 +37,12 @@ use nexosim::model::{Context, InitializedModel, Model};
 /// let t0 = MonotonicTime::EPOCH;
 ///
 /// // Assembly and initialization.
-/// let (mut simu, mut scheduler) = SimInit::new()
+/// let mut simu = SimInit::new()
 ///    .add_model(ticker, ticker_mbox, "ticker")
 ///    .set_clock(AutoSystemClock::new())
 ///    .init(t0).unwrap();
+///
+/// let mut scheduler = simu.scheduler();
 ///
 /// // Simulation thread.
 /// let simulation_handle = thread::spawn(move || {
@@ -53,11 +57,13 @@ use nexosim::model::{Context, InitializedModel, Model};
 /// assert!(matches!(simulation_handle.join().unwrap(),
 ///     Err(ExecutionError::Halted)));
 /// ```
+#[derive(Serialize, Deserialize)]
 pub struct Ticker {
     /// Tick period.
     tick: Duration,
 }
 
+#[Model]
 impl Ticker {
     /// Creates a new `Ticker` with the specified self-scheduling period.
     pub fn new(tick: Duration) -> Self {
@@ -65,12 +71,12 @@ impl Ticker {
     }
 
     /// Self-scheduled function.
+    #[nexosim(schedulable)]
     async fn tick(&mut self) {}
-}
 
-impl Model for Ticker {
+    #[nexosim(init)]
     async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
-        cx.schedule_periodic_event(self.tick, self.tick, Self::tick, ())
+        cx.schedule_periodic_event(self.tick, self.tick, schedulable!(Self::tick), ())
             .unwrap();
         self.into()
     }

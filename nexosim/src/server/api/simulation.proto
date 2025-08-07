@@ -30,6 +30,11 @@ enum ErrorCode {
   SIMULATION_TIME_OUT_OF_RANGE = 21;
   SOURCE_NOT_FOUND = 30;
   SINK_NOT_FOUND = 31;
+  UNREGISTERED = 32;
+  INVALID_TYPE = 33;
+  DESERIALIZATION_ERROR = 34;
+  SAVE_ERROR = 40;
+  RESTORE_ERROR = 41;
 }
 
 message Error {
@@ -42,8 +47,22 @@ message EventKey {
   uint64 subkey2 = 2;
 }
 
-message InitRequest { bytes cfg = 2; }
+message InitRequest {
+  google.protobuf.Timestamp time = 1;
+  bytes cfg = 2;
+}
 message InitReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
+message RestoreRequest {
+  bytes state = 1;
+  optional bytes cfg = 2;
+}
+message RestoreReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
     Error error = 100;
@@ -62,6 +81,14 @@ message HaltRequest {}
 message HaltReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
+message SaveRequest {}
+message SaveReply {
+  oneof result { // Always returns exactly 1 variant.
+    bytes state = 1;
     Error error = 100;
   }
 }
@@ -292,8 +319,10 @@ message AnyRequest {
 
 service Simulation {
   rpc Init(InitRequest) returns (InitReply);
+  rpc Restore(RestoreRequest) returns (RestoreReply);
   rpc Terminate(TerminateRequest) returns (TerminateReply);
   rpc Halt(HaltRequest) returns (HaltReply);
+  rpc Save(SaveRequest) returns (SaveReply);
   rpc Time(TimeRequest) returns (TimeReply);
   rpc Step(StepRequest) returns (StepReply);
   rpc StepUntil(StepUntilRequest) returns (StepUntilReply);

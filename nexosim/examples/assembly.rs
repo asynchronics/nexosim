@@ -25,10 +25,13 @@
 
 use std::time::Duration;
 
-use nexosim::model::{BuildContext, Model, ProtoModel};
+use serde::{Deserialize, Serialize};
+
+use nexosim::model::{BuildContext, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 mod stepper_motor;
 
@@ -53,13 +56,14 @@ impl ProtoMotorAssembly {
 }
 
 /// The parent model which submodels are the driver and the motor.
+#[derive(Serialize, Deserialize)]
 pub struct MotorAssembly {
     /// Private output for submodel connection.
     pps: Output<f64>,
     /// Private output for submodel connection.
     load: Output<f64>,
 }
-
+#[Model]
 impl MotorAssembly {
     /// The model now has a module-private constructor.
     fn new() -> Self {
@@ -80,14 +84,13 @@ impl MotorAssembly {
     }
 }
 
-impl Model for MotorAssembly {}
-
 impl ProtoModel for ProtoMotorAssembly {
     type Model = MotorAssembly;
 
-    fn build(self, cx: &mut BuildContext<Self>) -> MotorAssembly {
+    fn build(self, cx: &mut BuildContext<Self>) -> (MotorAssembly, ()) {
         let mut assembly = MotorAssembly::new();
         let mut motor = Motor::new(self.init_pos);
+
         let mut driver = Driver::new(1.0);
 
         // Mailboxes.
@@ -108,7 +111,7 @@ impl ProtoModel for ProtoMotorAssembly {
         cx.add_submodel(driver, driver_mbox, "driver");
         cx.add_submodel(motor, motor_mbox, "motor");
 
-        assembly
+        (assembly, ())
     }
 }
 
@@ -134,9 +137,13 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let (mut simu, scheduler) = SimInit::new()
-        .add_model(assembly, assembly_mbox, "assembly")
-        .init(t0)?;
+    let mut bench = SimInit::new().add_model(assembly, assembly_mbox, "assembly");
+
+    let pulse_rate_source_id = bench.register_input(MotorAssembly::pulse_rate, &assembly_addr);
+
+    let mut simu = bench.init(t0)?;
+
+    let scheduler = simu.scheduler();
 
     // ----------
     // Simulation.
@@ -150,12 +157,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(
-            Duration::from_secs(2),
-            MotorAssembly::pulse_rate,
-            10.0,
-            &assembly_addr,
-        )
+        .schedule_event(Duration::from_secs(2), &pulse_rate_source_id, 10.0)
         .unwrap();
 
     // Advance simulation time to two next events.

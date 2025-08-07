@@ -1,32 +1,40 @@
 use std::fmt;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::{de::DeserializeOwned, Serialize};
+
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
-use crate::model::ProtoModel;
+use crate::model::{Model, ProtoModel, RegisteredModel};
+use crate::ports::{EventSource, InputFn};
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
-use crate::util::priority_queue::PriorityQueue;
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, ExecutionError, GlobalScheduler, Mailbox, Scheduler, SchedulerQueue, Signal,
-    Simulation,
+    add_model, Address, ExecutionError, GlobalScheduler, InputSource, Mailbox, SchedulerQueue,
+    SchedulerSourceRegistry, Signal, Simulation, SimulationError, SourceId,
 };
+
+type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static;
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    scheduler_registry: SchedulerSourceRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
+    is_resumed: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
-    model_names: Vec<String>,
+    registered_models: Vec<RegisteredModel>,
+    post_init_callback: Option<Box<PostCallback>>,
+    post_restore_callback: Option<Box<PostCallback>>,
 }
 
 impl SimInit {
@@ -63,15 +71,19 @@ impl SimInit {
 
         Self {
             executor,
-            scheduler_queue: Arc::new(Mutex::new(PriorityQueue::new())),
+            scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
+            scheduler_registry: SchedulerSourceRegistry::default(),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
+            is_resumed: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
             timeout: Duration::ZERO,
             observers: Vec::new(),
             abort_signal,
-            model_names: Vec::new(),
+            registered_models: Vec::new(),
+            post_init_callback: None,
+            post_restore_callback: None,
         }
     }
 
@@ -81,12 +93,15 @@ impl SimInit {
     /// the name is possible but discouraged as it can cause confusion with the
     /// fully qualified name of a submodel. If an empty string is provided, it
     /// is replaced by the string `<unknown>`.
-    pub fn add_model<P: ProtoModel>(
+    pub fn add_model<P>(
         mut self,
         model: P,
         mailbox: Mailbox<P::Model>,
         name: impl Into<String>,
-    ) -> Self {
+    ) -> Self
+    where
+        P: ProtoModel,
+    {
         let mut name = name.into();
         if name.is_empty() {
             name = String::from("<unknown>");
@@ -104,9 +119,11 @@ impl SimInit {
             mailbox,
             name,
             scheduler,
+            &mut self.scheduler_registry,
             &self.executor,
             &self.abort_signal,
-            &mut self.model_names,
+            &mut self.registered_models,
+            self.is_resumed.clone(),
         );
 
         self
@@ -150,44 +167,121 @@ impl SimInit {
         self
     }
 
-    /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`](crate::model::Model::init) method on all
-    /// model initializers.
+    /// Registers a callback function executed right after the simulation is
+    /// initialized and before it's run.
     ///
-    /// The simulation object and its associated scheduler are returned upon
-    /// success.
-    pub fn init(
+    /// Initial event scheduling or input processing is possible at this stage.
+    pub fn with_post_init(
         mut self,
-        start_time: MonotonicTime,
-    ) -> Result<(Simulation, Scheduler), ExecutionError> {
-        self.time.write(start_time);
-        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
-            if let Some(tolerance) = &self.clock_tolerance {
-                if &lag > tolerance {
-                    return Err(ExecutionError::OutOfSync(lag));
-                }
-            }
-        }
+        callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
+    ) -> Self {
+        self.post_init_callback = Some(Box::new(callback));
+        self
+    }
 
-        let scheduler = Scheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_halted.clone(),
-        );
-        let mut simulation = Simulation::new(
+    /// Registers a callback function executed right after the simulation is
+    /// restored from a persisted state.
+    ///
+    /// If necessary real-time clock resynchronization can be performed at this
+    /// stage. Otherwise simulation actions such as event scheduling or querying
+    /// are also possible.
+    pub fn with_post_restore(
+        mut self,
+        callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
+    ) -> Self {
+        self.post_restore_callback = Some(Box::new(callback));
+        self
+    }
+
+    /// Registers `EventSource<T>` as schedulable.
+    pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        self.scheduler_registry.add(source)
+    }
+
+    /// Registers single model input as a schedulable event source.
+    pub fn register_input<M, F, S, T>(
+        &mut self,
+        input: F,
+        address: impl Into<Address<M>>,
+    ) -> SourceId<T>
+    where
+        M: Model,
+        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+        S: Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        let source = InputSource::new(input, address);
+        self.scheduler_registry.add(source)
+    }
+
+    fn build(self) -> Simulation {
+        Simulation::new(
             self.executor,
             self.scheduler_queue,
+            self.scheduler_registry,
             self.time,
             self.clock,
             self.clock_tolerance,
             self.timeout,
             self.observers,
-            self.model_names,
+            self.registered_models,
             self.is_halted,
-        );
+        )
+    }
+
+    /// Builds a simulation initialized at the specified simulation time,
+    /// executing the [`Model::init`] method on all
+    /// model initializers.
+    ///
+    /// The simulation object is returned upon success.
+    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
+        self.time.write(start_time);
+        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
+            if let Some(tolerance) = &self.clock_tolerance {
+                if &lag > tolerance {
+                    return Err(ExecutionError::OutOfSync(lag).into());
+                }
+            }
+        }
+
+        let callback = self.post_init_callback.take();
+        let mut simulation = self.build();
+        if let Some(mut callback) = callback {
+            callback(&mut simulation)?;
+        }
         simulation.run()?;
 
-        Ok((simulation, scheduler))
+        Ok(simulation)
+    }
+
+    /// Restores a simulation from a previously persisted state.
+    /// executing the [`Model::restore`] method on
+    /// all registered models.
+    ///
+    /// The simulation object is returned upon success.
+    pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
+        self.is_resumed.store(true, Ordering::Relaxed);
+
+        let callback = self.post_restore_callback.take();
+        let mut simulation = self.build();
+
+        simulation.restore(state)?;
+
+        if let Some(mut callback) = callback {
+            callback(&mut simulation)?;
+        }
+        // TODO should run?
+        simulation.run()?;
+
+        Ok(simulation)
+    }
+
+    #[cfg(feature = "server")]
+    pub(crate) fn scheduler_registry(&mut self) -> &mut SchedulerSourceRegistry {
+        &mut self.scheduler_registry
     }
 }
 

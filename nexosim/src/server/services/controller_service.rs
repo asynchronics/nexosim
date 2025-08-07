@@ -20,6 +20,7 @@ use super::{
 pub(crate) enum ControllerService {
     NotStarted,
     Started {
+        cfg: Vec<u8>,
         simulation: Simulation,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
@@ -159,7 +160,7 @@ impl ControllerService {
                     format!("no source is registered with the name '{source_name}'"),
                 ))?;
 
-                let event = source.event(event).map_err(|e| {
+                let action = source.action(event).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -170,7 +171,9 @@ impl ControllerService {
                     )
                 })?;
 
-                simulation.process(event).map_err(map_execution_error)
+                simulation
+                    .process_action(action)
+                    .map_err(map_execution_error)
             }(),
             Self::NotStarted => Err(simulation_not_started_error()),
         };
@@ -202,7 +205,7 @@ impl ControllerService {
                     format!("no source is registered with the name '{source_name}'"),
                 ))?;
 
-                let (query, mut promise) = source.query(request).map_err(|e| {
+                let (action, mut receiver) = source.query(request).map_err(|e| {
                     to_error(
                         ErrorCode::InvalidMessage,
                         format!(
@@ -213,9 +216,11 @@ impl ControllerService {
                     )
                 })?;
 
-                simulation.process(query).map_err(map_execution_error)?;
+                simulation
+                    .process_action(action)
+                    .map_err(map_execution_error)?;
 
-                let replies = promise.take_collect().ok_or(to_error(
+                let replies = receiver.take_collect().ok_or(to_error(
                     ErrorCode::SimulationBadQuery,
                     "a reply to the query was expected but none was available; maybe the target model was not added to the simulation?".to_string(),
                 ))?;
@@ -243,6 +248,39 @@ impl ControllerService {
                 replies: Vec::new(),
                 result: Some(process_query_reply::Result::Error(error)),
             },
+        }
+    }
+
+    /// Saves and returns current simulation state in a serialized form.
+    pub(crate) fn save(&mut self, _: SaveRequest) -> SaveReply {
+        let ControllerService::Started {
+            cfg, simulation, ..
+        } = self
+        else {
+            return SaveReply {
+                result: Some(save_reply::Result::Error(to_error(
+                    ErrorCode::SimulationNotStarted,
+                    "the simulation has not been started",
+                ))),
+            };
+        };
+
+        let mut state = Vec::new();
+        let result = simulation
+            .save_with_serialized_cfg(cfg.clone(), &mut state)
+            .map_err(|_| {
+                crate::simulation::ExecutionError::SaveError(
+                    "Simulation config serialization has failed.".to_string(),
+                )
+            });
+
+        let result = match result {
+            Err(e) => save_reply::Result::Error(map_execution_error(e)),
+            Ok(_) => save_reply::Result::State(state),
+        };
+
+        SaveReply {
+            result: Some(result),
         }
     }
 }

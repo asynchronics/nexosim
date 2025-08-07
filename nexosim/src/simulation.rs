@@ -75,20 +75,25 @@
 //! Deadlocks are reported as [`ExecutionError::Deadlock`] errors, which
 //! identify all involved models and the count of unprocessed messages (events
 //! or requests) in their mailboxes.
+mod events;
 mod mailbox;
 mod scheduler;
 mod sim_init;
 
-pub(crate) use scheduler::{
-    GlobalScheduler, KeyedOnceAction, KeyedPeriodicAction, OnceAction, PeriodicAction,
-};
+pub(crate) use scheduler::GlobalScheduler;
 
+pub use events::{Action, AutoEventKey, EventKey, SourceId};
 pub use mailbox::{Address, Mailbox};
-pub use scheduler::{Action, ActionKey, AutoActionKey, Scheduler, SchedulingError};
+pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::SimInit;
+
+pub(crate) use events::{
+    Event, EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased, EVENT_KEY_REG,
+};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::future::Future;
@@ -101,15 +106,17 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
+use serde::{Deserialize, Serialize};
 
-use scheduler::SchedulerQueue;
+use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
-use crate::model::{BuildContext, Context, Model, ProtoModel};
+use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
 use crate::ports::{InputFn, ReplierFn};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
+use crate::util::serialization::serialization_config;
 use crate::util::slot;
 
 thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell::new(ModelId::none()) }; }
@@ -154,12 +161,13 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+    scheduler_registry: SchedulerSourceRegistry,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
     observers: Vec<(String, Box<dyn ChannelObserver>)>,
-    model_names: Vec<String>,
+    registered_models: Vec<RegisteredModel>,
     is_halted: Arc<AtomicBool>,
     is_terminated: bool,
 }
@@ -170,23 +178,25 @@ impl Simulation {
     pub(crate) fn new(
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
+        scheduler_registry: SchedulerSourceRegistry,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
         timeout: Duration,
         observers: Vec<(String, Box<dyn ChannelObserver>)>,
-        model_names: Vec<String>,
+        registered_models: Vec<RegisteredModel>,
         is_halted: Arc<AtomicBool>,
     ) -> Self {
         Self {
             executor,
             scheduler_queue,
+            scheduler_registry,
             time,
             clock,
             clock_tolerance,
             timeout,
             observers,
-            model_names,
+            registered_models,
             is_halted,
             is_terminated: false,
         }
@@ -255,14 +265,21 @@ impl Simulation {
         self.step_until_unchecked(None)
     }
 
+    /// Processes a future immediately, blocking until completion.
+    pub(crate) fn process_future(
+        &mut self,
+        fut: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), ExecutionError> {
+        self.take_halt_flag()?;
+        self.executor.spawn_and_forget(fut);
+        self.run()
+    }
+
     /// Processes an action immediately, blocking until completion.
     ///
-    /// Simulation time remains unchanged. The periodicity of the action, if
-    /// any, is ignored.
-    pub fn process(&mut self, action: Action) -> Result<(), ExecutionError> {
-        self.take_halt_flag()?;
-        action.spawn_and_forget(&self.executor);
-        self.run()
+    /// Simulation time remains unchanged.
+    pub fn process_action(&mut self, action: Action) -> Result<(), ExecutionError> {
+        self.process_future(action.consume())
     }
 
     /// Processes an event immediately, blocking until completion.
@@ -279,7 +296,6 @@ impl Simulation {
         F: for<'a> InputFn<'a, M, T, S>,
         T: Send + Clone + 'static,
     {
-        self.take_halt_flag()?;
         let sender = address.into().0;
         let fut = async move {
             // Ignore send errors.
@@ -297,8 +313,7 @@ impl Simulation {
                 .await;
         };
 
-        self.executor.spawn_and_forget(fut);
-        self.run()
+        self.process_future(fut)
     }
 
     /// Processes a query immediately, blocking until completion.
@@ -318,7 +333,6 @@ impl Simulation {
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
-        self.take_halt_flag()?;
         let (reply_writer, mut reply_reader) = slot::slot();
         let sender = address.into().0;
 
@@ -341,8 +355,7 @@ impl Simulation {
                 .await;
         };
 
-        self.executor.spawn_and_forget(fut);
-        self.run()?;
+        self.process_future(fut)?;
 
         reply_reader
             .try_read()
@@ -381,7 +394,7 @@ impl Simulation {
                 ExecutorError::Panic(model_id, payload) => {
                     let model = model_id
                         .get()
-                        .map(|id| self.model_names.get(id).unwrap().clone());
+                        .map(|id| self.registered_models.get(id).unwrap().name.clone());
 
                     // Filter out panics originating from a `SendError`.
                     if (*payload).type_id() == TypeId::of::<SendError>() {
@@ -413,16 +426,6 @@ impl Simulation {
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
         }
-        // Function pulling the next action. If the action is periodic, it is
-        // immediately re-scheduled.
-        fn pull_next_action(scheduler_queue: &mut MutexGuard<SchedulerQueue>) -> Action {
-            let ((time, channel_id), action) = scheduler_queue.pull().unwrap();
-            if let Some((action_clone, period)) = action.next() {
-                scheduler_queue.insert((time + period, channel_id), action_clone);
-            }
-
-            action
-        }
 
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
 
@@ -431,8 +434,8 @@ impl Simulation {
         let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
             loop {
                 match scheduler_queue.peek() {
-                    Some((&key, action)) if key.0 <= upper_time_bound => {
-                        if !action.is_cancelled() {
+                    Some((&key, event)) if key.0 <= upper_time_bound => {
+                        if !event.is_cancelled() {
                             break Some(key);
                         }
                         // Discard cancelled actions.
@@ -452,31 +455,34 @@ impl Simulation {
         self.time.write(current_key.0);
 
         loop {
-            let action = pull_next_action(&mut scheduler_queue);
-            let mut next_key = peek_next_key(&mut scheduler_queue);
-            if next_key != Some(current_key) {
-                // Since there are no other actions with the same origin and the
-                // same time, the action is spawned immediately.
-                action.spawn_and_forget(&self.executor);
-            } else {
-                // To ensure that their relative order of execution is
-                // preserved, all actions with the same origin are executed
-                // sequentially within a single compound future.
-                let mut action_sequence = SeqFuture::new();
-                action_sequence.push(action.into_future());
-                loop {
-                    let action = pull_next_action(&mut scheduler_queue);
-                    action_sequence.push(action.into_future());
-                    next_key = peek_next_key(&mut scheduler_queue);
-                    if next_key != Some(current_key) {
-                        break;
-                    }
+            let mut next_key;
+
+            // TODO if there is a single event consider firing immediately
+            // instead of allocating SeqFuture, although the perf vs. complexity
+            // might be not worth it.
+            let mut action_seq = SeqFuture::new();
+            loop {
+                let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
+                let source = self
+                    .scheduler_registry
+                    .get(&event.source_id)
+                    .ok_or(ExecutionError::InvalidEvent(event.source_id.0))?;
+                let fut = source.event_future(&*event.arg, event.key.clone());
+
+                if let Some(period) = event.period {
+                    scheduler_queue.insert((time + period, channel_id), event);
                 }
 
-                // Spawn a compound future that sequentially polls all actions
-                // targeting the same mailbox.
-                self.executor.spawn_and_forget(action_sequence);
+                action_seq.push(fut);
+                next_key = peek_next_key(&mut scheduler_queue);
+                if next_key != Some(current_key) {
+                    break;
+                }
             }
+
+            // Spawn a compound future that sequentially polls all actions
+            // targeting the same mailbox.
+            self.executor.spawn_and_forget(action_seq);
 
             current_key = match next_key {
                 // If the next action is scheduled at the same time, update the
@@ -558,13 +564,147 @@ impl Simulation {
     }
 
     /// Returns a scheduler handle.
-    #[cfg(feature = "server")]
-    pub(crate) fn scheduler(&self) -> Scheduler {
+    pub fn scheduler(&self) -> Scheduler {
         Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
             self.is_halted.clone(),
         )
+    }
+
+    /// Requests and stores serialized state from each of the models.
+    fn save_models(&mut self) -> Result<Vec<Vec<u8>>, ExecutionError> {
+        // Temporarily move out of the simulation object.
+        let models = self.registered_models.drain(..).collect::<Vec<_>>();
+        let mut values = Vec::new();
+        for model in models.iter() {
+            values.push((model.serialize)(self)?);
+        }
+        self.registered_models = models;
+        Ok(values)
+    }
+
+    /// Restore models' state.
+    fn restore_models(
+        &mut self,
+        model_state: Vec<Vec<u8>>,
+        event_key_reg: &EventKeyReg,
+    ) -> Result<(), ExecutionError> {
+        // Temporarily move out of the simulation object.
+        let models = self.registered_models.drain(..).collect::<Vec<_>>();
+        for (model, state) in models.iter().zip(model_state) {
+            (model.deserialize)(self, (state, event_key_reg.clone()))?;
+        }
+        self.registered_models = models;
+        Ok(())
+    }
+
+    /// Saves the scheduler queue, maintaining its event order.
+    fn save_queue(&self) -> Result<Vec<u8>, ExecutionError> {
+        let scheduler_queue = self.scheduler_queue.lock().unwrap();
+        let queue = scheduler_queue
+            .iter()
+            .map(|(k, v)| match v.serialize(&self.scheduler_registry) {
+                Ok(v) => Ok((*k, v)),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<Vec<_>, ExecutionError>>()?;
+
+        bincode::serde::encode_to_vec(&queue, serialization_config())
+            .map_err(|_| ExecutionError::SaveError("Scheduler Queue".to_string()))
+    }
+
+    /// Restores the scheduler queue from the serialized state.
+    fn restore_queue(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
+        let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
+            bincode::serde::decode_from_slice(state, serialization_config())
+                .map_err(|_| ExecutionError::RestoreError("Scheduler Queue".to_string()))?
+                .0;
+
+        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+        scheduler_queue.clear();
+
+        for entry in deserialized {
+            scheduler_queue.insert(
+                entry.0,
+                Event::deserialize(&entry.1, &self.scheduler_registry)?,
+            );
+        }
+        Ok(())
+    }
+
+    /// Persists a serialized simulation state.
+    /// Saved byte count is returned upon success.
+    pub fn save<W: std::io::Write>(&mut self, writer: &mut W) -> Result<usize, ExecutionError> {
+        // TODO should call halt first?
+        let state = SimulationState {
+            models: self.save_models()?,
+            scheduler_queue: self.save_queue()?,
+            time: self.time(),
+            cfg: None,
+        };
+        bincode::serde::encode_into_std_write(state, writer, serialization_config())
+            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+    }
+
+    /// Serializes simulation state together with CBOR serialized SimGen
+    /// configuration.
+    #[cfg(feature = "server")]
+    pub(crate) fn save_with_serialized_cfg<W: std::io::Write>(
+        &mut self,
+        serialized_cfg: Vec<u8>,
+        writer: &mut W,
+    ) -> Result<usize, ExecutionError> {
+        let state = SimulationState {
+            models: self.save_models()?,
+            scheduler_queue: self.save_queue()?,
+            time: self.time(),
+            cfg: Some(serialized_cfg),
+        };
+        bincode::serde::encode_into_std_write(state, writer, serialization_config())
+            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+    }
+
+    /// Persists a serialized simulation state together with a SimGen
+    /// configuration object.
+    #[cfg(feature = "server")]
+    pub fn save_with_cfg<W: std::io::Write, C: Serialize>(
+        &mut self,
+        cfg: C,
+        writer: &mut W,
+    ) -> Result<usize, ExecutionError> {
+        let mut serialized_cfg = Vec::new();
+        ciborium::into_writer(&cfg, &mut serialized_cfg).map_err(|_| {
+            ExecutionError::SaveError("Config serialization has failed!".to_string())
+        })?;
+        self.save_with_serialized_cfg(serialized_cfg, writer)
+    }
+
+    /// Restore simulation state from a serialized data.
+    pub(crate) fn restore<R: std::io::Read>(&mut self, mut state: R) -> Result<(), ExecutionError> {
+        let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
+        EVENT_KEY_REG.set(&event_key_reg, || {
+            let state: SimulationState =
+                bincode::serde::decode_from_std_read(&mut state, serialization_config())
+                    .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
+
+            self.time.write(state.time);
+            self.restore_models(state.models, &event_key_reg)?;
+            self.restore_queue(&state.scheduler_queue)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Extract bench builder cfg from the serialized simulation state.
+    #[cfg(feature = "server")]
+    pub(crate) fn restore_cfg<R: std::io::Read>(
+        mut state: R,
+    ) -> Result<Option<Vec<u8>>, ExecutionError> {
+        let state: SimulationState =
+            bincode::serde::decode_from_std_read(&mut state, serialization_config())
+                .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
+        Ok(state.cfg)
     }
 }
 
@@ -574,6 +714,15 @@ impl fmt::Debug for Simulation {
             .field("time", &self.time.read())
             .finish_non_exhaustive()
     }
+}
+
+/// Internal helper struct organizing parts of a persisted simulation state.
+#[derive(Serialize, Deserialize)]
+struct SimulationState {
+    cfg: Option<Vec<u8>>,
+    models: Vec<Vec<u8>>,
+    scheduler_queue: Vec<u8>,
+    time: MonotonicTime,
 }
 
 /// Information regarding a deadlocked model.
@@ -672,6 +821,12 @@ pub enum ExecutionError {
     ///
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
+    /// Non-existent SourceId has been used.
+    InvalidEvent(usize),
+    /// Simulation serialization has failed.
+    SaveError(String),
+    /// Simulation deserialization has failed.
+    RestoreError(String),
 }
 
 impl fmt::Display for ExecutionError {
@@ -736,6 +891,9 @@ impl fmt::Display for ExecutionError {
                     "the specified deadline ({time}) lies in the past of the current simulation time"
                 )
             }
+            Self::InvalidEvent(e) => write!(f, "event not found {e:?}"),
+            Self::SaveError(o) => write!(f, "serialization has failed when processing: {o}"),
+            Self::RestoreError(o) => write!(f, "deserialization has failed when processing: {o}"),
         }
     }
 }
@@ -782,15 +940,20 @@ impl From<SchedulingError> for SimulationError {
 }
 
 /// Adds a model and its mailbox to the simulation bench.
-pub(crate) fn add_model<P: ProtoModel>(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn add_model<P>(
     model: P,
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
+    scheduler_registry: &mut SchedulerSourceRegistry,
     executor: &Executor,
     abort_signal: &Signal,
-    model_names: &mut Vec<String>,
-) {
+    registered_models: &mut Vec<RegisteredModel>,
+    is_resumed: Arc<AtomicBool>,
+) where
+    P: ProtoModel,
+{
     #[cfg(feature = "tracing")]
     let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", name);
 
@@ -798,23 +961,30 @@ pub(crate) fn add_model<P: ProtoModel>(
         &mailbox,
         &name,
         &scheduler,
+        scheduler_registry,
         executor,
         abort_signal,
-        model_names,
+        registered_models,
+        is_resumed.clone(),
     );
-    let model = model.build(&mut build_cx);
+    let (mut model, env) = model.build(&mut build_cx);
+    let model_registry = model.register_schedulables(&mut build_cx);
 
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
-    let mut cx = Context::new(name.clone(), scheduler, address);
+    let model_id = ModelId::new(registered_models.len());
+    registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
+
+    let mut cx = Context::new(name, env, scheduler, address, model_id.0, model_registry);
     let fut = async move {
-        let mut model = model.init(&mut cx).await.0;
+        let mut model = if !is_resumed.load(Ordering::Relaxed) {
+            model.init(&mut cx).await.0
+        } else {
+            model
+        };
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };
-
-    let model_id = ModelId::new(model_names.len());
-    model_names.push(name);
 
     #[cfg(not(feature = "tracing"))]
     let fut = ModelFuture::new(fut, model_id);

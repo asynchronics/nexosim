@@ -1,17 +1,20 @@
 //! Deadlock-detection for model loops.
 
-use nexosim::model::Model;
+use serde::{Deserialize, Serialize};
+
 use nexosim::ports::{Output, Requestor};
 use nexosim::simulation::{DeadlockInfo, ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 struct TestModel {
     output: Output<()>,
     requestor: Requestor<(), ()>,
 }
+#[Model]
 impl TestModel {
     async fn activate_output(&mut self) {
         self.output.send(()).await;
@@ -20,7 +23,6 @@ impl TestModel {
         let _ = self.requestor.send(()).await;
     }
 }
-impl Model for TestModel {}
 
 /// Overflows a mailbox by sending 2 messages in loopback for each incoming
 /// message.
@@ -45,8 +47,7 @@ fn deadlock_on_mailbox_overflow(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, MODEL_NAME)
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_event(TestModel::activate_output, (), addr) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
@@ -81,8 +82,7 @@ fn deadlock_on_query_loopback(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, MODEL_NAME)
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_query(TestModel::activate_requestor, (), addr) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
@@ -126,8 +126,7 @@ fn deadlock_on_transitive_query_loopback(num_threads: usize) {
         .add_model(model1, mbox1, MODEL1_NAME)
         .add_model(model2, mbox2, MODEL2_NAME)
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_query(TestModel::activate_requestor, (), addr1) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
@@ -184,8 +183,7 @@ fn deadlock_on_multiple_query_loopback(num_threads: usize) {
         .add_model(model1, mbox1, MODEL1_NAME)
         .add_model(model2, mbox2, MODEL2_NAME)
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_query(TestModel::activate_requestor, (), addr0) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
