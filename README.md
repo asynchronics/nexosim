@@ -66,7 +66,7 @@ To use the latest version, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nexosim = "0.3.3"
+nexosim = "0.4.0-alpha.1"
 ```
 
 ## Example
