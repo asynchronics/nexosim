@@ -807,13 +807,14 @@ pub(crate) fn add_model<P: ProtoModel>(
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
-    let mut cx = Context::new(name.clone(), scheduler, address);
+    let model_id = ModelId::new(model_names.len());
+    let origin_id = model_id.0.checked_add(1).unwrap(); // the origin ID should be unique for each model and cannot be 0.
+    let mut cx = Context::new(name.clone(), scheduler, address, origin_id);
     let fut = async move {
         let mut model = model.init(&mut cx).await.0;
         while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
     };
 
-    let model_id = ModelId::new(model_names.len());
     model_names.push(name);
 
     #[cfg(not(feature = "tracing"))]

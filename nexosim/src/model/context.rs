@@ -84,12 +84,16 @@ pub struct Context<M: Model> {
 
 impl<M: Model> Context<M> {
     /// Creates a new local context.
-    pub(crate) fn new(name: String, scheduler: GlobalScheduler, address: Address<M>) -> Self {
+    pub(crate) fn new(
+        name: String,
+        scheduler: GlobalScheduler,
+        address: Address<M>,
+        origin_id: usize,
+    ) -> Self {
         // The only requirement for the origin ID is that it must be (i)
         // specific to each model and (ii) different from 0 (which is reserved
-        // for the global scheduler). The channel ID of the model mailbox
-        // fulfills this requirement.
-        let origin_id = address.0.channel_id();
+        // for the global scheduler).
+        assert_ne!(origin_id, 0);
 
         Self {
             name,
@@ -534,6 +538,7 @@ impl<M: Model> Context<M> {
             String::new(),
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
+            1, // anything but 0
         )
     }
 }
