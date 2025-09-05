@@ -1,5 +1,5 @@
 [workspace]
-members = ["nexosim", "nexosim-util"]
+members = ["nexosim", "nexosim-macros", "nexosim-util"]
 resolver = "2"
 
 [workspace.dependencies]
