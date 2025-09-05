@@ -17,7 +17,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/asynchronics/nexosim"
 readme = "../README.md"
 description = """
-A high performance asychronous compute framework for system simulation.
+A high performance asynchronous compute framework for system simulation.
 """
 categories = ["simulation", "aerospace", "science"]
 keywords = [
