@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: ["0.3"]
 
 env:
   RUSTFLAGS: -Dwarnings
@@ -213,4 +213,4 @@ jobs:
       - name: Run cargo doc
         run: cargo doc --no-deps --all-features --document-private-items
         env:
-            RUSTDOCFLAGS: --cfg docsrs -Dwarnings
+          RUSTDOCFLAGS: --cfg docsrs -Dwarnings
