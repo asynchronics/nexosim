@@ -26,7 +26,7 @@ keywords = [
 ]
 
 [dependencies]
-nexosim = { version = "0.3.3", path = "../nexosim" }
+nexosim = { version = "0.3.4", path = "../nexosim" }
 
 [dev-dependencies]
 rand = "0.8"

@@ -1,3 +1,19 @@
+# 0.3.4 (2025-09-12)
+
+- Run CI on ARM ([#108])
+- Enable time in tokio runtime builder to support gRPC front-ends with a timeout ([#109])
+- Add diagnostic messages to InputFn and ReplierFn ([#115])
+- Add missing source name to "source not found" error messages ([#118])
+- Make single-threaded execution fully deterministic (v0.3 backport of [#122])
+- Fix `NoRecipient` Error when all existing model addresses are dropped and then new addresses are created ([#125])
+
+[#108]: https://github.com/asynchronics/nexosim/pull/108
+[#109]: https://github.com/asynchronics/nexosim/pull/109
+[#115]: https://github.com/asynchronics/nexosim/pull/115
+[#118]: https://github.com/asynchronics/nexosim/pull/118
+[#122]: https://github.com/asynchronics/nexosim/pull/122
+[#125]: https://github.com/asynchronics/nexosim/pull/125
+
 # 0.3.3 (2025-05-16)
 
 - Fix spurious `ExecutionError::MessageLoss` error ([#106])

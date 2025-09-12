@@ -402,7 +402,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nexosim = { version = "0.3.3", features = ["tracing"] }
+//! nexosim = { version = "0.3.4", features = ["tracing"] }
 //! ```
 //!
 //! See the [`tracing`] module for more information.
@@ -414,7 +414,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nexosim = { version = "0.3.3", features = ["server"] }
+//! nexosim = { version = "0.3.4", features = ["server"] }
 //! ```
 //!
 //! See the [`registry`] and [`server`] modules for more information.

@@ -10,14 +10,14 @@ name = "nexosim"
 # - Update if necessary copyright notice in LICENSE-MIT
 # - Create a "vX.Y.Z" git tag
 authors = ["Asynchronics and the NeXosim Contributors"]
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.86.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/asynchronics/nexosim"
 readme = "../README.md"
 description = """
-A high performance asychronous compute framework for system simulation.
+A high performance asynchronous compute framework for system simulation.
 """
 categories = ["simulation", "aerospace", "science"]
 keywords = [
@@ -39,7 +39,6 @@ server = [
     "dep:tonic",
     "dep:tokio",
     "dep:tokio-stream",
-    "dep:tonic",
     "tai-time/serde",
 ]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
