@@ -489,7 +489,7 @@
 //! * the [`tracing`] module discusses time-stamping and filtering of `tracing`
 //!   events.
 #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
-#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, doc(cfg_hide(feature = "dev-hooks")))]
 
 pub(crate) mod channel;
