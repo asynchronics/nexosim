@@ -1,0 +1,12 @@
+body {
+  display: flex;
+  justify-content: center;
+}
+
+nav.sidebar.sidebar-navigation:not(.rollup) {
+  background-color: white;
+}
+
+.sidebar.sidebar-navigation:not(.rollup) {
+  border-right: 0 !important;
+}
