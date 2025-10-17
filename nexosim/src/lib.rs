@@ -490,7 +490,7 @@
 //!   events.
 #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![cfg_attr(docsrs, doc(cfg_hide(feature = "dev-hooks")))]
+#![cfg_attr(docsrs, doc(auto_cfg(hide(feature = "dev-hooks"))))]
 
 pub(crate) mod channel;
 pub(crate) mod executor;
