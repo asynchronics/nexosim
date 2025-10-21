@@ -15,14 +15,19 @@
 //! the specified timestamp.
 //!
 //! ```
-//! use nexosim::model::{Context, Model};
+//! use nexosim::model::Context;
 //! use nexosim::time::MonotonicTime;
+//! use nexosim::{schedulable, Model};
+//!
+//! use serde::{Serialize, Deserialize};
 //!
 //! // An alarm clock model.
+//! #[derive(Serialize, Deserialize)]
 //! pub struct AlarmClock {
 //!     msg: String
 //! }
 //!
+//! #[Model]
 //! impl AlarmClock {
 //!     // Creates a new alarm clock.
 //!     pub fn new(msg: String) -> Self {
@@ -31,18 +36,17 @@
 //!
 //!     // Sets an alarm [input port].
 //!     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
-//!         if cx.schedule_event(setting, Self::ring, ()).is_err() {
+//!         if cx.schedule_event(setting, schedulable!(Self::ring), ()).is_err() {
 //!             println!("The alarm clock can only be set for a future time");
 //!         }
 //!     }
 //!
 //!     // Rings the alarm [private input port].
+//!     #[nexosim(schedulable)]
 //!     fn ring(&mut self) {
 //!         println!("{}", self.msg);
 //!     }
 //! }
-//!
-//! impl Model for AlarmClock {}
 //! ```
 
 mod clock;

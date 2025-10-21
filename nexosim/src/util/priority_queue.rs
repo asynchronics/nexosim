@@ -107,6 +107,17 @@ impl<K: Copy + Ord, V> PriorityQueue<K, V> {
 
         Some((key, value))
     }
+
+    /// Creates an iterator over queue's elements.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.heap.iter().map(|a| (&a.key, &a.value))
+    }
+
+    /// Empties the queue.
+    pub(crate) fn clear(&mut self) {
+        self.heap.clear();
+        self.next_epoch = 0;
+    }
 }
 
 #[cfg(all(test, not(nexosim_loom)))]

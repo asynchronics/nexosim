@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -11,7 +12,6 @@ use crate::simulation::Action;
 
 use super::{Message, MessageSchema, RegistryError};
 
-type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SerializationError = ciborium::ser::Error<std::io::Error>;
 
 /// A registry that holds all sources and sinks meant to be accessed through
@@ -77,7 +77,7 @@ impl QuerySourceRegistry {
         }
     }
 
-    /// Returns a mutable reference to the specified query source if it is in
+    /// Returns a reference to the specified query source if it is in
     /// the registry.
     pub(crate) fn get(&self, name: &str) -> Option<&dyn QuerySourceAny> {
         self.0.get(name).map(|s| s.as_ref())
@@ -109,16 +109,13 @@ impl fmt::Debug for QuerySourceRegistry {
 
 /// A type-erased `QuerySource` that operates on CBOR-encoded serialized queries
 /// and returns CBOR-encoded replies.
-pub(crate) trait QuerySourceAny: Send + Sync + 'static {
+pub(crate) trait QuerySourceAny: Any + Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
     ///
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
-    fn query(
-        &self,
-        arg: &[u8],
-    ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError>;
+    fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError>;
 
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
@@ -153,16 +150,13 @@ where
     R: Serialize + Send + 'static,
     F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
 {
-    fn query(
-        &self,
-        arg: &[u8],
-    ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError> {
-        ciborium::from_reader(arg).map(|arg| {
-            let (action, reply_recv) = self.inner.query(arg);
-            let reply_recv: Box<dyn ReplyReceiverAny> = Box::new(reply_recv);
-
-            (action, reply_recv)
-        })
+    fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError> {
+        ciborium::from_reader(arg)
+            .map(|arg| {
+                let (action, receiver) = self.inner.query(arg);
+                (action, Box::new(receiver) as Box<dyn ReplyReceiverAny>)
+            })
+            .map_err(RegistryError::DeserializationError)
     }
 
     fn request_type_name(&self) -> &'static str {

@@ -1,16 +1,19 @@
 //! Model panic reporting.
 
-use nexosim::model::Model;
+use serde::{Deserialize, Serialize};
+
 use nexosim::ports::Output;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
-#[derive(Default)]
+#[derive(Default, Deserialize, Serialize)]
 struct TestModel {
     countdown_out: Output<usize>,
 }
+#[Model]
 impl TestModel {
     async fn countdown_in(&mut self, count: usize) {
         if count == 0 {
@@ -19,7 +22,6 @@ impl TestModel {
         self.countdown_out.send(count - 1).await;
     }
 }
-impl Model for TestModel {}
 
 /// Pass a counter around several models and decrement it each time, panicking
 /// when it becomes zero.
@@ -48,7 +50,7 @@ fn model_panic(num_threads: usize) {
 
     // Run the simulation.
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = siminit.init(t0).unwrap().0;
+    let mut simu = siminit.init(t0).unwrap();
 
     match simu.process_event(TestModel::countdown_in, INIT_COUNTDOWN, addr0) {
         Err(ExecutionError::Panic { model, payload }) => {

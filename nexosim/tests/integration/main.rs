@@ -2,6 +2,7 @@
 // https://matklad.github.io/2021/02/27/delete-cargo-integration-tests.html
 
 mod model_scheduling;
+mod serialization;
 #[cfg(not(miri))]
 mod simulation_clock_sync;
 mod simulation_deadlock;

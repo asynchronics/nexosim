@@ -58,8 +58,11 @@
 //! [`Model::init`](model::Model::init) method that is guaranteed to run once
 //! and only once when the simulation is initialized, _i.e._ after all models
 //! have been connected but before the simulation starts.
+//! [`Model::restore`](model::Model::restore) method on the other hand, is
+//! called only when the simulation has been restored from a saved state.
 //!
-//! The [`Model::init`](model::Model::init) methods has a default
+//! The [`Model::init`](model::Model::init) and
+//! [`Model::restore`](model::Model::restore) methods have default
 //! implementations, so models that do not require setup and initialization can
 //! simply implement the trait with a one-liner such as `impl Model for MyModel
 //! {}`.
@@ -74,6 +77,13 @@
 //!   simulation rather than when the simulation starts, such as establishing a
 //!   network connection or configuring hardware devices,
 //! * connect submodels and add them to the simulation.
+//!
+//! In typical scenarios the [`Model`](model::Model) trait can be implemented
+//! by a [`Model`] proc-macro, applied to the main `impl` block of
+//! the model struct. Methods such as `init` and `restore` can be provided by
+//! using custom attributes (`#[nexosim(init)]` and `#[nexosim(restore)]`).
+//! Moreover, input methods can be decorated with `#[nexosim(schedulable)]`
+//! attribute to allow convenient self-scheduling within the model.
 //!
 //! ### A simple model
 //!
@@ -92,19 +102,22 @@
 //! `Multiplier` could be implemented as follows:
 //!
 //! ```
-//! use nexosim::model::Model;
+//! use nexosim::Model;
 //! use nexosim::ports::Output;
 //!
-//! #[derive(Default)]
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Multiplier {
 //!     pub output: Output<f64>,
 //! }
+//! #[Model]
 //! impl Multiplier {
+//!     #[nexosim(schedulable)]
 //!     pub async fn input(&mut self, value: f64) {
 //!         self.output.send(2.0 * value).await;
 //!     }
 //! }
-//! impl Model for Multiplier {}
 //! ```
 //!
 //! ### A model using the local context
@@ -119,23 +132,28 @@
 //!
 //! ```
 //! use std::time::Duration;
-//! use nexosim::model::{Context, Model};
-//! use nexosim::ports::Output;
 //!
-//! #[derive(Default)]
+//! use serde::{Serialize, Deserialize};
+//!
+//! use nexosim::model::Context;
+//! use nexosim::ports::Output;
+//! use nexosim::{schedulable, Model};
+//!
+//! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Delay {
 //!    pub output: Output<f64>,
 //! }
+//! #[Model]
 //! impl Delay {
 //!     pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
-//!         cx.schedule_event(Duration::from_secs(1), Self::send, value).unwrap();
+//!         cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //!     }
 //!
+//!     #[nexosim(schedulable)]
 //!     async fn send(&mut self, value: f64) {
 //!         self.output.send(value).await;
 //!     }
 //! }
-//! impl Model for Delay {}
 //! ```
 //!
 //! ## Assembling simulation benches
@@ -181,31 +199,36 @@
 //! ```
 //! # mod models {
 //! #     use std::time::Duration;
-//! #     use nexosim::model::{Context, Model};
+//! #
+//! #     use serde::{Serialize, Deserialize};
+//! #
+//! #     use nexosim::model::Context;
 //! #     use nexosim::ports::Output;
-//! #     #[derive(Default)]
+//! #     use nexosim::{schedulable, Model};
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
 //! #     }
+//! #     #[Model]
 //! #     impl Multiplier {
 //! #         pub async fn input(&mut self, value: f64) {
 //! #             self.output.send(2.0 * value).await;
 //! #         }
 //! #     }
-//! #     impl Model for Multiplier {}
-//! #     #[derive(Default)]
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Delay {
 //! #        pub output: Output<f64>,
 //! #     }
+//! #     #[Model]
 //! #     impl Delay {
 //! #         pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
-//! #             cx.schedule_event(Duration::from_secs(1), Self::send, value).unwrap();
+//! #             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //! #         }
+//! #         #[nexosim(schedulable)]
 //! #         async fn send(&mut self, value: f64) { // this method can be private
 //! #             self.output.send(value).await;
 //! #         }
 //! #     }
-//! #     impl Model for Delay {}
 //! # }
 //! use std::time::Duration;
 //! use nexosim::ports::EventSlot;
@@ -239,7 +262,7 @@
 //!
 //! // Pick an arbitrary simulation start time and build the simulation.
 //! let t0 = MonotonicTime::EPOCH;
-//! let (mut simu, scheduler) = SimInit::new()
+//! let mut simu = SimInit::new()
 //!     .add_model(multiplier1, multiplier1_mbox, "multiplier1")
 //!     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //!     .add_model(delay1, delay1_mbox, "delay1")
@@ -282,31 +305,36 @@
 //! ```
 //! # mod models {
 //! #     use std::time::Duration;
-//! #     use nexosim::model::{Context, Model};
+//! #
+//! #     use serde::{Serialize, Deserialize};
+//! #
+//! #     use nexosim::model::Context;
 //! #     use nexosim::ports::Output;
-//! #     #[derive(Default)]
+//! #     use nexosim::{schedulable, Model};
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
 //! #     }
+//! #     #[Model]
 //! #     impl Multiplier {
 //! #         pub async fn input(&mut self, value: f64) {
 //! #             self.output.send(2.0 * value).await;
 //! #         }
 //! #     }
-//! #     impl Model for Multiplier {}
-//! #     #[derive(Default)]
+//! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Delay {
 //! #        pub output: Output<f64>,
 //! #     }
+//! #     #[Model]
 //! #     impl Delay {
 //! #         pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
-//! #             cx.schedule_event(Duration::from_secs(1), Self::send, value).unwrap();
+//! #             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //! #         }
+//! #         #[nexosim(schedulable)]
 //! #         async fn send(&mut self, value: f64) { // this method can be private
 //! #             self.output.send(value).await;
 //! #         }
 //! #     }
-//! #     impl Model for Delay {}
 //! # }
 //! # use std::time::Duration;
 //! # use nexosim::ports::EventSlot;
@@ -334,8 +362,7 @@
 //! #     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //! #     .add_model(delay1, delay1_mbox, "delay1")
 //! #     .add_model(delay2, delay2_mbox, "delay2")
-//! #     .init(t0)?
-//! #     .0;
+//! #     .init(t0)?;
 //! // Send a value to the first multiplier.
 //! simu.process_event(Multiplier::input, 21.0, &input_address)?;
 //!
@@ -403,7 +430,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nexosim = { version = "0.3.3", features = ["tracing"] }
+//! nexosim = { version = "0.4.0-alpha.1", features = ["tracing"] }
 //! ```
 //!
 //! See the [`tracing`] module for more information.
@@ -415,7 +442,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nexosim = { version = "0.3.3", features = ["server"] }
+//! nexosim = { version = "0.4.0-alpha.1", features = ["server"] }
 //! ```
 //!
 //! See the [`registry`] and [`server`] modules for more information.
@@ -462,8 +489,8 @@
 //! * the [`tracing`] module discusses time-stamping and filtering of `tracing`
 //!   events.
 #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]
-#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide))]
-#![cfg_attr(docsrs, doc(cfg_hide(feature = "dev-hooks")))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, doc(auto_cfg(hide(feature = "dev-hooks"))))]
 
 pub(crate) mod channel;
 pub(crate) mod executor;
@@ -474,6 +501,8 @@ pub mod ports;
 pub mod simulation;
 pub mod time;
 pub(crate) mod util;
+
+pub use nexosim_macros::{schedulable, Model};
 
 #[cfg(feature = "server")]
 pub mod registry;

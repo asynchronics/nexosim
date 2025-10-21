@@ -1,17 +1,20 @@
 //! Message loss detection.
 
-use nexosim::model::Model;
+use serde::{Deserialize, Serialize};
+
 use nexosim::ports::{Output, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
+use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct TestModel {
     output: Output<()>,
     requestor: Requestor<(), ()>,
 }
+#[Model]
 impl TestModel {
     async fn activate_output_twice(&mut self) {
         self.output.send(()).await;
@@ -22,7 +25,6 @@ impl TestModel {
         let _ = self.requestor.send(()).await;
     }
 }
-impl Model for TestModel {}
 
 /// Loose an event.
 fn event_loss(num_threads: usize) {
@@ -41,8 +43,7 @@ fn event_loss(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_event(TestModel::activate_output_twice, (), addr) {
         Err(ExecutionError::MessageLoss(msg_count)) => {
@@ -67,8 +68,7 @@ fn request_loss(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     match simu.process_event(TestModel::activate_requestor_twice, (), addr) {
         Err(ExecutionError::MessageLoss(msg_count)) => {
