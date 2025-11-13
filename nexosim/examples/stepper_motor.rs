@@ -209,7 +209,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     let pulse_rate_source_id = bench.register_input(Driver::pulse_rate, &driver_addr);
 
-    let mut simu = bench.init(t0)?;
+    let mut simu = bench.init(t0)?.0;
 
     let scheduler = simu.scheduler();
 

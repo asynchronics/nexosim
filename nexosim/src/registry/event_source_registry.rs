@@ -3,20 +3,27 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
+
+#[cfg(feature = "server")]
 use std::time::Duration;
 
+#[cfg(feature = "server")]
 use ciborium;
+
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::EventSource;
-use crate::simulation::{Action, Event, EventKey, SchedulerSourceRegistry, SourceId};
+use crate::simulation::{SchedulerSourceRegistry, SourceId};
+
+#[cfg(feature = "server")]
+use crate::simulation::{Action, Event, EventKey};
 
 use super::{Message, MessageSchema, RegistryError};
 
 /// A registry that holds all sources and sinks meant to be accessed through
 /// remote procedure calls.
 #[derive(Default)]
-pub(crate) struct EventSourceRegistry(HashMap<String, Box<dyn EventSourceAny>>);
+pub(crate) struct EventSourceRegistry(HashMap<String, Box<dyn EventSourceEntryAny>>);
 
 impl EventSourceRegistry {
     /// Adds an event source to the registry.
@@ -31,6 +38,7 @@ impl EventSourceRegistry {
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
+        let name = name.into();
         self.insert_entry(source, name, T::schema)
     }
 
@@ -74,8 +82,24 @@ impl EventSourceRegistry {
 
     /// Returns a reference to the specified event source if it is in
     /// the registry.
-    pub(crate) fn get(&self, name: &str) -> Option<&dyn EventSourceAny> {
+    pub(crate) fn get(&self, name: &str) -> Option<&dyn EventSourceEntryAny> {
         self.0.get(name).map(|s| s.as_ref())
+    }
+
+    /// Returns an immutable reference to an EventSource registered by a given
+    /// name.
+    pub(crate) fn get_source<T>(&self, name: &str) -> Result<&EventSource<T>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+    {
+        // Downcast_ref used as a runtime type-check.
+        self.get(name)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get_event_source()
+            .downcast_ref::<EventSource<T>>()
+            .ok_or(RegistryError::InvalidType(std::any::type_name::<
+                &EventSource<T>,
+            >()))
     }
 
     /// Returns a typed SourceId of the requested EventSource.
@@ -84,12 +108,12 @@ impl EventSourceRegistry {
         T: Clone + Send + 'static,
     {
         // Downcast_ref used as a runtime type-check.
-        (self
-            .get(name)
-            .ok_or(RegistryError::SourceNotFound(name.to_string()))? as &dyn Any)
-            .downcast_ref::<Arc<EventSource<T>>>()
+        self.get(name)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get_event_source()
+            .downcast_ref::<EventSource<T>>()
             .ok_or(RegistryError::InvalidType(std::any::type_name::<
-                Arc<EventSource<T>>,
+                &EventSource<T>,
             >()))?
             .source_id
             .get()
@@ -128,27 +152,31 @@ impl fmt::Debug for EventSourceRegistry {
 }
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
-pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
+pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
     /// Returns an action which, when processed, broadcasts an event to all
     /// connected input ports.
+    #[cfg(feature = "server")]
     fn action(&self, serialized_arg: &[u8]) -> Result<Action, RegistryError>;
 
     /// Returns an event which, when processed, is broadcast to all
     /// connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
+    #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, RegistryError>;
 
     /// Returns a cancellable event and a cancellation key; when processed, the
     /// it is broadcast to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
+    #[cfg(feature = "server")]
     fn keyed_event(&self, serialized_arg: &[u8]) -> Result<(Event, EventKey), RegistryError>;
 
     /// Returns a periodically recurring event which, when processed,
     /// broadcast to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
+    #[cfg(feature = "server")]
     fn periodic_event(
         &self,
         period: Duration,
@@ -160,6 +188,7 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
     /// input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
+    #[cfg(feature = "server")]
     fn keyed_periodic_event(
         &self,
         period: Duration,
@@ -168,6 +197,7 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
 
     /// Human-readable name of the event type, as returned by
     /// `any::type_name`.
+    #[cfg(feature = "server")]
     fn event_type_name(&self) -> &'static str;
 
     /// Register the source in the scheduler's registry to make it schedulable.
@@ -177,6 +207,9 @@ pub(crate) trait EventSourceAny: Any + Send + Sync + 'static {
     /// If the source was added via `add_raw` method, it returns an empty
     /// schema string.
     fn get_schema(&self) -> MessageSchema;
+
+    /// Returns EventSource reference.
+    fn get_event_source(&self) -> &dyn Any;
 }
 
 struct EventSourceEntry<T, F>
@@ -188,17 +221,19 @@ where
     schema_gen: F,
 }
 
-impl<T, F> EventSourceAny for EventSourceEntry<T, F>
+impl<T, F> EventSourceEntryAny for EventSourceEntry<T, F>
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
     F: Fn() -> MessageSchema + Send + Sync + 'static,
 {
+    #[cfg(feature = "server")]
     fn action(&self, serialized_arg: &[u8]) -> Result<Action, RegistryError> {
         ciborium::from_reader(serialized_arg)
             .map(|arg| EventSource::action(&self.inner, arg))
             .map_err(RegistryError::DeserializationError)
     }
 
+    #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, RegistryError> {
         let source_id = self
             .inner
@@ -210,6 +245,7 @@ where
             .map_err(RegistryError::DeserializationError)
     }
 
+    #[cfg(feature = "server")]
     fn keyed_event(&self, serialized_arg: &[u8]) -> Result<(Event, EventKey), RegistryError> {
         let source_id = self
             .inner
@@ -222,6 +258,7 @@ where
             .map_err(RegistryError::DeserializationError)
     }
 
+    #[cfg(feature = "server")]
     fn periodic_event(
         &self,
         period: Duration,
@@ -237,6 +274,7 @@ where
             .map_err(RegistryError::DeserializationError)
     }
 
+    #[cfg(feature = "server")]
     fn keyed_periodic_event(
         &self,
         period: Duration,
@@ -260,6 +298,7 @@ where
             .map_err(RegistryError::DeserializationError)
     }
 
+    #[cfg(feature = "server")]
     fn event_type_name(&self) -> &'static str {
         std::any::type_name::<T>()
     }
@@ -271,5 +310,9 @@ where
     fn register(&self, registry: &mut SchedulerSourceRegistry) {
         // TODO handle double registration error?
         let _ = self.inner.source_id.set(registry.add(self.inner.clone()));
+    }
+
+    fn get_event_source(&self) -> &dyn Any {
+        &*self.inner as &dyn Any
     }
 }

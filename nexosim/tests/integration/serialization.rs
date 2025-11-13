@@ -212,7 +212,7 @@ fn model_with_output() {
     let (bench, source_id, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
     // Schedule event on an initialized sim.
     let _ = simu
         .scheduler()
@@ -224,7 +224,7 @@ fn model_with_output() {
 
     // Recreate the bench with the state restored.
     let (bench, _, mut msg) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that the scheduled event gets fired.
     simu.step().unwrap();
@@ -262,7 +262,7 @@ fn model_with_key() {
     let (bench, output_id, key_addr, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
     // Schedule event on an initialized sim.
     let key = simu
         .scheduler()
@@ -277,7 +277,7 @@ fn model_with_key() {
 
     // Recreate the bench with the state restored.
     let (bench, _, key_addr, mut msg) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Cancel the serialized key.
     let _ = simu.process_event(ModelWithKey::process, (), key_addr);
@@ -303,7 +303,7 @@ fn model_init_restore() {
     let (bench, addr) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
     // Verify `init` called.
     let model_state = simu.process_query(ModelWithState::query, (), addr).unwrap();
     assert_eq!(model_state, 11);
@@ -314,7 +314,7 @@ fn model_init_restore() {
 
     // // Recreate the bench with the state restored.
     let (bench, addr) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that `restore` has been called instead of `init` this time
     let model_state = simu.process_query(ModelWithState::query, (), addr).unwrap();
@@ -338,7 +338,7 @@ fn model_with_schedule() {
     let (bench, mut msg) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
     simu.step().unwrap();
     assert_eq!(msg.next(), Some(7));
 
@@ -348,7 +348,7 @@ fn model_with_schedule() {
 
     // Recreate the bench with the state restored.
     let (bench, mut msg) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
@@ -377,7 +377,7 @@ fn model_with_generics() {
     let (bench, mut msg, input_id) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
     let scheduler = simu.scheduler();
     scheduler
         .schedule_event(Duration::from_secs(2), &input_id, (-5, 5.14))
@@ -395,7 +395,7 @@ fn model_with_generics() {
 
     // Recreate the bench with the state restored.
     let (bench, mut msg, _) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
@@ -455,13 +455,13 @@ fn model_with_hashmap() {
     let (bench, _, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
 
     let mut state = Vec::new();
     simu.save(&mut state).unwrap();
 
     let (bench, address, mut sinks) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     for _ in 0..ITERATIONS {
         // Verify that after the deserialization output connections still point to
@@ -502,7 +502,7 @@ fn model_relative_order() {
     let (bench, add_id, mul_id, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
 
     // Schedule two events at the same time
     simu.scheduler()
@@ -518,7 +518,7 @@ fn model_relative_order() {
 
     // Recreate the bench with the state restored.
     let (bench, _, _, addr) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
@@ -533,7 +533,7 @@ fn model_relative_order() {
     let (bench, add_id, mul_id, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
 
     // Schedule two events at the same time
     simu.scheduler()
@@ -549,7 +549,7 @@ fn model_relative_order() {
 
     // Recreate the bench with the state restored.
     let (bench, _, _, addr) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify events have been called in the right order.
     simu.step().unwrap();

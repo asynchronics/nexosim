@@ -16,7 +16,7 @@ use crate::simulation::{ExecutionError, SchedulingError, SimulationError};
 pub use init_service::{init_bench, restore_bench};
 
 pub(crate) use controller_service::ControllerService;
-pub(crate) use init_service::{InitResult, InitService};
+pub(crate) use init_service::InitService;
 pub(crate) use inspector_service::InspectorService;
 pub(crate) use monitor_service::MonitorService;
 pub(crate) use scheduler_service::SchedulerService;

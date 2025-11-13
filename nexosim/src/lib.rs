@@ -267,7 +267,7 @@
 //!     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //!     .add_model(delay1, delay1_mbox, "delay1")
 //!     .add_model(delay2, delay2_mbox, "delay2")
-//!     .init(t0)?;
+//!     .init(t0)?.0;
 //!
 //! # Ok::<(), nexosim::simulation::SimulationError>(())
 //! ```
@@ -362,7 +362,7 @@
 //! #     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //! #     .add_model(delay1, delay1_mbox, "delay1")
 //! #     .add_model(delay2, delay2_mbox, "delay2")
-//! #     .init(t0)?;
+//! #     .init(t0)?.0;
 //! // Send a value to the first multiplier.
 //! simu.process_event(Multiplier::input, 21.0, &input_address)?;
 //!
@@ -504,7 +504,6 @@ pub(crate) mod util;
 
 pub use nexosim_macros::{schedulable, Model};
 
-#[cfg(feature = "server")]
 pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
@@ -516,7 +515,5 @@ pub mod tracing;
 #[doc(hidden)]
 pub mod dev_hooks;
 
-#[cfg(feature = "server")]
 pub use nexosim_macros::Message;
-#[cfg(feature = "server")]
 pub use schemars::JsonSchema;

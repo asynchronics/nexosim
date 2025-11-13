@@ -48,7 +48,7 @@ fn clock_sync(
 
     let source_id = bench.register_input(TestModel::block_for, &addr);
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
 
     let scheduler = simu.scheduler();
 

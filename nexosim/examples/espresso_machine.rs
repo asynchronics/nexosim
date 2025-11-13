@@ -378,7 +378,7 @@ fn main() -> Result<(), SimulationError> {
 
     let brew_source_id = bench.register_input(Controller::brew_cmd, &controller_addr);
 
-    let mut simu = bench.init(t0)?;
+    let mut simu = bench.init(t0)?.0;
 
     let scheduler = simu.scheduler();
 

@@ -3,12 +3,10 @@ mod sender;
 
 use std::fmt;
 use std::future::Future;
-#[cfg(feature = "server")]
 use std::sync::OnceLock;
 
 use crate::model::Model;
 use crate::ports::InputFn;
-#[cfg(feature = "server")]
 use crate::simulation::SourceId;
 use crate::simulation::{Action, Address};
 use crate::util::slot;
@@ -30,7 +28,6 @@ use super::ReplierFn;
 /// simulation control endpoint instantiated during bench assembly.
 pub struct EventSource<T: Clone + Send + 'static> {
     broadcaster: EventBroadcaster<T>,
-    #[cfg(feature = "server")]
     pub(crate) source_id: OnceLock<SourceId<T>>,
 }
 
@@ -126,7 +123,6 @@ impl<T: Clone + Send + 'static> Default for EventSource<T> {
     fn default() -> Self {
         Self {
             broadcaster: EventBroadcaster::default(),
-            #[cfg(feature = "server")]
             source_id: OnceLock::new(),
         }
     }

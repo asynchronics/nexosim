@@ -43,7 +43,8 @@ fn event_loss(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap();
+        .unwrap()
+        .0;
 
     match simu.process_event(TestModel::activate_output_twice, (), addr) {
         Err(ExecutionError::MessageLoss(msg_count)) => {
@@ -68,7 +69,8 @@ fn request_loss(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap();
+        .unwrap()
+        .0;
 
     match simu.process_event(TestModel::activate_requestor_twice, (), addr) {
         Err(ExecutionError::MessageLoss(msg_count)) => {

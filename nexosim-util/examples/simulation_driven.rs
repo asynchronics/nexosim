@@ -249,7 +249,7 @@ fn main() -> Result<(), SimulationError> {
     let power_in_id = bench.register_input(Counter::power_in, counter_addr);
     let switch_on_id = bench.register_input(Detector::switch_on, detector_addr);
 
-    let mut simu = bench.init(t0)?;
+    let mut simu = bench.init(t0)?.0;
 
     let scheduler = simu.scheduler();
 

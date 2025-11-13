@@ -141,7 +141,7 @@ fn main() -> Result<(), SimulationError> {
 
     let pulse_rate_source_id = bench.register_input(MotorAssembly::pulse_rate, &assembly_addr);
 
-    let mut simu = bench.init(t0)?;
+    let mut simu = bench.init(t0)?.0;
 
     let scheduler = simu.scheduler();
 

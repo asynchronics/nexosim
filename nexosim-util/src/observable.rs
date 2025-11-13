@@ -75,7 +75,7 @@
 //! // Assembly and initialization.
 //! let mut simu = SimInit::new()
 //!     .add_model(counter, counter_mbox, "counter")
-//!     .init(t0).unwrap();
+//!     .init(t0).unwrap().0;
 //!
 //! // ----------
 //! // Simulation.
@@ -213,7 +213,7 @@
 //! // Assembly and initialization.
 //! let mut simu = SimInit::new()
 //!     .add_model(proc, proc_mbox, "proc")
-//!     .init(t0).unwrap();
+//!     .init(t0).unwrap().0;
 //!
 //! // ----------
 //! // Simulation.

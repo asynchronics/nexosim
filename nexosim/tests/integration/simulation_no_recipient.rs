@@ -43,7 +43,8 @@ fn no_input_from_model(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, MODEL_NAME)
         .init(t0)
-        .unwrap();
+        .unwrap()
+        .0;
 
     match simu.process_event(TestModel::activate_output, (), addr) {
         Err(ExecutionError::NoRecipient { model }) => {
@@ -72,7 +73,8 @@ fn no_replier_from_model(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, MODEL_NAME)
         .init(t0)
-        .unwrap();
+        .unwrap()
+        .0;
 
     match simu.process_event(TestModel::activate_requestor, (), addr) {
         Err(ExecutionError::NoRecipient { model }) => {
@@ -92,7 +94,7 @@ fn no_input_from_scheduler(num_threads: usize) {
     let source_id = bench.register_input(TestModel::activate_output, &bad_mbox);
     drop(bad_mbox);
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(t0).unwrap().0;
     let scheduler = simu.scheduler();
 
     scheduler
@@ -115,7 +117,7 @@ fn no_replier_from_query(num_threads: usize) {
     drop(bad_mbox);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads).init(t0).unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads).init(t0).unwrap().0;
 
     let result = simu.process_query(TestModel::activate_requestor, (), addr);
 

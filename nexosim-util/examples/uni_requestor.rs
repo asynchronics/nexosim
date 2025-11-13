@@ -152,7 +152,7 @@ fn main() -> Result<(), SimulationError> {
 
     let set_temp_id = bench.register_input(Env::set_temp, env_addr);
 
-    let mut simu = bench.init(t0)?;
+    let mut simu = bench.init(t0)?.0;
     let scheduler = simu.scheduler();
 
     // ----------

@@ -68,7 +68,8 @@ fn timeout_untriggered(num_threads: usize) {
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
         .init(t0)
-        .unwrap();
+        .unwrap()
+        .0;
 
     assert!(simu.process_event(TestModel::input, (), addr).is_ok());
 }
@@ -90,7 +91,8 @@ fn timeout_triggered(num_threads: usize) {
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
         .init(t0)
-        .unwrap();
+        .unwrap()
+        .0;
 
     assert!(matches!(
         simu.process_event(TestModel::input, (), addr),

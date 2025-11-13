@@ -62,7 +62,7 @@ where
 
     let source_id = bench.register_input(PassThroughModel::input, &addr);
 
-    let simu = bench.init(t0).unwrap();
+    let simu = bench.init(t0).unwrap().0;
     let scheduler = simu.scheduler();
 
     (simu, scheduler, source_id, out_stream.into_reader())
@@ -309,7 +309,7 @@ fn timestamp_bench(
 
     let source_id = bench.register_input(TimestampModel::trigger, &addr);
 
-    let simu = bench.init(t0).unwrap();
+    let simu = bench.init(t0).unwrap().0;
     let scheduler = simu.scheduler();
 
     (simu, scheduler, source_id, stamp_stream.into_reader())
