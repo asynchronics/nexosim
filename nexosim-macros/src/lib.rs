@@ -8,6 +8,11 @@ use syn::{
     PathArguments, PathSegment, Token, Type, TypeTuple,
 };
 
+const INIT_ATTR: &str = "init";
+const RESTORE_ATTR: &str = "restore";
+const SCHEDULABLE_ATTR: &str = "schedulable";
+const AVAILABLE_ATTRS: &[&str] = &[INIT_ATTR, RESTORE_ATTR, SCHEDULABLE_ATTR];
+
 macro_rules! handle_parse_result {
     ($call:expr) => {
         match $call {
@@ -202,13 +207,14 @@ fn parse_tagged_methods(
     // Find tagged methods.
     for item in items.iter_mut() {
         if let ImplItem::Fn(f) = item {
-            if consume_method_attribute(f, "schedulable")? {
+            let attrs = collect_nexosim_attributes(f)?;
+            if attrs.contains(&SCHEDULABLE_ATTR) {
                 schedulables.push(f.clone());
             }
-            if consume_method_attribute(f, "init")? {
+            if attrs.contains(&INIT_ATTR) {
                 init = Some(f.sig.ident.clone());
             }
-            if consume_method_attribute(f, "restore")? {
+            if attrs.contains(&RESTORE_ATTR) {
                 restore = Some(f.sig.ident.clone());
             }
         }
@@ -332,49 +338,52 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
     hidden_methods
 }
 
-/// Check whether method has an attributte in the form of `nexosim(attr)`. If so
-/// remove it.
-fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn::Error> {
-    let mut idx = None;
-    for (i, a) in f.attrs.iter().enumerate() {
-        if !a.meta.path().is_ident("nexosim") {
+fn collect_nexosim_attributes(f: &mut ImplItemFn) -> Result<Vec<&'static str>, syn::Error> {
+    let mut attrs = Vec::new();
+    let mut indices = Vec::new();
+
+    'outer: for (i, attr) in f.attrs.iter().enumerate() {
+        if !attr.meta.path().is_ident("nexosim") {
             continue;
         }
+        indices.push(i);
 
-        if let Meta::List(meta) = &a.meta {
-            let args: Expr = meta.parse_args().map_err(|_| {
-                if meta.tokens.clone().into_iter().count() > 1 {
-                    syn::Error::new_spanned(
-                        meta,
-                        "attribute `nexosim` should have exactly one argument!",
-                    )
-                } else {
-                    syn::Error::new_spanned(meta, "Can't parse nexosim attribute!")
+        match &attr.meta {
+            Meta::List(meta) => {
+                if let Ok(Expr::Path(path)) = meta.parse_args::<Expr>() {
+                    if let Some(segment) = path.path.segments.first() {
+                        for attr in AVAILABLE_ATTRS {
+                            if segment.ident == attr {
+                                attrs.push(*attr);
+                                continue 'outer;
+                            }
+                        }
+                    }
                 }
-            })?;
-            if let Expr::Path(path) = args {
-                if path.path.segments.len() != 1 {
+
+                if meta.tokens.clone().into_iter().count() > 1 {
                     return Err(syn::Error::new_spanned(
                         meta,
-                        "invalid `nexosim` attribute!",
+                        "attribute `nexosim` should have exactly one argument!",
                     ));
                 }
-
-                if path.path.segments[0].ident == attr {
-                    idx = Some(i);
-                }
-            } else {
                 return Err(syn::Error::new_spanned(
                     meta,
                     "invalid `nexosim` attribute!",
                 ));
             }
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "invalid `nexosim` attribute!",
+                ))
+            }
         }
     }
 
-    if let Some(idx) = idx {
-        f.attrs.remove(idx);
-        return Ok(true);
+    for i in indices.iter().rev() {
+        f.attrs.remove(*i);
     }
-    Ok(false)
+
+    Ok(attrs)
 }
