@@ -8,6 +8,15 @@ use syn::{
     PathArguments, PathSegment, Token, Type, TypeTuple,
 };
 
+macro_rules! handle_parse_result {
+    ($call:expr) => {
+        match $call {
+            Ok(data) => data,
+            Err(err) => return syn::__private::TokenStream::from(err.to_compile_error()),
+        }
+    };
+}
+
 #[proc_macro_attribute]
 pub fn __erase(_: TokenStream, _: TokenStream) -> TokenStream {
     <_>::default()
@@ -16,7 +25,7 @@ pub fn __erase(_: TokenStream, _: TokenStream) -> TokenStream {
 /// A helper macro that enables schema generation for the server endpoint
 /// data.
 #[proc_macro_derive(Message)]
-pub fn event_derive(input: TokenStream) -> TokenStream {
+pub fn message_derive(input: TokenStream) -> TokenStream {
     [
         stringify!(
             #[
@@ -35,7 +44,7 @@ pub fn event_derive(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn schedulable(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).unwrap();
+    let ast = handle_parse_result!(syn::parse(input));
     impl_schedulable(&ast).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
@@ -88,12 +97,10 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
-    let mut ast: syn::ItemImpl =
-        syn::parse(input.clone()).expect("Model: Can't parse macro input!");
-    let env = parse_env(attr);
+    let mut ast: syn::ItemImpl = handle_parse_result!(syn::parse(input.clone()));
+    let env = handle_parse_result!(parse_env(attr));
+    let added_tokens = handle_parse_result!(impl_model(&mut ast, env));
 
-    let added_tokens: TokenStream =
-        impl_model(&mut ast, env).unwrap_or_else(|e| e.to_compile_error().into());
     let mut output: TokenStream = ast.to_token_stream().into();
     output.extend(added_tokens);
     output
@@ -124,11 +131,11 @@ fn impl_model(ast: &mut syn::ItemImpl, env: ItemType) -> Result<TokenStream, syn
 
 /// Checks whether Env type is provided by the user.
 /// If not uses `()` as a default.
-fn parse_env(tokens: TokenStream) -> ItemType {
+fn parse_env(tokens: TokenStream) -> Result<ItemType, syn::Error> {
     if tokens.is_empty() {
         // No tokens found -> generate `type Env=();`.
         let span = proc_macro2::Span::call_site();
-        return ItemType {
+        return Ok(ItemType {
             attrs: vec![],
             vis: syn::Visibility::Inherited,
             type_token: Token![type](span),
@@ -140,13 +147,13 @@ fn parse_env(tokens: TokenStream) -> ItemType {
                 elems: Punctuated::new(),
             })),
             semi_token: Token![;](span),
-        };
+        });
     }
 
     // Append semicolon at the end of the found token stream.
     let mut with_semicolon = tokens.clone().into();
     quote_token!(; with_semicolon);
-    syn::parse(with_semicolon.into()).expect("invalid associated type")
+    syn::parse(with_semicolon.into())
 }
 
 /// Get MyModel::input method paths from scheduled inputs.
@@ -333,17 +340,26 @@ fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn:
         if !a.meta.path().is_ident("nexosim") {
             continue;
         }
+
         if let Meta::List(meta) = &a.meta {
-            let args: Expr = meta
-                .parse_args()
-                .map_err(|_| syn::Error::new_spanned(meta, "Can't parse nexosim attribute!"))?;
+            let args: Expr = meta.parse_args().map_err(|_| {
+                if meta.tokens.clone().into_iter().count() > 1 {
+                    syn::Error::new_spanned(
+                        meta,
+                        "attribute `nexosim` should have exactly one argument!",
+                    )
+                } else {
+                    syn::Error::new_spanned(meta, "Can't parse nexosim attribute!")
+                }
+            })?;
             if let Expr::Path(path) = args {
                 if path.path.segments.len() != 1 {
                     return Err(syn::Error::new_spanned(
                         meta,
-                        "attribute `nexosim` should have exactly one argument!",
+                        "invalid `nexosim` attribute!",
                     ));
                 }
+
                 if path.path.segments[0].ident == attr {
                     idx = Some(i);
                 }
