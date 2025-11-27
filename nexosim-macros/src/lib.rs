@@ -8,6 +8,20 @@ use syn::{
     PathArguments, PathSegment, Token, Type, TypeTuple,
 };
 
+const INIT_ATTR: &str = "init";
+const RESTORE_ATTR: &str = "restore";
+const SCHEDULABLE_ATTR: &str = "schedulable";
+const AVAILABLE_ATTRS: &[&str] = &[INIT_ATTR, RESTORE_ATTR, SCHEDULABLE_ATTR];
+
+macro_rules! handle_parse_result {
+    ($call:expr) => {
+        match $call {
+            Ok(data) => data,
+            Err(err) => return syn::__private::TokenStream::from(err.to_compile_error()),
+        }
+    };
+}
+
 #[proc_macro_attribute]
 pub fn __erase(_: TokenStream, _: TokenStream) -> TokenStream {
     <_>::default()
@@ -16,7 +30,7 @@ pub fn __erase(_: TokenStream, _: TokenStream) -> TokenStream {
 /// A helper macro that enables schema generation for the server endpoint
 /// data.
 #[proc_macro_derive(Message)]
-pub fn event_derive(input: TokenStream) -> TokenStream {
+pub fn message_derive(input: TokenStream) -> TokenStream {
     [
         stringify!(
             #[
@@ -35,7 +49,7 @@ pub fn event_derive(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn schedulable(input: TokenStream) -> TokenStream {
-    let ast = syn::parse(input).unwrap();
+    let ast = handle_parse_result!(syn::parse(input));
     impl_schedulable(&ast).unwrap_or_else(|e| e.to_compile_error().into())
 }
 
@@ -88,12 +102,10 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
 #[allow(non_snake_case)]
 #[proc_macro_attribute]
 pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
-    let mut ast: syn::ItemImpl =
-        syn::parse(input.clone()).expect("Model: Can't parse macro input!");
-    let env = parse_env(attr);
+    let mut ast: syn::ItemImpl = handle_parse_result!(syn::parse(input.clone()));
+    let env = handle_parse_result!(parse_env(attr));
+    let added_tokens = handle_parse_result!(impl_model(&mut ast, env));
 
-    let added_tokens: TokenStream =
-        impl_model(&mut ast, env).unwrap_or_else(|e| e.to_compile_error().into());
     let mut output: TokenStream = ast.to_token_stream().into();
     output.extend(added_tokens);
     output
@@ -124,11 +136,11 @@ fn impl_model(ast: &mut syn::ItemImpl, env: ItemType) -> Result<TokenStream, syn
 
 /// Checks whether Env type is provided by the user.
 /// If not uses `()` as a default.
-fn parse_env(tokens: TokenStream) -> ItemType {
+fn parse_env(tokens: TokenStream) -> Result<ItemType, syn::Error> {
     if tokens.is_empty() {
         // No tokens found -> generate `type Env=();`.
         let span = proc_macro2::Span::call_site();
-        return ItemType {
+        return Ok(ItemType {
             attrs: vec![],
             vis: syn::Visibility::Inherited,
             type_token: Token![type](span),
@@ -140,13 +152,13 @@ fn parse_env(tokens: TokenStream) -> ItemType {
                 elems: Punctuated::new(),
             })),
             semi_token: Token![;](span),
-        };
+        });
     }
 
     // Append semicolon at the end of the found token stream.
     let mut with_semicolon = tokens.clone().into();
     quote_token!(; with_semicolon);
-    syn::parse(with_semicolon.into()).expect("invalid associated type")
+    syn::parse(with_semicolon.into())
 }
 
 /// Get MyModel::input method paths from scheduled inputs.
@@ -195,13 +207,14 @@ fn parse_tagged_methods(
     // Find tagged methods.
     for item in items.iter_mut() {
         if let ImplItem::Fn(f) = item {
-            if consume_method_attribute(f, "schedulable")? {
+            let attrs = collect_nexosim_attributes(f)?;
+            if attrs.contains(&SCHEDULABLE_ATTR) {
                 schedulables.push(f.clone());
             }
-            if consume_method_attribute(f, "init")? {
+            if attrs.contains(&INIT_ATTR) {
                 init = Some(f.sig.ident.clone());
             }
-            if consume_method_attribute(f, "restore")? {
+            if attrs.contains(&RESTORE_ATTR) {
                 restore = Some(f.sig.ident.clone());
             }
         }
@@ -325,40 +338,52 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
     hidden_methods
 }
 
-/// Check whether method has an attributte in the form of `nexosim(attr)`. If so
-/// remove it.
-fn consume_method_attribute(f: &mut ImplItemFn, attr: &str) -> Result<bool, syn::Error> {
-    let mut idx = None;
-    for (i, a) in f.attrs.iter().enumerate() {
-        if !a.meta.path().is_ident("nexosim") {
+fn collect_nexosim_attributes(f: &mut ImplItemFn) -> Result<Vec<&'static str>, syn::Error> {
+    let mut attrs = Vec::new();
+    let mut indices = Vec::new();
+
+    'outer: for (i, attr) in f.attrs.iter().enumerate() {
+        if !attr.meta.path().is_ident("nexosim") {
             continue;
         }
-        if let Meta::List(meta) = &a.meta {
-            let args: Expr = meta
-                .parse_args()
-                .map_err(|_| syn::Error::new_spanned(meta, "Can't parse nexosim attribute!"))?;
-            if let Expr::Path(path) = args {
-                if path.path.segments.len() != 1 {
+        indices.push(i);
+
+        match &attr.meta {
+            Meta::List(meta) => {
+                if let Ok(Expr::Path(path)) = meta.parse_args::<Expr>() {
+                    if let Some(segment) = path.path.segments.first() {
+                        for attr in AVAILABLE_ATTRS {
+                            if segment.ident == attr {
+                                attrs.push(*attr);
+                                continue 'outer;
+                            }
+                        }
+                    }
+                }
+
+                if meta.tokens.clone().into_iter().count() > 1 {
                     return Err(syn::Error::new_spanned(
                         meta,
                         "attribute `nexosim` should have exactly one argument!",
                     ));
                 }
-                if path.path.segments[0].ident == attr {
-                    idx = Some(i);
-                }
-            } else {
                 return Err(syn::Error::new_spanned(
                     meta,
                     "invalid `nexosim` attribute!",
                 ));
             }
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    &attr.meta,
+                    "invalid `nexosim` attribute!",
+                ))
+            }
         }
     }
 
-    if let Some(idx) = idx {
-        f.attrs.remove(idx);
-        return Ok(true);
+    for i in indices.iter().rev() {
+        f.attrs.remove(*i);
     }
-    Ok(false)
+
+    Ok(attrs)
 }
