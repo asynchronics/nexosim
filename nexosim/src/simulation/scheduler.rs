@@ -194,6 +194,7 @@ impl fmt::Debug for Scheduler {
 
 /// Error returned when the scheduled time or the repetition period are invalid.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[non_exhaustive]
 pub enum SchedulingError {
     /// The scheduled time does not lie in the future of the current simulation
     /// time.

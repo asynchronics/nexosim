@@ -224,7 +224,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source<T>(
+    pub fn add_event_source_endpoint<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
@@ -240,7 +240,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source_raw<T>(
+    pub fn add_event_source_raw_endpoint<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
@@ -255,7 +255,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source<T, R>(
+    pub fn add_query_source_endpoint<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
@@ -272,7 +272,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source_raw<T, R>(
+    pub fn add_query_source_raw_endpoint<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
@@ -288,7 +288,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event sink, the
     /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    pub fn add_event_sink_endpoint<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Message + Serialize,
@@ -301,7 +301,11 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event sink, the
     /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    pub fn add_event_sink_raw_endpoint<S>(
+        &mut self,
+        sink: S,
+        name: impl Into<String>,
+    ) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,

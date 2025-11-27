@@ -22,6 +22,7 @@ use task::Promise;
 static NEXT_EXECUTOR_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub(crate) enum ExecutorError {
     /// Not all messages have been processed.
     UnprocessedMessages(usize),
