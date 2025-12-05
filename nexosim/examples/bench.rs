@@ -1,3 +1,38 @@
+//! Example: espresso coffee machine.
+//!
+//! This example demonstrates in particular:
+//!
+//! * non-trivial state machines,
+//! * cancellation of events,
+//! * model initialization,
+//! * simulation monitoring,
+//! * bench construction,
+//! * end points registry.
+//!
+//! ```text
+//!                                                   flow rate
+//!                                ┌─────────────────────────────────────────────┐
+//!                                │                     (≥0)                    │
+//!                                │    ┌────────────┐                           │
+//!                                └───►│            │                           │
+//!                   added volume      │ Water tank ├────┐                      │
+//!     Water fill ●───────────────────►│            │    │                      │
+//!                      (>0)           └────────────┘    │                      │
+//!                                                       │                      │
+//!                                      water sense      │                      │
+//!                                ┌──────────────────────┘                      │
+//!                                │  (empty|not empty)                          │
+//!                                │                                             │
+//!                                │    ┌────────────┐          ┌────────────┐   │
+//!                    brew time   └───►│            │ command  │            │   │
+//! Brew time dial ●───────────────────►│ Controller ├─────────►│ Water pump ├───┘
+//!                      (>0)      ┌───►│            │ (on|off) │            │
+//!                                │    └────────────┘          └────────────┘
+//!                    trigger     │
+//!   Brew command ●───────────────┘
+//!                      (-)
+//! ```
+
 use std::time::Duration;
 
 use nexosim::ports::{EventQueue, EventSlot, EventSource, QuerySource};
