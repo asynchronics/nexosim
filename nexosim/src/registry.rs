@@ -187,6 +187,14 @@ impl EndpointRegistry {
         self.event_sink_registry.get_sink_schema(name)
     }
 
+    /// Returns a clone of the specified sink reader if it is in the registry.
+    pub fn get_sink<E>(&self, name: &str) -> Result<E, RegistryError>
+    where
+        E: EventSinkReader + Send + Sync + 'static,
+    {
+        self.event_sink_registry.get_sink_reader(name)
+    }
+
     /// Registers event sources in the scheduler's registry in order to make
     /// them schedulable.
     pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {

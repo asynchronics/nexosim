@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
@@ -80,31 +81,31 @@ impl EventSinkRegistry {
         self.0.get_mut(name).map(|s| s.as_mut())
     }
 
-    // Returns an unmutable reference to the specified sink if it is in the
-    // registry.
-    // pub(crate) fn get_ref(&mut self, name: &str) -> Option<&dyn EventSinkEntryAny> {
-    //     self.0.get(name).map(|s| s.as_ref())
-    // }
+    /// Returns an unmutable reference to the specified sink if it is in the
+    /// registry.
+    pub(crate) fn get_ref(&self, name: &str) -> Option<&dyn EventSinkEntryAny> {
+        self.0.get(name).map(|s| s.as_ref())
+    }
 
     /// Returns a clone of the specified sink if it is in the registry.
     pub(crate) fn get(&self, name: &str) -> Option<Box<dyn EventSinkEntryAny>> {
         self.0.get(name).map(|s| dyn_clone::clone_box(&**s))
     }
 
-    // Returns a clone of the specified sink if it is in the registry.
-    // pub fn get_sink_reader<E>(&self, name: &str) -> Result<E, RegistryError>
-    // where
-    //     E: EventSinkReader + Send + Sync + 'static,
-    // {
-    //     // Downcast_ref used as a runtime type-check.
-    //     Ok(self
-    //         .get_ref(name)
-    //         .ok_or(RegistryError::SourceNotFound(name.to_string()))?
-    //         .get_event_sink_reader()
-    //         .downcast_ref::<&E>()
-    //         .ok_or(RegistryError::InvalidType(std::any::type_name::<&E>()))?
-    //         .clone())
-    // }
+    /// Returns a clone of the specified sink if it is in the registry.
+    pub(crate) fn get_sink_reader<E>(&self, name: &str) -> Result<E, RegistryError>
+    where
+        E: EventSinkReader + Send + Sync + 'static,
+    {
+        // Downcast_ref used as a runtime type-check.
+        Ok(self
+            .get_ref(name)
+            .ok_or(RegistryError::SinkNotFound(name.to_string()))?
+            .get_event_sink_reader()
+            .downcast_ref::<E>()
+            .ok_or(RegistryError::InvalidType(std::any::type_name::<&E>()))?
+            .clone())
+    }
 
     /// Returns an iterator over the names of all sinks in the registry.
     pub(crate) fn list_sinks(&self) -> impl Iterator<Item = &String> {
@@ -154,8 +155,8 @@ pub(crate) trait EventSinkEntryAny: DynClone + Send + Sync + 'static {
     /// string.
     fn get_schema(&self) -> MessageSchema;
 
-    // Returns EventSinkReader reference.
-    // fn get_event_sink_reader(&self) -> &dyn Any;
+    /// Returns EventSinkReader reference.
+    fn get_event_sink_reader(&self) -> &dyn Any;
 }
 
 #[derive(Clone)]
@@ -221,7 +222,7 @@ where
         (self.schema_gen)()
     }
 
-    // fn get_event_sink_reader(&self) -> &dyn Any {
-    //     &self.inner as &dyn Any
-    // }
+    fn get_event_sink_reader(&self) -> &dyn Any {
+        &self.inner as &dyn Any
+    }
 }
