@@ -35,7 +35,7 @@ use crate::channel::Receiver;
 /// fn self_scheduling_method<'a>(
 ///     &'a mut self,
 ///     arg: MyEventType,
-///     cx: &'a mut Context<Self>
+///     cx: &'a Context<Self>
 /// ) -> impl Future<Output=()> + Send + 'a {
 ///     async move {
 ///         /* implementation */
@@ -66,7 +66,7 @@ use crate::channel::Receiver;
 /// #[Model]
 /// impl DelayedGreeter {
 ///     // Triggers a greeting on the output port after some delay [input port].
-///     pub async fn greet_with_delay(&mut self, delay: Duration, cx: &mut Context<Self>) {
+///     pub async fn greet_with_delay(&mut self, delay: Duration, cx: &Context<Self>) {
 ///         let time = cx.time();
 ///         let greeting = format!("Hello, this message was scheduled at: {:?}.", time);
 ///
@@ -147,7 +147,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl Timer {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: Duration, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: Duration, cx: &Context<Self>) {
     ///         if cx.schedule_event(setting, schedulable!(Self::ring), ()).is_err() {
     ///             println!("The alarm clock can only be set for a future time");
     ///         }
@@ -202,7 +202,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl CancellableAlarmClock {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &Context<Self>) {
     ///         self.cancel();
     ///         match cx.schedule_keyed_event(setting, schedulable!(Self::ring), ()) {
     ///             Ok(event_key) => self.event_key = Some(event_key),
@@ -264,7 +264,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl BeepingAlarmClock {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &Context<Self>) {
     ///         if cx.schedule_periodic_event(
     ///             setting,
     ///             Duration::from_secs(1), // 1Hz = 1/1s
@@ -329,7 +329,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl CancellableBeepingAlarmClock {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &Context<Self>) {
     ///         self.cancel();
     ///         match cx.schedule_keyed_periodic_event(
     ///             setting,

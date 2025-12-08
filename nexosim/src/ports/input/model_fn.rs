@@ -15,10 +15,12 @@ use super::markers;
 /// ```ignore
 /// fn(&mut M) // argument elided, implies `T=()`
 /// fn(&mut M, T)
-/// fn(&mut M, T, &mut Context<M>)
+/// fn(&mut M, T, &Context<M>)
+/// fn(&mut M, T, &Context<M>, &mut M::Env)
 /// async fn(&mut M) // argument elided, implies `T=()`
 /// async fn(&mut M, T)
-/// async fn(&mut M, T, &mut Context<M>)
+/// async fn(&mut M, T, &Context<M>)
+/// async fn(&mut M, T, &Context<M>, &mut M::Env)
 /// where
 ///     M: Model,
 ///     T: Clone + Send + 'static,
@@ -206,7 +208,8 @@ where
 /// ```ignore
 /// async fn(&mut M) -> R // argument elided, implies `T=()`
 /// async fn(&mut M, T) -> R
-/// async fn(&mut M, T, &mut Context<M>) -> R
+/// async fn(&mut M, T, &Context<M>) -> R
+/// async fn(&mut M, T, &Context<M>, &mut M::Env) -> R
 /// where
 ///     M: Model,
 ///     T: Clone + Send + 'static,

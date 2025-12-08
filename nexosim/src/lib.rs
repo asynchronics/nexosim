@@ -144,7 +144,7 @@
 //! }
 //! #[Model]
 //! impl Delay {
-//!     pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
+//!     pub fn input(&mut self, value: f64, cx: &Context<Self>) {
 //!         cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //!     }
 //!

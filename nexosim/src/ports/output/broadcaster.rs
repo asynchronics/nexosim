@@ -593,8 +593,8 @@ mod tests {
                     let mut sum_model = SumModel::new(sum.clone());
 
                     move || {
-                        let mut dummy_cx = Context::new_dummy();
-                        block_on(mailbox.recv(&mut sum_model, &mut dummy_cx, &mut ())).unwrap();
+                        let dummy_cx = Context::new_dummy();
+                        block_on(mailbox.recv(&mut sum_model, &dummy_cx, &mut ())).unwrap();
                     }
                 })
             })
@@ -655,18 +655,18 @@ mod tests {
                     let mut sum_model = SumModel::new(sum.clone());
 
                     move || {
-                        let mut dummy_cx = Context::new_dummy();
+                        let dummy_cx = Context::new_dummy();
                         block_on(async {
                             mailbox
-                                .recv(&mut sum_model, &mut dummy_cx, &mut ())
+                                .recv(&mut sum_model, &dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                             mailbox
-                                .recv(&mut sum_model, &mut dummy_cx, &mut ())
+                                .recv(&mut sum_model, &dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                             mailbox
-                                .recv(&mut sum_model, &mut dummy_cx, &mut ())
+                                .recv(&mut sum_model, &dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                         });
@@ -716,8 +716,8 @@ mod tests {
                     let mut double_model = DoubleModel::new();
 
                     move || {
-                        let mut dummy_cx = Context::new_dummy();
-                        block_on(mailbox.recv(&mut double_model, &mut dummy_cx, &mut ())).unwrap();
+                        let dummy_cx = Context::new_dummy();
+                        block_on(mailbox.recv(&mut double_model, &dummy_cx, &mut ())).unwrap();
                         thread::sleep(std::time::Duration::from_millis(100));
                     }
                 })
@@ -785,19 +785,19 @@ mod tests {
                     let mut double_model = DoubleModel::new();
 
                     move || {
-                        let mut dummy_cx = Context::new_dummy();
+                        let dummy_cx = Context::new_dummy();
 
                         block_on(async {
                             mailbox
-                                .recv(&mut double_model, &mut dummy_cx, &mut ())
+                                .recv(&mut double_model, &dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                             mailbox
-                                .recv(&mut double_model, &mut dummy_cx, &mut ())
+                                .recv(&mut double_model, &dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                             mailbox
-                                .recv(&mut double_model, &mut dummy_cx, &mut ())
+                                .recv(&mut double_model, &dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                         });

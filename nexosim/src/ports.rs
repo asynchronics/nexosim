@@ -31,10 +31,12 @@
 //! ```ignore
 //! fn(&mut self) // argument elided, implies `T=()`
 //! fn(&mut self, T)
-//! fn(&mut self, T, &mut Context<Self>)
+//! fn(&mut self, T, &Context<Self>)
+//! fn(&mut self, T, &Context<Self>, &mut Self::Env)
 //! async fn(&mut self) // argument elided, implies `T=()`
 //! async fn(&mut self, T)
-//! async fn(&mut self, T, &mut Context<Self>)
+//! async fn(&mut self, T, &Context<Self>)
+//! async fn(&mut self, T, &Context<Self>, &mut Self::Env)
 //! where
 //!     Self: Model,
 //!     T: Clone + Send + 'static,
@@ -51,7 +53,8 @@
 //! ```ignore
 //! async fn(&mut self) -> R // argument elided, implies `T=()`
 //! async fn(&mut self, T) -> R
-//! async fn(&mut self, T, &mut Context<Self>) -> R
+//! async fn(&mut self, T, &Context<Self>) -> R
+//! async fn(&mut self, T, &Context<Self>, &mut Self::Env) -> R
 //! where
 //!     Self: Model,
 //!     T: Clone + Send + 'static,
@@ -87,7 +90,7 @@
 //! }
 //! #[Model]
 //! impl MyModel {
-//!     pub fn my_input(&mut self, input: String, cx: &mut Context<Self>) {
+//!     pub fn my_input(&mut self, input: String, cx: &Context<Self>) {
 //!         // ...
 //!     }
 //!     pub async fn my_replier(&mut self, request: u32) -> bool { // context argument elided
