@@ -46,7 +46,7 @@
 //!
 //!     #[nexosim(init)]
 //!     /// Propagate the internal state.
-//!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+//!     async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
 //!         self.acc.propagate().await;
 //!         self.into()
 //!     }
@@ -165,7 +165,7 @@
 //!     }
 //!
 //!     /// Process data for dt milliseconds.
-//!     pub async fn process(&mut self, dt: u64, cx: &mut Context<Self>) {
+//!     pub async fn process(&mut self, dt: u64, cx: &Context<Self>) {
 //!         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
 //!             self.state
 //!                 .set(State::Processing(
@@ -185,7 +185,7 @@
 //!
 //!     #[nexosim(init)]
 //!     /// Propagate all internal states.
-//!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+//!     async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
 //!         self.state.propagate().await;
 //!         self.into()
 //!     }

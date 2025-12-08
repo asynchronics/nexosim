@@ -488,7 +488,7 @@ mod tests {
 
                     move || {
                         let mut dummy_cx = Context::new_dummy();
-                        block_on(mailbox.recv(&mut sum_model, &mut dummy_cx)).unwrap();
+                        block_on(mailbox.recv(&mut sum_model, &mut dummy_cx, &mut ())).unwrap();
                     }
                 })
             })
@@ -551,9 +551,18 @@ mod tests {
                     move || {
                         let mut dummy_cx = Context::new_dummy();
                         block_on(async {
-                            mailbox.recv(&mut sum_model, &mut dummy_cx).await.unwrap();
-                            mailbox.recv(&mut sum_model, &mut dummy_cx).await.unwrap();
-                            mailbox.recv(&mut sum_model, &mut dummy_cx).await.unwrap();
+                            mailbox
+                                .recv(&mut sum_model, &mut dummy_cx, &mut ())
+                                .await
+                                .unwrap();
+                            mailbox
+                                .recv(&mut sum_model, &mut dummy_cx, &mut ())
+                                .await
+                                .unwrap();
+                            mailbox
+                                .recv(&mut sum_model, &mut dummy_cx, &mut ())
+                                .await
+                                .unwrap();
                         });
                     }
                 })
@@ -602,7 +611,7 @@ mod tests {
 
                     move || {
                         let mut dummy_cx = Context::new_dummy();
-                        block_on(mailbox.recv(&mut double_model, &mut dummy_cx)).unwrap();
+                        block_on(mailbox.recv(&mut double_model, &mut dummy_cx, &mut ())).unwrap();
                         thread::sleep(std::time::Duration::from_millis(100));
                     }
                 })
@@ -674,15 +683,15 @@ mod tests {
 
                         block_on(async {
                             mailbox
-                                .recv(&mut double_model, &mut dummy_cx)
+                                .recv(&mut double_model, &mut dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                             mailbox
-                                .recv(&mut double_model, &mut dummy_cx)
+                                .recv(&mut double_model, &mut dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                             mailbox
-                                .recv(&mut double_model, &mut dummy_cx)
+                                .recv(&mut double_model, &mut dummy_cx, &mut ())
                                 .await
                                 .unwrap();
                         });

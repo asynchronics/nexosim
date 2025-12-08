@@ -31,7 +31,7 @@ impl RecurringModel {
     }
 
     #[nexosim(init)]
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, cx: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
         cx.schedule_periodic_event(self.delay, self.delay, schedulable!(Self::process), ())
             .unwrap();
 

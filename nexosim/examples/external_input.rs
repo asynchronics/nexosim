@@ -91,7 +91,7 @@ impl Listener {
 
     /// Initialize model.
     #[nexosim(init)]
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, cx: &Context<Self>, _: &mut ListenerEnv) -> InitializedModel<Self> {
         // Schedule periodic function that processes external events.
         cx.schedule_periodic_event(DELTA, PERIOD, schedulable!(Self::process), ())
             .unwrap();
@@ -101,8 +101,8 @@ impl Listener {
 
     /// Periodically scheduled function that processes external events.
     #[nexosim(schedulable)]
-    async fn process(&mut self, _: (), cx: &mut Context<Self>) {
-        while let Ok(message) = cx.env().rx.try_recv() {
+    async fn process(&mut self, _: (), _: &Context<Self>, env: &mut ListenerEnv) {
+        while let Ok(message) = env.rx.try_recv() {
             self.message.send(message).await;
         }
     }

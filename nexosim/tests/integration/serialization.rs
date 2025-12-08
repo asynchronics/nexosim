@@ -52,7 +52,8 @@ impl ModelWithState {
     #[nexosim(init)]
     fn init(
         mut self,
-        _: &mut Context<Self>,
+        _: &Context<Self>,
+        _: &mut (),
     ) -> impl Future<Output = InitializedModel<Self>> + Send {
         self.state *= 11;
         async { self.into() }
@@ -60,7 +61,8 @@ impl ModelWithState {
     #[nexosim(restore)]
     fn restore(
         mut self,
-        _: &mut Context<Self>,
+        _: &Context<Self>,
+        _: &mut (),
     ) -> impl Future<Output = InitializedModel<Self>> + Send {
         self.state *= 13;
         async { self.into() }
@@ -88,7 +90,11 @@ impl ModelWithSchedule {
         }
     }
     #[nexosim(init)]
-    fn init(self, cx: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
+    fn init(
+        self,
+        cx: &Context<Self>,
+        _: &mut (),
+    ) -> impl Future<Output = InitializedModel<Self>> + Send {
         cx.schedule_periodic_event(
             Duration::from_secs(1),
             Duration::from_secs(2),
@@ -99,7 +105,7 @@ impl ModelWithSchedule {
         async { self.into() }
     }
     #[nexosim(schedulable)]
-    async fn send(&mut self, arg: u32, cx: &mut Context<Self>) {
+    async fn send(&mut self, arg: u32, cx: &Context<Self>) {
         self.output.send(cx.time().as_secs() as u32 * arg).await;
     }
 }
@@ -129,7 +135,7 @@ where
     async fn process(&mut self) {}
 
     #[nexosim(init)]
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, cx: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
         // Test if schedulable! macro works with generics.
         cx.schedule_event(
             Duration::from_secs(255),
@@ -149,12 +155,12 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     #[nexosim(schedulable)]
-    async fn input(&mut self, arg: T, cx: &mut Context<Self>) {
-        *cx.env() = arg;
+    async fn input(&mut self, arg: T, _: &Context<Self>, env: &mut T) {
+        *env = arg;
     }
 
     #[nexosim(init)]
-    async fn init(self, _: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, _: &Context<Self>, _: &mut T) -> InitializedModel<Self> {
         self.into()
     }
 }
@@ -170,12 +176,12 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     #[nexosim(schedulable)]
-    async fn input(&mut self, arg: T, cx: &mut Context<Self>) {
-        cx.env().0 = arg;
+    async fn input(&mut self, arg: T, _: &Context<Self>, env: &mut EnvWithGeneric<T>) {
+        env.0 = arg;
     }
 
     #[nexosim(init)]
-    async fn init(self, _: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, _: &Context<Self>, _: &mut EnvWithGeneric<T>) -> InitializedModel<Self> {
         self.into()
     }
 }

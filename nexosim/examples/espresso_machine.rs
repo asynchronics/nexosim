@@ -123,7 +123,7 @@ impl Controller {
     }
 
     /// Starts brewing or cancels the current brew -- input port.
-    pub async fn brew_cmd(&mut self, _: (), cx: &mut Context<Self>) {
+    pub async fn brew_cmd(&mut self, _: (), cx: &Context<Self>) {
         // If a brew was ongoing, sending the brew command is interpreted as a
         // request to cancel it.
         if let Some(key) = self.stop_brew_key.take() {
@@ -192,7 +192,7 @@ impl Tank {
 
     /// Broadcasts the initial state of the water sense.
     #[nexosim(init)]
-    async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
         self.water_sense
             .send(if self.volume == 0.0 {
                 WaterSenseState::Empty
@@ -205,7 +205,7 @@ impl Tank {
     }
 
     /// Water volume added [m³] -- input port.
-    pub async fn fill(&mut self, added_volume: f64, cx: &mut Context<Self>) {
+    pub async fn fill(&mut self, added_volume: f64, cx: &Context<Self>) {
         // Ignore zero and negative values. We could also impose a maximum based
         // on tank capacity.
         if added_volume <= 0.0 {
@@ -245,7 +245,7 @@ impl Tank {
     /// # Panics
     ///
     /// This method will panic if the flow rate is negative.
-    pub async fn set_flow_rate(&mut self, flow_rate: f64, cx: &mut Context<Self>) {
+    pub async fn set_flow_rate(&mut self, flow_rate: f64, cx: &Context<Self>) {
         assert!(flow_rate >= 0.0);
 
         let time = cx.time();
@@ -269,12 +269,7 @@ impl Tank {
     /// - `flow_rate` cannot be negative.
     /// - `self.volume` should be up to date,
     /// - `self.dynamic_state` should be `None`.
-    async fn schedule_empty(
-        &mut self,
-        flow_rate: f64,
-        time: MonotonicTime,
-        cx: &mut Context<Self>,
-    ) {
+    async fn schedule_empty(&mut self, flow_rate: f64, time: MonotonicTime, cx: &Context<Self>) {
         // Determine when the tank will be empty at the current flow rate.
         let duration_until_empty = if self.volume == 0.0 {
             0.0

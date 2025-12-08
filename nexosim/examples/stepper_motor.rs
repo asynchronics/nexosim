@@ -56,7 +56,7 @@ impl Motor {
 
     /// Broadcasts the initial position of the motor.
     #[nexosim(init)]
-    async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
         self.position.send(self.pos).await;
         self.into()
     }
@@ -129,7 +129,7 @@ impl Driver {
     }
 
     /// Pulse rate (sign = direction) [Hz] -- input port.
-    pub async fn pulse_rate(&mut self, pps: f64, cx: &mut Context<Self>) {
+    pub async fn pulse_rate(&mut self, pps: f64, cx: &Context<Self>) {
         let pps = pps.signum() * pps.abs().clamp(Self::MIN_PPS, Self::MAX_PPS);
         if pps == self.pps {
             return;
@@ -150,7 +150,7 @@ impl Driver {
     /// Note: self-scheduling async methods must be for now defined with an
     /// explicit signature instead of `async fn` due to a rustc issue.
     #[nexosim(schedulable)]
-    async fn send_pulse(&mut self, _: (), cx: &mut Context<Self>) {
+    async fn send_pulse(&mut self, _: (), cx: &Context<Self>) {
         let current_out = match self.next_phase {
             0 => (self.current, 0.0),
             1 => (0.0, self.current),

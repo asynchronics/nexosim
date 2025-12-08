@@ -75,7 +75,7 @@ impl Ticker {
     async fn tick(&mut self) {}
 
     #[nexosim(init)]
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, cx: &Context<Self>, _: &()) -> InitializedModel<Self> {
         cx.schedule_periodic_event(self.tick, self.tick, schedulable!(Self::tick), ())
             .unwrap();
         self.into()

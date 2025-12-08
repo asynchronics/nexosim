@@ -221,7 +221,7 @@
 //! #     }
 //! #     #[Model]
 //! #     impl Delay {
-//! #         pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
+//! #         pub fn input(&mut self, value: f64, cx: &Context<Self>) {
 //! #             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //! #         }
 //! #         #[nexosim(schedulable)]
@@ -327,7 +327,7 @@
 //! #     }
 //! #     #[Model]
 //! #     impl Delay {
-//! #         pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
+//! #         pub fn input(&mut self, value: f64, cx: &Context<Self>) {
 //! #             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //! #         }
 //! #         #[nexosim(schedulable)]
@@ -502,6 +502,7 @@ pub mod simulation;
 pub mod time;
 pub(crate) mod util;
 
+pub use model::Model;
 pub use nexosim_macros::{schedulable, Model};
 
 #[cfg(feature = "server")]

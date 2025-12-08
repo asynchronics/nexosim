@@ -66,8 +66,8 @@ where
 
         Some(Box::pin(async move {
             sender
-                .send(move |model, scheduler, recycle_box| {
-                    let fut = func.call(model, arg, scheduler);
+                .send(move |model, scheduler, env, recycle_box| {
+                    let fut = func.call(model, arg, scheduler, env);
 
                     coerce_box!(RecycleBox::recycle(recycle_box, fut))
                 })
@@ -121,8 +121,8 @@ where
 
         Some(Box::pin(async move {
             sender
-                .send(move |model, scheduler, recycle_box| {
-                    let fut = func.call(model, arg, scheduler);
+                .send(move |model, scheduler, env, recycle_box| {
+                    let fut = func.call(model, arg, scheduler, env);
 
                     coerce_box!(RecycleBox::recycle(recycle_box, fut))
                 })
@@ -176,8 +176,8 @@ where
 
             Box::pin(async move {
                 sender
-                    .send(move |model, scheduler, recycle_box| {
-                        let fut = func.call(model, arg, scheduler);
+                    .send(move |model, scheduler, env, recycle_box| {
+                        let fut = func.call(model, arg, scheduler, env);
 
                         coerce_box!(RecycleBox::recycle(recycle_box, fut))
                     })
@@ -231,9 +231,9 @@ where
 
         Some(Box::pin(async move {
             sender
-                .send(move |model, scheduler, recycle_box| {
+                .send(move |model, scheduler, env, recycle_box| {
                     let fut = async move {
-                        let reply = func.call(model, arg, scheduler).await;
+                        let reply = func.call(model, arg, scheduler, env).await;
                         let _ = reply_sender.send(reply);
                     };
 
@@ -301,9 +301,9 @@ where
 
         Some(Box::pin(async move {
             sender
-                .send(move |model, scheduler, recycle_box| {
+                .send(move |model, scheduler, env, recycle_box| {
                     let fut = async move {
-                        let reply = func.call(model, arg, scheduler).await;
+                        let reply = func.call(model, arg, scheduler, env).await;
                         let _ = reply_sender.send(reply);
                     };
 
@@ -376,9 +376,9 @@ where
 
             Box::pin(async move {
                 sender
-                    .send(move |model, scheduler, recycle_box| {
+                    .send(move |model, scheduler, env, recycle_box| {
                         let fut = async move {
-                            let reply = func.call(model, arg, scheduler).await;
+                            let reply = func.call(model, arg, scheduler, env).await;
                             let _ = reply_sender.send(reply);
                         };
 

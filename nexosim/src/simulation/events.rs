@@ -179,11 +179,11 @@ where
         let fut = async move {
             sender
                 .send(
-                    move |model: &mut M, scheduler, recycle_box: RecycleBox<()>| {
+                    move |model: &mut M, scheduler, env, recycle_box: RecycleBox<()>| {
                         let fut = async {
                             match event_key {
                                 Some(key) if key.is_cancelled() => (),
-                                _ => func.call(model, arg, scheduler).await,
+                                _ => func.call(model, arg, scheduler, env).await,
                             }
                         };
 

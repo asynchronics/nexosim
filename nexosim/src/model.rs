@@ -79,7 +79,8 @@
 //!     #[nexosim(init)]
 //!     async fn init(
 //!         mut self,
-//!         ctx: &mut Context<Self>
+//!         ctx: &Context<Self>,
+//!         env: &mut <MyModel as Model>::Env
 //!     ) -> InitializedModel<Self> {
 //!         println!("...initialization...");
 //!
@@ -114,7 +115,8 @@
 //!     #[nexosim(init)]
 //!     async fn init(
 //!         mut self,
-//!         ctx: &mut Context<Self>
+//!         ctx: &Context<Self>,
+//!         env: &mut <MyModel as Model>::Env
 //!     ) -> InitializedModel<Self> {
 //!         println!("...initialization...");
 //!         ctx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), ())
@@ -326,7 +328,8 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     ///
     ///     async fn init(
     ///         self,
-    ///         cx: &mut Context<Self>
+    ///         cx: &Context<Self>,
+    ///         env: &mut Self::Env
     ///     ) -> InitializedModel<Self> {
     ///         println!("...initialization...");
     ///
@@ -334,7 +337,11 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     ///     }
     /// }
     /// ```
-    fn init(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
+    fn init(
+        self,
+        _: &Context<Self>,
+        _: &mut Self::Env,
+    ) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
 
@@ -348,7 +355,11 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     ///
     /// The default implementation simply converts the model to an
     /// `InitializedModel` without any side effect.
-    fn restore(self, _: &mut Context<Self>) -> impl Future<Output = InitializedModel<Self>> + Send {
+    fn restore(
+        self,
+        _: &Context<Self>,
+        _: &mut Self::Env,
+    ) -> impl Future<Output = InitializedModel<Self>> + Send {
         async { self.into() }
     }
 
@@ -460,7 +471,8 @@ async fn serialize_model<M: Model>(model: &mut M, name: String) -> Result<Vec<u8
 async fn deserialize_model<M: Model>(
     model: &mut M,
     state: (Vec<u8>, EventKeyReg, String),
-    cx: &mut Context<M>,
+    cx: &Context<M>,
+    env: &mut M::Env,
 ) -> Result<(), ExecutionError> {
     let restored = PORT_REG
         .set(&Mutex::new(VecDeque::new()), || {
@@ -484,7 +496,7 @@ async fn deserialize_model<M: Model>(
             })
         })?
         .0;
-    let restored = restored.restore(cx).await.0;
+    let restored = restored.restore(cx, env).await.0;
     let _ = std::mem::replace(model, restored);
     Ok(())
 }

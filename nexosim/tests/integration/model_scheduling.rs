@@ -19,7 +19,7 @@ fn model_schedule_event(num_threads: usize) {
     }
     #[Model]
     impl TestModel {
-        fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
+        fn trigger(&mut self, _: (), cx: &Context<Self>) {
             cx.schedule_event(Duration::from_secs(2), schedulable!(Self::action), ())
                 .unwrap();
         }
@@ -66,7 +66,7 @@ fn multiple_models_scheduling(num_threads: usize) {
     #[Model]
     impl TestModel {
         #[nexosim(init)]
-        async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+        async fn init(self, cx: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
             cx.schedule_event(
                 Duration::from_secs(self.delay),
                 schedulable!(Self::action),
@@ -124,7 +124,7 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     }
     #[Model]
     impl TestModel {
-        fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
+        fn trigger(&mut self, _: (), cx: &Context<Self>) {
             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::action1), ())
                 .unwrap();
             self.key = cx
@@ -174,7 +174,7 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     }
     #[Model]
     impl TestModel {
-        fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
+        fn trigger(&mut self, _: (), cx: &Context<Self>) {
             cx.schedule_event(Duration::from_secs(2), schedulable!(Self::action1), ())
                 .unwrap();
             self.key = cx
@@ -223,7 +223,7 @@ fn model_schedule_periodic_event(num_threads: usize) {
     }
     #[Model]
     impl TestModel {
-        fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
+        fn trigger(&mut self, _: (), cx: &Context<Self>) {
             cx.schedule_periodic_event(
                 Duration::from_secs(2),
                 Duration::from_secs(3),
@@ -274,7 +274,7 @@ fn model_cancel_periodic_event(num_threads: usize) {
     }
     #[Model]
     impl TestModel {
-        fn trigger(&mut self, _: (), cx: &mut Context<Self>) {
+        fn trigger(&mut self, _: (), cx: &Context<Self>) {
             self.key = cx
                 .schedule_keyed_periodic_event(
                     Duration::from_secs(2),

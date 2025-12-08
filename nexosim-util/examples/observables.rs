@@ -128,7 +128,7 @@ impl Processor {
     }
 
     /// Process data for dt milliseconds.
-    pub async fn process(&mut self, dt: u64, cx: &mut Context<Self>) {
+    pub async fn process(&mut self, dt: u64, cx: &Context<Self>) {
         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
             self.state
                 .set(State::Processing(
@@ -155,7 +155,7 @@ impl Processor {
 
     /// Propagate all internal states.
     #[nexosim(init)]
-    async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
         self.state.propagate().await;
         self.acc.propagate().await;
         self.elc.propagate().await;

@@ -1,0 +1,79 @@
+use std::time::Instant;
+
+use nexosim::model::Model;
+use nexosim::ports::Output;
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::MonotonicTime;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Msg {
+    addr: usize,
+    payload: u8,
+}
+
+pub struct Client(pub usize);
+impl Client {
+    pub fn input(&mut self, msg: Msg) {
+        // println!("Client_{} {msg:?}", self.0);
+    }
+}
+
+impl Model for Client {}
+
+pub struct Server {
+    pub output: Output<Msg>,
+}
+impl Server {
+    pub async fn send(&mut self, msg: Msg) {
+        self.output.send(msg).await;
+    }
+}
+impl Model for Server {}
+
+fn main() -> Result<(), nexosim::simulation::SimulationError> {
+    // for &client_count in &[10, 100, 1000, 10_000, 100_000, 1_000_000] {
+    for &client_count in &[1_000_000] {
+        let t0 = MonotonicTime::EPOCH;
+        let server_mbox = Mailbox::new();
+        let server_addr = server_mbox.address();
+        let mut server = Server {
+            output: Output::default(),
+        };
+
+        // let mut bench = SimInit::new();
+        let mut bench = SimInit::with_num_threads(1);
+
+        for i in 0..client_count {
+            let mbox = Mailbox::new();
+            let client = Client(i);
+            server.output.filter_map_connect(
+                move |&m| if m.addr == i { Some(m) } else { None },
+                Client::input,
+                mbox.address(),
+            );
+            // bench = bench.add_model(client, mbox, format!("client_{i}"));
+            bench = bench.add_model(client, mbox, "client_{i}");
+        }
+
+        bench = bench.add_model(server, server_mbox, "server");
+        let init_start = Instant::now();
+        let (mut simu, _) = bench.init(t0)?;
+        println!("Init: {:?}", init_start.elapsed());
+
+        for _ in 0..100 {
+            let start = Instant::now();
+            simu.process_event(
+                Server::send,
+                Msg {
+                    addr: client_count - 2,
+                    payload: 11,
+                },
+                &server_addr,
+            )
+            .unwrap();
+            println!("Clients: {client_count} {:?}", start.elapsed());
+        }
+    }
+
+    Ok(())
+}

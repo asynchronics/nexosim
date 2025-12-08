@@ -105,7 +105,7 @@ impl Counter {
     }
 
     /// Power -- input port.
-    pub async fn power_in(&mut self, on: bool, cx: &mut Context<Self>) {
+    pub async fn power_in(&mut self, on: bool, cx: &Context<Self>) {
         match *self.state {
             Mode::Off if on && self.switch_on.is_none() => {
                 self.switch_on = Some(
@@ -161,7 +161,7 @@ impl Detector {
     }
 
     /// Switches `Detector` on -- input port.
-    pub async fn switch_on(&mut self, _: (), cx: &mut Context<Self>) {
+    pub async fn switch_on(&mut self, _: (), cx: &Context<Self>) {
         self.schedule_next(cx).await;
     }
 
@@ -178,7 +178,7 @@ impl Detector {
     fn pulse<'a>(
         &'a mut self,
         _: (),
-        cx: &'a mut Context<Self>,
+        cx: &'a Context<Self>,
     ) -> impl Future<Output = ()> + Send + 'a {
         async move {
             self.pulse.send(()).await;
@@ -187,7 +187,7 @@ impl Detector {
     }
 
     /// Schedules the next detection.
-    async fn schedule_next(&mut self, cx: &mut Context<Self>) {
+    async fn schedule_next(&mut self, cx: &Context<Self>) {
         let next = {
             let mut rng = rand::thread_rng();
             rng.gen_range(1..MAX_PULSE_PERIOD)
