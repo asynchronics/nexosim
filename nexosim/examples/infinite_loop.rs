@@ -52,7 +52,7 @@ impl Listener {
 
     /// Initialize model.
     #[nexosim(init)]
-    async fn init(self, cx: &Context<Self>, _: &mut ListenerEnv) -> InitializedModel<Self> {
+    async fn init(self, cx: &Context<Self>) -> InitializedModel<Self> {
         // Schedule periodic function that processes external events.
         cx.schedule_periodic_event(DELTA, PERIOD, schedulable!(Self::process), ())
             .unwrap();

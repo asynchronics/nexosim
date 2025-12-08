@@ -56,7 +56,7 @@ impl Motor {
 
     /// Broadcasts the initial position of the motor.
     #[nexosim(init)]
-    async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+    async fn init(mut self) -> InitializedModel<Self> {
         self.position.send(self.pos).await;
         self.into()
     }

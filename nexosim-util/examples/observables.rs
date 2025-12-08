@@ -155,7 +155,7 @@ impl Processor {
 
     /// Propagate all internal states.
     #[nexosim(init)]
-    async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+    async fn init(mut self) -> InitializedModel<Self> {
         self.state.propagate().await;
         self.acc.propagate().await;
         self.elc.propagate().await;

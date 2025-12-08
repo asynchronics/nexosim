@@ -978,15 +978,14 @@ pub(crate) fn add_model<P>(
     let model_id = ModelId::new(registered_models.len());
     registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
 
-    let mut cx = Context::new(name, scheduler, address, model_id.0, model_registry);
+    let cx = Context::new(name, scheduler, address, model_id.0, model_registry);
     let fut = async move {
         let mut model = if !is_resumed.load(Ordering::Relaxed) {
             model.init(&cx, &mut env).await.0
         } else {
             model
         };
-        while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx, &mut env).await.is_ok() {
-        }
+        while !abort_signal.is_set() && receiver.recv(&mut model, &cx, &mut env).await.is_ok() {}
     };
 
     #[cfg(not(feature = "tracing"))]

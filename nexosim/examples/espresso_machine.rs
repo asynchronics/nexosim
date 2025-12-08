@@ -192,7 +192,7 @@ impl Tank {
 
     /// Broadcasts the initial state of the water sense.
     #[nexosim(init)]
-    async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+    async fn init(mut self) -> InitializedModel<Self> {
         self.water_sense
             .send(if self.volume == 0.0 {
                 WaterSenseState::Empty

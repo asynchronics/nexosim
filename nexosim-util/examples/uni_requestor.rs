@@ -73,7 +73,7 @@ impl Sensor {
 
     /// Propagate state and schedule cyclic method.
     #[nexosim(init)]
-    async fn init(mut self, context: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+    async fn init(mut self, context: &Context<Self>) -> InitializedModel<Self> {
         self.oh.propagate().await;
 
         context
