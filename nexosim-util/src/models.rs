@@ -7,8 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel};
-use nexosim::{schedulable, Model};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 
 /// A ticker model.
 ///

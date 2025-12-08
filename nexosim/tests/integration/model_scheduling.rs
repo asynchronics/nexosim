@@ -4,11 +4,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
 
 const MT_NUM_THREADS: usize = 4;
 

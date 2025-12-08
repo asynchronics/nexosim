@@ -53,16 +53,16 @@
 //! to as *events*, while messages exchanged between requestor and replier ports
 //! are referred to as *requests* and *replies*.
 //!
-//! Models must implement the [`trait@Model`] trait. The main purpose of
-//! this trait is to allow models to specify a
-//! [`Model::init`] method that is guaranteed to run once
+//! Models must implement the [`Model`](trait@model::Model) trait. The main
+//! purpose of this trait is to allow models to specify a
+//! [`Model::init`](model::Model::init) method that is guaranteed to run once
 //! and only once when the simulation is initialized, _i.e._ after all models
 //! have been connected but before the simulation starts.
-//! [`Model::restore`] method on the other hand, is
+//! [`Model::restore`](model::Model::restore) method on the other hand, is
 //! called only when the simulation has been restored from a saved state.
 //!
-//! The [`Model::init`] and
-//! [`Model::restore`] methods have default
+//! The [`Model::init`](model::Model::init) and
+//! [`Model::restore`](model::Model::restore) methods have default
 //! implementations, so models that do not require setup and initialization can
 //! simply implement the trait with a one-liner such as `impl Model for MyModel
 //! {}`.
@@ -71,18 +71,20 @@
 //! trait. The [`ProtoModel::build`](model::ProtoModel::build) method makes it
 //! possible to:
 //!
-//! * build the final [`trait@Model`] from a builder (the *model prototype*),
+//! * build the final [`Model`](trait@model::Model) from a builder (the *model
+//!   prototype*),
 //! * perform possibly blocking actions when the model is added to the
 //!   simulation rather than when the simulation starts, such as establishing a
 //!   network connection or configuring hardware devices,
 //! * connect submodels and add them to the simulation.
 //!
-//! In typical scenarios the [`trait@Model`] trait can be implemented
-//! by a [`macro@Model`] proc-macro, applied to the main `impl` block of
-//! the model struct. Methods such as `init` and `restore` can be provided by
-//! using custom attributes (`#[nexosim(init)]` and `#[nexosim(restore)]`).
-//! Moreover, input methods can be decorated with `#[nexosim(schedulable)]`
-//! attribute to allow convenient self-scheduling within the model.
+//! In typical scenarios the [`Model`](trait@model::Model) trait can be
+//! implemented by a [`Model`](macro@model::Model) proc-macro, applied to the
+//! main `impl` block of the model struct. Methods such as `init` and `restore`
+//! can be provided by using custom attributes (`#[nexosim(init)]` and
+//! `#[nexosim(restore)]`). Moreover, input methods can be decorated with
+//! `#[nexosim(schedulable)]` attribute to allow convenient self-scheduling
+//! within the model.
 //!
 //! ### A simple model
 //!
@@ -101,7 +103,7 @@
 //! `Multiplier` could be implemented as follows:
 //!
 //! ```
-//! use nexosim::Model;
+//! use nexosim::model::Model;
 //! use nexosim::ports::Output;
 //!
 //! use serde::{Serialize, Deserialize};
@@ -134,9 +136,8 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::Context;
+//! use nexosim::model::{schedulable, Context, Model};
 //! use nexosim::ports::Output;
-//! use nexosim::{schedulable, Model};
 //!
 //! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Delay {
@@ -201,9 +202,8 @@
 //! #
 //! #     use serde::{Serialize, Deserialize};
 //! #
-//! #     use nexosim::model::Context;
+//! #     use nexosim::model::{schedulable, Context, Model};
 //! #     use nexosim::ports::Output;
-//! #     use nexosim::{schedulable, Model};
 //! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
@@ -307,9 +307,8 @@
 //! #
 //! #     use serde::{Serialize, Deserialize};
 //! #
-//! #     use nexosim::model::Context;
+//! #     use nexosim::model::{schedulable, Context, Model};
 //! #     use nexosim::ports::Output;
-//! #     use nexosim::{schedulable, Model};
 //! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
@@ -500,9 +499,6 @@ pub mod ports;
 pub mod simulation;
 pub mod time;
 pub(crate) mod util;
-
-pub use model::Model;
-pub use nexosim_macros::{schedulable, Model};
 
 #[cfg(feature = "server")]
 pub mod registry;

@@ -7,11 +7,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, ProtoModel};
+use nexosim::model::{BuildContext, Model, ProtoModel};
 use nexosim::ports::Output;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
-use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 

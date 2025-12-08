@@ -19,11 +19,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
 use nexosim_util::observable::{Observable, Observe};
 
 /// House keeping TM.

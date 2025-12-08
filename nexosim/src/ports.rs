@@ -65,10 +65,11 @@
 //! allowed for replier ports.
 //!
 //! Input and replier ports will normally be exposed as public methods by a
-//! [`Model`](crate::model::Model) so they can be connected to output and
-//! requestor ports when assembling the simulation bench. However, input ports
-//! may (and should) be defined as private methods if they are only used
-//! internally by the model, for instance to schedule future actions on itself.
+//! [`Model`](trait@crate::model::Model) so they can be connected to
+//! output and requestor ports when assembling the simulation bench. However,
+//! input ports may (and should) be defined as private methods if they are only
+//! used internally by the model, for instance to schedule future actions on
+//! itself.
 //!
 //! Changing the signature of a public input or replier port is not considered
 //! to alter the public interface of a model provided that the event, request
@@ -79,8 +80,7 @@
 //! #### Basic example
 //!
 //! ```
-//! use nexosim::model::Context;
-//! use nexosim::Model;
+//! use nexosim::model::{Model, Context};
 //!
 //! use serde::{Serialize, Deserialize};
 //!
@@ -128,7 +128,7 @@
 //! #### Basic example
 //!
 //! ```
-//! use nexosim::Model;
+//! use nexosim::model::Model;
 //! use nexosim::ports::{Output, Requestor};
 //!
 //! use serde::{Serialize, Deserialize};
@@ -162,10 +162,9 @@
 //! guaranteed.
 //!
 //! ```
-//! use nexosim::model::{BuildContext, ProtoModel};
+//! use nexosim::model::{BuildContext, Model, ProtoModel};
 //! use nexosim::ports::Output;
 //! use nexosim::simulation::Mailbox;
-//! use nexosim::Model;
 //!
 //! use serde::{Serialize, Deserialize};
 //!

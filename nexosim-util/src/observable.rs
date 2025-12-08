@@ -8,12 +8,11 @@
 //! ## Simple observable value
 //!
 //! ```rust
-//! use nexosim::model::{Context, InitializedModel};
+//! use nexosim::model::{Context, InitializedModel, Model};
 //! use nexosim::ports::{EventSlot, Output};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
-//! use nexosim::Model;
 //!
 //! use serde::{Serialize, Deserialize};
 //!
@@ -99,12 +98,11 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::{Context, InitializedModel};
+//! use nexosim::model::{schedulable, Context, InitializedModel, Model};
 //! use nexosim::ports::{EventSlot, Output};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
-//! use nexosim::{schedulable, Model};
 //!
 //! /// Processor mode ID.
 //! #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]

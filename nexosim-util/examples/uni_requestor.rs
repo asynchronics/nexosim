@@ -22,11 +22,10 @@ use serde::{Deserialize, Serialize};
 
 use nexosim_util::observable::Observable;
 
-use nexosim::model::{Context, InitializedModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, Output, UniRequestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
 
 /// Sensor model
 #[derive(Serialize, Deserialize)]

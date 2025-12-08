@@ -15,9 +15,8 @@
 //! the specified timestamp.
 //!
 //! ```
-//! use nexosim::model::Context;
+//! use nexosim::model::{schedulable, Context, Model};
 //! use nexosim::time::MonotonicTime;
-//! use nexosim::{schedulable, Model};
 //!
 //! use serde::{Serialize, Deserialize};
 //!

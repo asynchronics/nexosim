@@ -5,11 +5,10 @@ use std::time::Duration;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{Address, EventKey, Mailbox, SimInit, SourceId};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
 
 #[derive(Default, Serialize, Deserialize)]
 struct ModelWithOutput {

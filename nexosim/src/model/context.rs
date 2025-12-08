@@ -52,9 +52,8 @@ use crate::channel::Receiver;
 ///
 /// ```
 /// use std::time::Duration;
-/// use nexosim::model::Context;
+/// use nexosim::model::{schedulable, Context, Model};
 /// use nexosim::ports::Output;
-/// use nexosim::{schedulable, Model};
 ///
 /// use serde::{Serialize, Deserialize};
 ///
@@ -135,8 +134,7 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::Context;
-    /// use nexosim::{schedulable, Model};
+    /// use nexosim::model::{schedulable, Context, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -186,10 +184,9 @@ impl<M: Model> Context<M> {
     /// # Examples
     ///
     /// ```
-    /// use nexosim::model::Context;
+    /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    /// use nexosim::{schedulable, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -251,9 +248,8 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::Context;
+    /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::time::MonotonicTime;
-    /// use nexosim::{schedulable, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -312,10 +308,9 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::Context;
+    /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    /// use nexosim::{schedulable, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -411,10 +406,9 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// ```
 /// use std::time::Duration;
-/// use nexosim::model::{BuildContext, ProtoModel};
+/// use nexosim::model::{BuildContext, Model, ProtoModel};
 /// use nexosim::ports::Output;
 /// use nexosim::simulation::Mailbox;
-/// use nexosim::Model;
 ///
 /// use serde::{Serialize, Deserialize};
 ///

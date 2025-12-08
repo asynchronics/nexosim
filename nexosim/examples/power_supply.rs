@@ -28,10 +28,10 @@
 //! ```
 use serde::{Deserialize, Serialize};
 
+use nexosim::model::Model;
 use nexosim::ports::{EventSlot, Output, Requestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::Model;
 
 /// Power supply.
 #[derive(Serialize, Deserialize)]

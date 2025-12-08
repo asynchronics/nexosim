@@ -5,11 +5,10 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
-use nexosim::{schedulable, Model};
 
 #[derive(Deserialize, Serialize)]
 struct RecurringModel {

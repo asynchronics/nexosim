@@ -26,11 +26,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, ProtoModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim::{schedulable, Model};
 
 const DELTA: Duration = Duration::from_millis(2);
 const PERIOD: Duration = Duration::from_millis(20);

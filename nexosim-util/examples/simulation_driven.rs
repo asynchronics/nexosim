@@ -30,13 +30,12 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thread_guard::ThreadGuard;
 
-use nexosim::model::Context;
+use nexosim::model::{schedulable, Context, Model};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{
     AutoEventKey, EventKey, ExecutionError, Mailbox, SimInit, SimulationError,
 };
 use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim::{schedulable, Model};
 use nexosim_util::models::Ticker;
 use nexosim_util::observable::Observable;
 
