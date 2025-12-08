@@ -515,5 +515,6 @@ pub mod tracing;
 #[doc(hidden)]
 pub mod dev_hooks;
 
-pub use nexosim_macros::Message;
-pub use schemars::JsonSchema;
+pub use nexosim_macros::{self, Message};
+#[doc(hidden)]
+pub use schemars::{self, JsonSchema};
