@@ -38,7 +38,8 @@ pub fn message_derive(input: TokenStream) -> TokenStream {
                     ::nexosim::JsonSchema
                 )
             ]
-            #[::nexosim_macros::__erase]
+            #[schemars(crate = "nexosim::schemars")]
+            #[::nexosim::nexosim_macros::__erase]
         ),
         &input.to_string(),
     ]
@@ -259,6 +260,7 @@ fn get_impl_model_trait(
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     quote! {
+        #[automatically_derived]
         impl #impl_generics nexosim::model::Model for #name #where_clause {
             #env
 
