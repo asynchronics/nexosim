@@ -26,11 +26,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, ProtoModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim::{schedulable, Model};
 
 const DELTA: Duration = Duration::from_millis(2);
 const PERIOD: Duration = Duration::from_millis(20);
@@ -52,7 +51,7 @@ impl Listener {
 
     /// Initialize model.
     #[nexosim(init)]
-    async fn init(self, cx: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(self, cx: &Context<Self>) -> InitializedModel<Self> {
         // Schedule periodic function that processes external events.
         cx.schedule_periodic_event(DELTA, PERIOD, schedulable!(Self::process), ())
             .unwrap();
@@ -62,8 +61,8 @@ impl Listener {
 
     /// Periodically scheduled function that processes external events.
     #[nexosim(schedulable)]
-    async fn process(&mut self, _: (), cx: &mut Context<Self>) {
-        while let Ok(message) = cx.env().external.try_recv() {
+    async fn process(&mut self, _: (), _: &Context<Self>, env: &mut ListenerEnv) {
+        while let Ok(message) = env.external.try_recv() {
             self.message.send(message).await;
         }
     }

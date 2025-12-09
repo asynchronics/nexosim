@@ -19,11 +19,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel};
+use nexosim::model::{schedulable, Context, InitializedModel, Model};
 use nexosim::ports::{EventQueue, EventQueueReader, Output};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
 use nexosim_util::observable::{Observable, Observe};
 
 /// House keeping TM.
@@ -128,7 +127,7 @@ impl Processor {
     }
 
     /// Process data for dt milliseconds.
-    pub async fn process(&mut self, dt: u64, cx: &mut Context<Self>) {
+    pub async fn process(&mut self, dt: u64, cx: &Context<Self>) {
         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
             self.state
                 .set(State::Processing(
@@ -155,7 +154,7 @@ impl Processor {
 
     /// Propagate all internal states.
     #[nexosim(init)]
-    async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+    async fn init(mut self) -> InitializedModel<Self> {
         self.state.propagate().await;
         self.acc.propagate().await;
         self.elc.propagate().await;

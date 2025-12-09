@@ -8,12 +8,11 @@
 //! ## Simple observable value
 //!
 //! ```rust
-//! use nexosim::model::{Context, InitializedModel};
+//! use nexosim::model::{Context, InitializedModel, Model};
 //! use nexosim::ports::{EventSlot, Output};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
-//! use nexosim::Model;
 //!
 //! use serde::{Serialize, Deserialize};
 //!
@@ -46,7 +45,7 @@
 //!
 //!     #[nexosim(init)]
 //!     /// Propagate the internal state.
-//!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+//!     async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
 //!         self.acc.propagate().await;
 //!         self.into()
 //!     }
@@ -99,12 +98,11 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::{Context, InitializedModel};
+//! use nexosim::model::{schedulable, Context, InitializedModel, Model};
 //! use nexosim::ports::{EventSlot, Output};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
-//! use nexosim::{schedulable, Model};
 //!
 //! /// Processor mode ID.
 //! #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -165,7 +163,7 @@
 //!     }
 //!
 //!     /// Process data for dt milliseconds.
-//!     pub async fn process(&mut self, dt: u64, cx: &mut Context<Self>) {
+//!     pub async fn process(&mut self, dt: u64, cx: &Context<Self>) {
 //!         if matches!(self.state.observe(), ModeId::Idle | ModeId::Processing) {
 //!             self.state
 //!                 .set(State::Processing(
@@ -185,7 +183,7 @@
 //!
 //!     #[nexosim(init)]
 //!     /// Propagate all internal states.
-//!     async fn init(mut self, _: &mut Context<Self>) -> InitializedModel<Self> {
+//!     async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
 //!         self.state.propagate().await;
 //!         self.into()
 //!     }

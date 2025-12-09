@@ -277,7 +277,11 @@ impl TimestampModel {
 impl Model for TimestampModel {
     type Env = ();
 
-    async fn init(mut self, _: &mut Context<Self>) -> nexosim::model::InitializedModel<Self> {
+    async fn init(
+        mut self,
+        _: &Context<Self>,
+        _: &mut (),
+    ) -> nexosim::model::InitializedModel<Self> {
         self.stamp.send((Instant::now(), SystemTime::now())).await;
         self.into()
     }

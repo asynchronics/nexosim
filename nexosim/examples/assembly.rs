@@ -27,11 +27,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{BuildContext, ProtoModel};
+use nexosim::model::{BuildContext, Model, ProtoModel};
 use nexosim::ports::{EventQueue, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::Model;
 
 mod stepper_motor;
 

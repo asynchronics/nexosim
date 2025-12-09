@@ -15,6 +15,11 @@ pub struct WithoutContext {}
 #[derive(Debug)]
 pub struct WithContext {}
 
+/// Marker type for regular simulation model methods that take a mutable
+/// reference to the model, a message, and explicit context and env arguments.
+#[derive(Debug)]
+pub struct WithContextAndEnv {}
+
 /// Marker type for asynchronous simulation model methods that take a mutable
 /// reference to the model, without any other argument.
 #[derive(Debug)]
@@ -29,3 +34,8 @@ pub struct AsyncWithoutContext {}
 /// reference to the model, a message and an explicit context argument.
 #[derive(Debug)]
 pub struct AsyncWithContext {}
+
+/// Marker type for regular simulation model methods that take a mutable
+/// reference to the model, a message, and explicit context and env arguments.
+#[derive(Debug)]
+pub struct AsyncWithContextAndEnv {}

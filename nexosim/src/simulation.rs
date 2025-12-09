@@ -303,9 +303,10 @@ impl Simulation {
                 .send(
                     move |model: &mut M,
                           scheduler,
+                          env,
                           recycle_box: RecycleBox<()>|
                           -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                        let fut = func.call(model, arg, scheduler);
+                        let fut = func.call(model, arg, scheduler, env);
 
                         coerce_box!(RecycleBox::recycle(recycle_box, fut))
                     },
@@ -342,10 +343,11 @@ impl Simulation {
                 .send(
                     move |model: &mut M,
                           scheduler,
+                          env,
                           recycle_box: RecycleBox<()>|
                           -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
                         let fut = async move {
-                            let reply = func.call(model, arg, scheduler).await;
+                            let reply = func.call(model, arg, scheduler, env).await;
                             let _ = reply_writer.write(reply);
                         };
 
@@ -968,7 +970,7 @@ pub(crate) fn add_model<P>(
         registered_models,
         is_resumed.clone(),
     );
-    let (mut model, env) = model.build(&mut build_cx);
+    let (mut model, mut env) = model.build(&mut build_cx);
     let model_registry = model.register_schedulables(&mut build_cx);
 
     let address = mailbox.address();
@@ -977,14 +979,14 @@ pub(crate) fn add_model<P>(
     let model_id = ModelId::new(registered_models.len());
     registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
 
-    let mut cx = Context::new(name, env, scheduler, address, model_id.0, model_registry);
+    let cx = Context::new(name, scheduler, address, model_id.0, model_registry);
     let fut = async move {
         let mut model = if !is_resumed.load(Ordering::Relaxed) {
-            model.init(&mut cx).await.0
+            model.init(&cx, &mut env).await.0
         } else {
             model
         };
-        while !abort_signal.is_set() && receiver.recv(&mut model, &mut cx).await.is_ok() {}
+        while !abort_signal.is_set() && receiver.recv(&mut model, &cx, &mut env).await.is_ok() {}
     };
 
     #[cfg(not(feature = "tracing"))]

@@ -35,7 +35,7 @@ use crate::channel::Receiver;
 /// fn self_scheduling_method<'a>(
 ///     &'a mut self,
 ///     arg: MyEventType,
-///     cx: &'a mut Context<Self>
+///     cx: &'a Context<Self>
 /// ) -> impl Future<Output=()> + Send + 'a {
 ///     async move {
 ///         /* implementation */
@@ -52,9 +52,8 @@ use crate::channel::Receiver;
 ///
 /// ```
 /// use std::time::Duration;
-/// use nexosim::model::Context;
+/// use nexosim::model::{schedulable, Context, Model};
 /// use nexosim::ports::Output;
-/// use nexosim::{schedulable, Model};
 ///
 /// use serde::{Serialize, Deserialize};
 ///
@@ -66,7 +65,7 @@ use crate::channel::Receiver;
 /// #[Model]
 /// impl DelayedGreeter {
 ///     // Triggers a greeting on the output port after some delay [input port].
-///     pub async fn greet_with_delay(&mut self, delay: Duration, cx: &mut Context<Self>) {
+///     pub async fn greet_with_delay(&mut self, delay: Duration, cx: &Context<Self>) {
 ///         let time = cx.time();
 ///         let greeting = format!("Hello, this message was scheduled at: {:?}.", time);
 ///
@@ -87,7 +86,6 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
-    env: M::Env,
     name: String,
     scheduler: GlobalScheduler,
     address: Address<M>,
@@ -99,7 +97,6 @@ impl<M: Model> Context<M> {
     /// Creates a new local context.
     pub(crate) fn new(
         name: String,
-        env: M::Env,
         scheduler: GlobalScheduler,
         address: Address<M>,
         origin_id: usize,
@@ -107,7 +104,6 @@ impl<M: Model> Context<M> {
     ) -> Self {
         Self {
             name,
-            env,
             scheduler,
             address,
             origin_id,
@@ -128,11 +124,6 @@ impl<M: Model> Context<M> {
         self.scheduler.time()
     }
 
-    /// Returns a mutable reference to model's env.
-    pub fn env(&mut self) -> &mut M::Env {
-        &mut self.env
-    }
-
     /// Schedules an event at a future time on this model.
     ///
     /// An error is returned if the specified deadline is not in the future of
@@ -143,8 +134,7 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::Context;
-    /// use nexosim::{schedulable, Model};
+    /// use nexosim::model::{schedulable, Context, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -155,7 +145,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl Timer {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: Duration, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: Duration, cx: &Context<Self>) {
     ///         if cx.schedule_event(setting, schedulable!(Self::ring), ()).is_err() {
     ///             println!("The alarm clock can only be set for a future time");
     ///         }
@@ -194,10 +184,9 @@ impl<M: Model> Context<M> {
     /// # Examples
     ///
     /// ```
-    /// use nexosim::model::Context;
+    /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    /// use nexosim::{schedulable, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -210,7 +199,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl CancellableAlarmClock {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &Context<Self>) {
     ///         self.cancel();
     ///         match cx.schedule_keyed_event(setting, schedulable!(Self::ring), ()) {
     ///             Ok(event_key) => self.event_key = Some(event_key),
@@ -259,9 +248,8 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::Context;
+    /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::time::MonotonicTime;
-    /// use nexosim::{schedulable, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -272,7 +260,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl BeepingAlarmClock {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &Context<Self>) {
     ///         if cx.schedule_periodic_event(
     ///             setting,
     ///             Duration::from_secs(1), // 1Hz = 1/1s
@@ -320,10 +308,9 @@ impl<M: Model> Context<M> {
     /// ```
     /// use std::time::Duration;
     ///
-    /// use nexosim::model::Context;
+    /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    /// use nexosim::{schedulable, Model};
     ///
     /// use serde::{Serialize, Deserialize};
     ///
@@ -337,7 +324,7 @@ impl<M: Model> Context<M> {
     /// #[Model]
     /// impl CancellableBeepingAlarmClock {
     ///     // Sets an alarm [input port].
-    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &mut Context<Self>) {
+    ///     pub fn set(&mut self, setting: MonotonicTime, cx: &Context<Self>) {
     ///         self.cancel();
     ///         match cx.schedule_keyed_periodic_event(
     ///             setting,
@@ -419,10 +406,9 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// ```
 /// use std::time::Duration;
-/// use nexosim::model::{BuildContext, ProtoModel};
+/// use nexosim::model::{BuildContext, Model, ProtoModel};
 /// use nexosim::ports::Output;
 /// use nexosim::simulation::Mailbox;
-/// use nexosim::Model;
 ///
 /// use serde::{Serialize, Deserialize};
 ///
@@ -582,7 +568,6 @@ impl<M: Model<Env = ()>> Context<M> {
         let dummy_address = Receiver::new(1).sender();
         Context::new(
             String::new(),
-            (),
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
             0,

@@ -5,7 +5,7 @@ use syn::{
     spanned::Spanned,
     token::{Paren, PathSep},
     Expr, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, ItemType, Meta, Path,
-    PathArguments, PathSegment, Token, Type, TypeTuple,
+    PathArguments, PathSegment, Signature, Token, Type, TypeTuple,
 };
 
 const INIT_ATTR: &str = "init";
@@ -213,10 +213,10 @@ fn parse_tagged_methods(
                 schedulables.push(f.clone());
             }
             if attrs.contains(&INIT_ATTR) {
-                init = Some(f.sig.ident.clone());
+                init = Some(fn_with_optional_cx_env(&f.sig)?);
             }
             if attrs.contains(&RESTORE_ATTR) {
-                restore = Some(f.sig.ident.clone());
+                restore = Some(fn_with_optional_cx_env(&f.sig)?);
             }
         }
     }
@@ -225,9 +225,9 @@ fn parse_tagged_methods(
     let init = init.and_then(|init| {
         quote! {
             fn init(
-                self, cx: &mut nexosim::model::Context<Self>
+                self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env,
             ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-                self.#init(cx)
+                #init
             }
         }
         .into()
@@ -236,9 +236,9 @@ fn parse_tagged_methods(
     let restore = restore.and_then(|restore| {
         quote! {
             fn restore(
-                self, cx: &mut nexosim::model::Context<Self>
+                self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env
             ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-                self.#restore(cx)
+                #restore
             }
         }
         .into()
@@ -388,4 +388,14 @@ fn collect_nexosim_attributes(f: &mut ImplItemFn) -> Result<Vec<&'static str>, s
     }
 
     Ok(attrs)
+}
+
+fn fn_with_optional_cx_env(sig: &Signature) -> Result<proc_macro2::TokenStream, syn::Error> {
+    let ident = sig.ident.clone();
+    match sig.inputs.len() {
+        1 => Ok(quote!({ self.#ident() })),
+        2 => Ok(quote!({ self.#ident(cx) })),
+        3 => Ok(quote!({ self.#ident(cx, env) })),
+        _ => Err(syn::Error::new_spanned(sig, "invalid number of arguments")),
+    }
 }

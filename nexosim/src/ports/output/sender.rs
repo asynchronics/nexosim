@@ -100,8 +100,8 @@ where
     fn send_owned(&mut self, arg: T) -> RecycledFuture<'_, Result<(), SendError>> {
         let func = self.func.clone();
 
-        let fut = self.sender.send(move |model, scheduler, recycle_box| {
-            let fut = func.call(model, arg, scheduler);
+        let fut = self.sender.send(move |model, scheduler, env, recycle_box| {
+            let fut = func.call(model, arg, scheduler, env);
 
             coerce_box!(RecycleBox::recycle(recycle_box, fut))
         });
@@ -172,8 +172,8 @@ where
         let func = self.func.clone();
         let arg = (self.map)(arg);
 
-        let fut = self.sender.send(move |model, scheduler, recycle_box| {
-            let fut = func.call(model, arg, scheduler);
+        let fut = self.sender.send(move |model, scheduler, env, recycle_box| {
+            let fut = func.call(model, arg, scheduler, env);
 
             coerce_box!(RecycleBox::recycle(recycle_box, fut))
         });
@@ -244,8 +244,8 @@ where
         (self.filter_map)(arg).map(|arg| {
             let func = self.func.clone();
 
-            let fut = self.sender.send(move |model, scheduler, recycle_box| {
-                let fut = func.call(model, arg, scheduler);
+            let fut = self.sender.send(move |model, scheduler, env, recycle_box| {
+                let fut = func.call(model, arg, scheduler, env);
 
                 coerce_box!(RecycleBox::recycle(recycle_box, fut))
             });
@@ -496,9 +496,9 @@ where
         // to completion so a new sender should be readily available.
         let reply_sender = reply_receiver.sender().unwrap();
 
-        let send_fut = sender.send(move |model, scheduler, recycle_box| {
+        let send_fut = sender.send(move |model, scheduler, env, recycle_box| {
             let fut = async move {
-                let reply = func.call(model, arg, scheduler).await;
+                let reply = func.call(model, arg, scheduler, env).await;
                 reply_sender.send(reply);
             };
 
@@ -599,9 +599,9 @@ where
         // to completion so a new sender should be readily available.
         let reply_sender = reply_receiver.sender().unwrap();
 
-        let send_fut = sender.send(move |model, scheduler, recycle_box| {
+        let send_fut = sender.send(move |model, scheduler, env, recycle_box| {
             let fut = async move {
-                let reply = func.call(model, arg, scheduler).await;
+                let reply = func.call(model, arg, scheduler, env).await;
                 reply_sender.send(reply);
             };
 
@@ -712,9 +712,9 @@ where
             // to completion so a new sender should be readily available.
             let reply_sender = reply_receiver.sender().unwrap();
 
-            let send_fut = sender.send(move |model, scheduler, recycle_box| {
+            let send_fut = sender.send(move |model, scheduler, env, recycle_box| {
                 let fut = async move {
-                    let reply = func.call(model, arg, scheduler).await;
+                    let reply = func.call(model, arg, scheduler, env).await;
                     reply_sender.send(reply);
                 };
 

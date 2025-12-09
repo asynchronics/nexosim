@@ -53,8 +53,8 @@
 //! to as *events*, while messages exchanged between requestor and replier ports
 //! are referred to as *requests* and *replies*.
 //!
-//! Models must implement the [`Model`](model::Model) trait. The main purpose of
-//! this trait is to allow models to specify a
+//! Models must implement the [`Model`](trait@model::Model) trait. The main
+//! purpose of this trait is to allow models to specify a
 //! [`Model::init`](model::Model::init) method that is guaranteed to run once
 //! and only once when the simulation is initialized, _i.e._ after all models
 //! have been connected but before the simulation starts.
@@ -71,19 +71,20 @@
 //! trait. The [`ProtoModel::build`](model::ProtoModel::build) method makes it
 //! possible to:
 //!
-//! * build the final [`Model`](model::Model) from a builder (the *model
+//! * build the final [`Model`](trait@model::Model) from a builder (the *model
 //!   prototype*),
 //! * perform possibly blocking actions when the model is added to the
 //!   simulation rather than when the simulation starts, such as establishing a
 //!   network connection or configuring hardware devices,
 //! * connect submodels and add them to the simulation.
 //!
-//! In typical scenarios the [`Model`](model::Model) trait can be implemented
-//! by a [`Model`] proc-macro, applied to the main `impl` block of
-//! the model struct. Methods such as `init` and `restore` can be provided by
-//! using custom attributes (`#[nexosim(init)]` and `#[nexosim(restore)]`).
-//! Moreover, input methods can be decorated with `#[nexosim(schedulable)]`
-//! attribute to allow convenient self-scheduling within the model.
+//! In typical scenarios the [`Model`](trait@model::Model) trait can be
+//! implemented by a [`Model`](macro@model::Model) proc-macro, applied to the
+//! main `impl` block of the model struct. Methods such as `init` and `restore`
+//! can be provided by using custom attributes (`#[nexosim(init)]` and
+//! `#[nexosim(restore)]`). Moreover, input methods can be decorated with
+//! `#[nexosim(schedulable)]` attribute to allow convenient self-scheduling
+//! within the model.
 //!
 //! ### A simple model
 //!
@@ -102,7 +103,7 @@
 //! `Multiplier` could be implemented as follows:
 //!
 //! ```
-//! use nexosim::Model;
+//! use nexosim::model::Model;
 //! use nexosim::ports::Output;
 //!
 //! use serde::{Serialize, Deserialize};
@@ -135,9 +136,8 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::Context;
+//! use nexosim::model::{schedulable, Context, Model};
 //! use nexosim::ports::Output;
-//! use nexosim::{schedulable, Model};
 //!
 //! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Delay {
@@ -145,7 +145,7 @@
 //! }
 //! #[Model]
 //! impl Delay {
-//!     pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
+//!     pub fn input(&mut self, value: f64, cx: &Context<Self>) {
 //!         cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //!     }
 //!
@@ -202,9 +202,8 @@
 //! #
 //! #     use serde::{Serialize, Deserialize};
 //! #
-//! #     use nexosim::model::Context;
+//! #     use nexosim::model::{schedulable, Context, Model};
 //! #     use nexosim::ports::Output;
-//! #     use nexosim::{schedulable, Model};
 //! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
@@ -221,7 +220,7 @@
 //! #     }
 //! #     #[Model]
 //! #     impl Delay {
-//! #         pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
+//! #         pub fn input(&mut self, value: f64, cx: &Context<Self>) {
 //! #             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //! #         }
 //! #         #[nexosim(schedulable)]
@@ -308,9 +307,8 @@
 //! #
 //! #     use serde::{Serialize, Deserialize};
 //! #
-//! #     use nexosim::model::Context;
+//! #     use nexosim::model::{schedulable, Context, Model};
 //! #     use nexosim::ports::Output;
-//! #     use nexosim::{schedulable, Model};
 //! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
 //! #         pub output: Output<f64>,
@@ -327,7 +325,7 @@
 //! #     }
 //! #     #[Model]
 //! #     impl Delay {
-//! #         pub fn input(&mut self, value: f64, cx: &mut Context<Self>) {
+//! #         pub fn input(&mut self, value: f64, cx: &Context<Self>) {
 //! #             cx.schedule_event(Duration::from_secs(1), schedulable!(Self::send), value).unwrap();
 //! #         }
 //! #         #[nexosim(schedulable)]
@@ -498,18 +496,14 @@ mod loom_exports;
 pub(crate) mod macros;
 pub mod model;
 pub mod ports;
-pub mod simulation;
-pub mod time;
-pub(crate) mod util;
-
-pub use nexosim_macros::{schedulable, Model};
-
 pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
-
+pub mod simulation;
+pub mod time;
 #[cfg(feature = "tracing")]
 pub mod tracing;
+pub(crate) mod util;
 
 #[cfg(feature = "dev-hooks")]
 #[doc(hidden)]

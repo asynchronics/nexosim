@@ -31,10 +31,12 @@
 //! ```ignore
 //! fn(&mut self) // argument elided, implies `T=()`
 //! fn(&mut self, T)
-//! fn(&mut self, T, &mut Context<Self>)
+//! fn(&mut self, T, &Context<Self>)
+//! fn(&mut self, T, &Context<Self>, &mut Self::Env)
 //! async fn(&mut self) // argument elided, implies `T=()`
 //! async fn(&mut self, T)
-//! async fn(&mut self, T, &mut Context<Self>)
+//! async fn(&mut self, T, &Context<Self>)
+//! async fn(&mut self, T, &Context<Self>, &mut Self::Env)
 //! where
 //!     Self: Model,
 //!     T: Clone + Send + 'static,
@@ -51,7 +53,8 @@
 //! ```ignore
 //! async fn(&mut self) -> R // argument elided, implies `T=()`
 //! async fn(&mut self, T) -> R
-//! async fn(&mut self, T, &mut Context<Self>) -> R
+//! async fn(&mut self, T, &Context<Self>) -> R
+//! async fn(&mut self, T, &Context<Self>, &mut Self::Env) -> R
 //! where
 //!     Self: Model,
 //!     T: Clone + Send + 'static,
@@ -62,10 +65,11 @@
 //! allowed for replier ports.
 //!
 //! Input and replier ports will normally be exposed as public methods by a
-//! [`Model`](crate::model::Model) so they can be connected to output and
-//! requestor ports when assembling the simulation bench. However, input ports
-//! may (and should) be defined as private methods if they are only used
-//! internally by the model, for instance to schedule future actions on itself.
+//! [`Model`](trait@crate::model::Model) so they can be connected to
+//! output and requestor ports when assembling the simulation bench. However,
+//! input ports may (and should) be defined as private methods if they are only
+//! used internally by the model, for instance to schedule future actions on
+//! itself.
 //!
 //! Changing the signature of a public input or replier port is not considered
 //! to alter the public interface of a model provided that the event, request
@@ -76,8 +80,7 @@
 //! #### Basic example
 //!
 //! ```
-//! use nexosim::model::Context;
-//! use nexosim::Model;
+//! use nexosim::model::{Model, Context};
 //!
 //! use serde::{Serialize, Deserialize};
 //!
@@ -87,7 +90,7 @@
 //! }
 //! #[Model]
 //! impl MyModel {
-//!     pub fn my_input(&mut self, input: String, cx: &mut Context<Self>) {
+//!     pub fn my_input(&mut self, input: String, cx: &Context<Self>) {
 //!         // ...
 //!     }
 //!     pub async fn my_replier(&mut self, request: u32) -> bool { // context argument elided
@@ -125,7 +128,7 @@
 //! #### Basic example
 //!
 //! ```
-//! use nexosim::Model;
+//! use nexosim::model::Model;
 //! use nexosim::ports::{Output, Requestor};
 //!
 //! use serde::{Serialize, Deserialize};
@@ -159,10 +162,9 @@
 //! guaranteed.
 //!
 //! ```
-//! use nexosim::model::{BuildContext, ProtoModel};
+//! use nexosim::model::{BuildContext, Model, ProtoModel};
 //! use nexosim::ports::Output;
 //! use nexosim::simulation::Mailbox;
-//! use nexosim::Model;
 //!
 //! use serde::{Serialize, Deserialize};
 //!

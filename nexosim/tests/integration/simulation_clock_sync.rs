@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use nexosim::model::Model;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim::Model;
 
 const MT_NUM_THREADS: usize = 4;
 
