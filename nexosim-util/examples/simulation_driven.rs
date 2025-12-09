@@ -246,8 +246,8 @@ fn main() -> Result<(), SimulationError> {
         .add_model(ticker, ticker_mbox, "ticker")
         .set_clock(AutoSystemClock::new());
 
-    let power_in_id = bench.register_input(Counter::power_in, counter_addr);
-    let switch_on_id = bench.register_input(Detector::switch_on, detector_addr);
+    let power_in_id = bench.link_input(Counter::power_in, counter_addr);
+    let switch_on_id = bench.link_input(Detector::switch_on, detector_addr);
 
     let mut simu = bench.init(t0)?;
 

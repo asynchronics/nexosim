@@ -203,7 +203,7 @@ fn model_with_output() {
         model.output.connect_sink(&msg);
 
         let mut bench = SimInit::new();
-        let source_id = bench.register_input(ModelWithOutput::send, &mbox);
+        let source_id = bench.link_input(ModelWithOutput::send, &mbox);
         bench = bench.add_model(model, mbox, "modelWithOutput");
 
         (bench, source_id, msg.into_reader())
@@ -224,7 +224,7 @@ fn model_with_output() {
 
     // Recreate the bench with the state restored.
     let (bench, _, mut msg) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that the scheduled event gets fired.
     simu.step().unwrap();
@@ -251,7 +251,7 @@ fn model_with_key() {
         let key_addr = key_mbox.address();
 
         let mut bench = SimInit::new();
-        let output_id = bench.register_input(ModelWithOutput::send, &output_mbox);
+        let output_id = bench.link_input(ModelWithOutput::send, &output_mbox);
         bench = bench
             .add_model(output_model, output_mbox, "modelWithOutput")
             .add_model(key_model, key_mbox, "modelWithKey");
@@ -277,7 +277,7 @@ fn model_with_key() {
 
     // Recreate the bench with the state restored.
     let (bench, _, key_addr, mut msg) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Cancel the serialized key.
     let _ = simu.process_event(ModelWithKey::process, (), key_addr);
@@ -314,7 +314,7 @@ fn model_init_restore() {
 
     // // Recreate the bench with the state restored.
     let (bench, addr) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that `restore` has been called instead of `init` this time
     let model_state = simu.process_query(ModelWithState::query, (), addr).unwrap();
@@ -348,7 +348,7 @@ fn model_with_schedule() {
 
     // Recreate the bench with the state restored.
     let (bench, mut msg) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
@@ -369,7 +369,7 @@ fn model_with_generics() {
         let address = mbox.address();
 
         let mut bench = SimInit::new().add_model(model, mbox, "modelWithGenerics");
-        let input_id = bench.register_input(ModelWithGenerics::input, address);
+        let input_id = bench.link_input(ModelWithGenerics::input, address);
 
         (bench, msg.into_reader(), input_id)
     }
@@ -395,7 +395,7 @@ fn model_with_generics() {
 
     // Recreate the bench with the state restored.
     let (bench, mut msg, _) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
@@ -461,7 +461,7 @@ fn model_with_hashmap() {
     simu.save(&mut state).unwrap();
 
     let (bench, address, mut sinks) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     for _ in 0..ITERATIONS {
         // Verify that after the deserialization output connections still point to
@@ -489,8 +489,8 @@ fn model_relative_order() {
         let addr = mbox.address();
 
         let mut bench = SimInit::new();
-        let add_id = bench.register_input(ModelWithState::add, &addr);
-        let mul_id = bench.register_input(ModelWithState::mul, &addr);
+        let add_id = bench.link_input(ModelWithState::add, &addr);
+        let mul_id = bench.link_input(ModelWithState::mul, &addr);
 
         bench = bench.add_model(model, mbox, "modelWithKey");
 
@@ -518,7 +518,7 @@ fn model_relative_order() {
 
     // Recreate the bench with the state restored.
     let (bench, _, _, addr) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
@@ -549,7 +549,7 @@ fn model_relative_order() {
 
     // Recreate the bench with the state restored.
     let (bench, _, _, addr) = get_bench();
-    let mut simu = bench.restore(&state[..]).unwrap();
+    let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify events have been called in the right order.
     simu.step().unwrap();

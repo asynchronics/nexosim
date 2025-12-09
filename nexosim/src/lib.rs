@@ -504,7 +504,6 @@ pub(crate) mod util;
 
 pub use nexosim_macros::{schedulable, Model};
 
-#[cfg(feature = "server")]
 pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
@@ -516,7 +515,5 @@ pub mod tracing;
 #[doc(hidden)]
 pub mod dev_hooks;
 
-#[cfg(feature = "server")]
 pub use nexosim_macros::Message;
-#[cfg(feature = "server")]
 pub use schemars::JsonSchema;

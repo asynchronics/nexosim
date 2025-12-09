@@ -39,7 +39,7 @@ use nexosim::model::{Context, InitializedModel};
 use nexosim::ports::{EventSlot, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::{schedulable, Model};
+use nexosim::{schedulable, Message, Model};
 
 /// Water pump.
 #[derive(Serialize, Deserialize)]
@@ -88,7 +88,7 @@ pub struct Controller {
 #[Model]
 impl Controller {
     /// Default brew time [s].
-    const DEFAULT_BREW_TIME: Duration = Duration::new(25, 0);
+    pub const DEFAULT_BREW_TIME: Duration = Duration::new(25, 0);
 
     /// Creates an espresso machine controller.
     pub fn new() -> Self {
@@ -158,7 +158,7 @@ impl Controller {
 }
 
 /// ON/OFF pump command.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, Message, PartialEq, Serialize, Deserialize)]
 pub enum PumpCommand {
     On,
     Off,
@@ -238,6 +238,11 @@ impl Tank {
         if was_empty {
             self.water_sense.send(WaterSenseState::NotEmpty).await;
         }
+    }
+
+    /// Returns current volume [m³] -- replier.
+    pub async fn volume(&mut self) -> f64 {
+        self.volume
     }
 
     /// Flow rate [m³·s⁻¹] -- input port.
@@ -326,12 +331,13 @@ struct TankDynamicState {
 }
 
 /// Water level in the tank.
-#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, Message, PartialEq, Serialize, Deserialize)]
 pub enum WaterSenseState {
     Empty,
     NotEmpty,
 }
 
+#[allow(dead_code)]
 fn main() -> Result<(), SimulationError> {
     // ---------------
     // Bench assembly.
@@ -376,7 +382,7 @@ fn main() -> Result<(), SimulationError> {
         .add_model(pump, pump_mbox, "pump")
         .add_model(tank, tank_mbox, "tank");
 
-    let brew_source_id = bench.register_input(Controller::brew_cmd, &controller_addr);
+    let brew_source_id = bench.link_input(Controller::brew_cmd, &controller_addr);
 
     let mut simu = bench.init(t0)?;
 

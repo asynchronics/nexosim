@@ -4,9 +4,7 @@
 //! event sink, event source and query source in a simulation bench to a unique
 //! name.
 
-use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 mod event_sink_registry;
 mod event_source_registry;
@@ -14,8 +12,9 @@ mod query_source_registry;
 
 use serde::{de::DeserializeOwned, ser::Serialize};
 
+use crate::model::{Message, MessageSchema};
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
-use crate::simulation::SourceId;
+use crate::simulation::{SchedulerSourceRegistry, SourceId};
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -30,16 +29,11 @@ pub struct EndpointRegistry {
 }
 
 impl EndpointRegistry {
-    /// Creates a new, empty registry.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Adds an event source to the registry.
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source<T>(
+    pub(crate) fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
@@ -55,7 +49,7 @@ impl EndpointRegistry {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source_raw<T>(
+    pub(crate) fn add_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
@@ -70,7 +64,7 @@ impl EndpointRegistry {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source<T, R>(
+    pub(crate) fn add_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
@@ -87,7 +81,7 @@ impl EndpointRegistry {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source_raw<T, R>(
+    pub(crate) fn add_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
@@ -103,7 +97,7 @@ impl EndpointRegistry {
     ///
     /// If the specified name is already in use for another event sink, the
     /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    pub(crate) fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Message + Serialize,
@@ -116,12 +110,61 @@ impl EndpointRegistry {
     ///
     /// If the specified name is already in use for another event sink, the
     /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    pub(crate) fn add_event_sink_raw<S>(
+        &mut self,
+        sink: S,
+        name: impl Into<String>,
+    ) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,
     {
         self.event_sink_registry.add_raw(sink, name)
+    }
+
+    /// Returns an iterator over the names of the registered query sources.
+    pub fn list_query_sources(&self) -> impl Iterator<Item = &String> {
+        self.query_source_registry.list_sources()
+    }
+
+    /// Returns the input and output schemas of the specified query source if it
+    /// is in the registry.
+    pub fn get_query_source_schema(
+        &self,
+        name: &str,
+    ) -> Result<(MessageSchema, MessageSchema), RegistryError> {
+        self.query_source_registry.get_source_schema(name)
+    }
+
+    /// Returns an immutable reference to a QuerySource registered by a given
+    /// name.
+    pub fn get_query_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.query_source_registry.get_source(name)
+    }
+
+    /// Returns an iterator over the names (keys) of the registered event
+    /// sources.
+    pub fn list_event_sources(&self) -> impl Iterator<Item = &String> {
+        self.event_source_registry.list_sources()
+    }
+
+    /// Returns the schema of the specified event source if it is in the
+    /// registry.
+    pub fn get_event_source_schema(&self, name: &str) -> Result<MessageSchema, RegistryError> {
+        self.event_source_registry.get_source_schema(name)
+    }
+
+    /// Returns an immutable reference to an EventSource registered by a given
+    /// name.
+    pub fn get_event_source<T>(&self, name: &str) -> Result<&EventSource<T>, RegistryError>
+    where
+        T: Clone + Send + 'static,
+    {
+        self.event_source_registry.get_source(name)
     }
 
     /// Returns a typed SourceId for an EventSource registered by a given name.
@@ -134,43 +177,34 @@ impl EndpointRegistry {
         self.event_source_registry.get_source_id(name)
     }
 
-    /// Returns an immutable reference to a QuerySource registered by a given
-    /// name.
-    pub fn get_query_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
-    where
-        T: Clone + Send + 'static,
-        R: Send + 'static,
-    {
-        (self
-            .query_source_registry
-            .get(name)
-            .ok_or(RegistryError::SourceNotFound(name.to_string()))? as &dyn Any)
-            .downcast_ref()
-            .ok_or(RegistryError::InvalidType(std::any::type_name::<
-                QuerySource<T, R>,
-            >()))
+    /// Returns an iterator over the names of all sinks in the registry.
+    pub fn list_sinks(&self) -> impl Iterator<Item = &String> {
+        self.event_sink_registry.list_sinks()
     }
 
-    /// Returns an immutable reference to an EventSource registered by a given
-    /// name.
-    pub fn get_event_source<T>(&self, name: &str) -> Result<&EventSource<T>, RegistryError>
+    /// Returns the schema of the specified sink if it is in the registry.
+    pub fn get_sink_schema(&self, name: &str) -> Result<MessageSchema, RegistryError> {
+        self.event_sink_registry.get_sink_schema(name)
+    }
+
+    /// Returns a clone of the specified sink reader if it is in the registry.
+    pub fn get_sink<E>(&self, name: &str) -> Result<E, RegistryError>
     where
-        T: Clone + Send + 'static,
+        E: EventSinkReader + Send + Sync + 'static,
     {
-        Ok((self
-            .event_source_registry
-            .get(name)
-            .ok_or(RegistryError::SourceNotFound(name.to_string()))? as &dyn Any)
-            .downcast_ref::<Arc<EventSource<T>>>()
-            .ok_or(RegistryError::InvalidType(std::any::type_name::<
-                Arc<EventSource<T>>,
-            >()))?
-            .as_ref())
+        self.event_sink_registry.get_sink_reader(name)
+    }
+
+    /// Registers event sources in the scheduler's registry in order to make
+    /// them schedulable.
+    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
+        self.event_source_registry.register_scheduler(registry);
     }
 }
 
 /// An error returned when an invalid endpoint registry action is taken.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum RegistryError {
     /// The requested source has not been found.
     SourceNotFound(String),
@@ -181,6 +215,7 @@ pub enum RegistryError {
     /// The requested source has an invalid type.
     InvalidType(&'static str),
     /// An argument for the source cannot be deserialized.
+    #[cfg(feature = "server")]
     DeserializationError(ciborium::de::Error<std::io::Error>),
 }
 
@@ -199,28 +234,10 @@ impl std::fmt::Display for RegistryError {
             Self::InvalidType(type_name) => {
                 write!(f, "the requested resource cannot be cast to {type_name}")
             }
+            #[cfg(feature = "server")]
             Self::DeserializationError(e) => std::fmt::Display::fmt(e, f),
         }
     }
 }
 
 impl std::error::Error for RegistryError {}
-
-/// Type alias for the generated schema type.
-pub type MessageSchema = String;
-
-/// An optional helper trait for event and query input / output arguments.
-/// Enables json schema generation to precisely describe the types of exchanged
-/// data.
-pub trait Message {
-    /// Returns a schema defining message type.
-    fn schema() -> MessageSchema;
-}
-impl<T> Message for T
-where
-    T: crate::JsonSchema,
-{
-    fn schema() -> MessageSchema {
-        schemars::schema_for!(T).as_value().to_string()
-    }
-}

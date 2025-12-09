@@ -60,7 +60,7 @@ where
 
     let mut bench = SimInit::with_num_threads(num_threads).add_model(model, mbox, "");
 
-    let source_id = bench.register_input(PassThroughModel::input, &addr);
+    let source_id = bench.link_input(PassThroughModel::input, &addr);
 
     let simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
@@ -307,7 +307,7 @@ fn timestamp_bench(
         .add_model(model, mbox, "")
         .set_clock(clock);
 
-    let source_id = bench.register_input(TimestampModel::trigger, &addr);
+    let source_id = bench.link_input(TimestampModel::trigger, &addr);
 
     let simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
