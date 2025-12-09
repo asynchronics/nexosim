@@ -382,9 +382,9 @@ fn main() -> Result<(), SimulationError> {
         .add_model(pump, pump_mbox, "pump")
         .add_model(tank, tank_mbox, "tank");
 
-    let brew_source_id = bench.register_input(Controller::brew_cmd, &controller_addr);
+    let brew_source_id = bench.link_input(Controller::brew_cmd, &controller_addr);
 
-    let mut simu = bench.init(t0)?.0;
+    let mut simu = bench.init(t0)?;
 
     let scheduler = simu.scheduler();
 

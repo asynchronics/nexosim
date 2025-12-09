@@ -146,8 +146,7 @@ fn main() -> Result<(), SimulationError> {
         .add_model(load1, load1_mbox, "load1")
         .add_model(load2, load2_mbox, "load2")
         .add_model(load3, load3_mbox, "load3")
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     // ----------
     // Simulation.

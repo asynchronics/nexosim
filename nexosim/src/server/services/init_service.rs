@@ -65,7 +65,7 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&request.cfg).map(|sim_init| sim_init.init(start_time))
+            (self.sim_gen)(&request.cfg).map(|sim_init| sim_init.init_with_registry(start_time))
         }))
         .map_err(map_panic)
         .and_then(map_init_error);
@@ -176,7 +176,7 @@ where
     F: FnMut(I) -> SimInit + Send + 'static,
     I: DeserializeOwned,
 {
-    sim_gen(cfg).init(start_time)
+    sim_gen(cfg).init_with_registry(start_time)
 }
 
 /// Allows restoring a previously saved server simulation and continuing it's

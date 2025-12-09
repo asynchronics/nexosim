@@ -207,9 +207,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
         .add_model(driver, driver_mbox, "driver")
         .add_model(motor, motor_mbox, "motor");
 
-    let pulse_rate_source_id = bench.register_input(Driver::pulse_rate, &driver_addr);
+    let pulse_rate_source_id = bench.link_input(Driver::pulse_rate, &driver_addr);
 
-    let mut simu = bench.init(t0)?.0;
+    let mut simu = bench.init(t0)?;
 
     let scheduler = simu.scheduler();
 

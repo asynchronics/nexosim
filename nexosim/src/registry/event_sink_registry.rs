@@ -81,25 +81,25 @@ impl EventSinkRegistry {
         self.0.get_mut(name).map(|s| s.as_mut())
     }
 
-    /// Returns an unmutable reference to the specified sink if it is in the
+    /// Returns an immutable reference to the specified sink if it is in the
     /// registry.
-    pub(crate) fn get_ref(&self, name: &str) -> Option<&dyn EventSinkEntryAny> {
+    pub(crate) fn get(&self, name: &str) -> Option<&dyn EventSinkEntryAny> {
         self.0.get(name).map(|s| s.as_ref())
     }
 
     /// Returns a clone of the specified sink if it is in the registry.
-    pub(crate) fn get(&self, name: &str) -> Option<Box<dyn EventSinkEntryAny>> {
+    pub(crate) fn get_cloned(&self, name: &str) -> Option<Box<dyn EventSinkEntryAny>> {
         self.0.get(name).map(|s| dyn_clone::clone_box(&**s))
     }
 
-    /// Returns a clone of the specified sink if it is in the registry.
+    /// Returns a clone of the specified sink reader if it is in the registry.
     pub(crate) fn get_sink_reader<E>(&self, name: &str) -> Result<E, RegistryError>
     where
         E: EventSinkReader + Send + Sync + 'static,
     {
         // Downcast_ref used as a runtime type-check.
         Ok(self
-            .get_ref(name)
+            .get(name)
             .ok_or(RegistryError::SinkNotFound(name.to_string()))?
             .get_event_sink_reader()
             .downcast_ref::<E>()
@@ -115,7 +115,7 @@ impl EventSinkRegistry {
     /// Returns the schema of the specified sink if it is in the registry.
     pub(crate) fn get_sink_schema(&self, name: &str) -> Result<MessageSchema, RegistryError> {
         Ok(self
-            .get(name)
+            .get_cloned(name)
             .ok_or(RegistryError::SinkNotFound(name.to_string()))?
             .get_schema())
     }

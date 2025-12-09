@@ -203,7 +203,7 @@ fn model_with_output() {
         model.output.connect_sink(&msg);
 
         let mut bench = SimInit::new();
-        let source_id = bench.register_input(ModelWithOutput::send, &mbox);
+        let source_id = bench.link_input(ModelWithOutput::send, &mbox);
         bench = bench.add_model(model, mbox, "modelWithOutput");
 
         (bench, source_id, msg.into_reader())
@@ -212,7 +212,7 @@ fn model_with_output() {
     let (bench, source_id, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
     // Schedule event on an initialized sim.
     let _ = simu
         .scheduler()
@@ -251,7 +251,7 @@ fn model_with_key() {
         let key_addr = key_mbox.address();
 
         let mut bench = SimInit::new();
-        let output_id = bench.register_input(ModelWithOutput::send, &output_mbox);
+        let output_id = bench.link_input(ModelWithOutput::send, &output_mbox);
         bench = bench
             .add_model(output_model, output_mbox, "modelWithOutput")
             .add_model(key_model, key_mbox, "modelWithKey");
@@ -262,7 +262,7 @@ fn model_with_key() {
     let (bench, output_id, key_addr, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
     // Schedule event on an initialized sim.
     let key = simu
         .scheduler()
@@ -303,7 +303,7 @@ fn model_init_restore() {
     let (bench, addr) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
     // Verify `init` called.
     let model_state = simu.process_query(ModelWithState::query, (), addr).unwrap();
     assert_eq!(model_state, 11);
@@ -338,7 +338,7 @@ fn model_with_schedule() {
     let (bench, mut msg) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
     simu.step().unwrap();
     assert_eq!(msg.next(), Some(7));
 
@@ -369,7 +369,7 @@ fn model_with_generics() {
         let address = mbox.address();
 
         let mut bench = SimInit::new().add_model(model, mbox, "modelWithGenerics");
-        let input_id = bench.register_input(ModelWithGenerics::input, address);
+        let input_id = bench.link_input(ModelWithGenerics::input, address);
 
         (bench, msg.into_reader(), input_id)
     }
@@ -377,7 +377,7 @@ fn model_with_generics() {
     let (bench, mut msg, input_id) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
     scheduler
         .schedule_event(Duration::from_secs(2), &input_id, (-5, 5.14))
@@ -455,7 +455,7 @@ fn model_with_hashmap() {
     let (bench, _, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
 
     let mut state = Vec::new();
     simu.save(&mut state).unwrap();
@@ -489,8 +489,8 @@ fn model_relative_order() {
         let addr = mbox.address();
 
         let mut bench = SimInit::new();
-        let add_id = bench.register_input(ModelWithState::add, &addr);
-        let mul_id = bench.register_input(ModelWithState::mul, &addr);
+        let add_id = bench.link_input(ModelWithState::add, &addr);
+        let mul_id = bench.link_input(ModelWithState::mul, &addr);
 
         bench = bench.add_model(model, mbox, "modelWithKey");
 
@@ -502,7 +502,7 @@ fn model_relative_order() {
     let (bench, add_id, mul_id, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
 
     // Schedule two events at the same time
     simu.scheduler()
@@ -533,7 +533,7 @@ fn model_relative_order() {
     let (bench, add_id, mul_id, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
 
     // Schedule two events at the same time
     simu.scheduler()

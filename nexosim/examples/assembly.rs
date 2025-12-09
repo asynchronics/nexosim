@@ -139,9 +139,9 @@ fn main() -> Result<(), SimulationError> {
     // Assembly and initialization.
     let mut bench = SimInit::new().add_model(assembly, assembly_mbox, "assembly");
 
-    let pulse_rate_source_id = bench.register_input(MotorAssembly::pulse_rate, &assembly_addr);
+    let pulse_rate_source_id = bench.link_input(MotorAssembly::pulse_rate, &assembly_addr);
 
-    let mut simu = bench.init(t0)?.0;
+    let mut simu = bench.init(t0)?;
 
     let scheduler = simu.scheduler();
 

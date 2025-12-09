@@ -41,8 +41,7 @@ fn model_schedule_event(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     simu.process_event(TestModel::trigger, (), addr).unwrap();
     simu.step().unwrap();
@@ -105,7 +104,7 @@ fn multiple_models_scheduling(num_threads: usize) {
         bench = bench.add_model(model, mbox, format!("Model_{idx}"));
     }
 
-    let mut simu = bench.init(t0).unwrap().0;
+    let mut simu = bench.init(t0).unwrap();
     let mut output = output.into_reader();
 
     for idx in 0..MODEL_COUNT {
@@ -156,8 +155,7 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     simu.process_event(TestModel::trigger, (), addr).unwrap();
     simu.step().unwrap();
@@ -207,8 +205,7 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     simu.process_event(TestModel::trigger, (), addr).unwrap();
     simu.step().unwrap();
@@ -253,8 +250,7 @@ fn model_schedule_periodic_event(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     simu.process_event(TestModel::trigger, (), addr).unwrap();
 
@@ -308,8 +304,7 @@ fn model_cancel_periodic_event(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model, mbox, "")
         .init(t0)
-        .unwrap()
-        .0;
+        .unwrap();
 
     simu.process_event(TestModel::trigger, (), addr).unwrap();
 

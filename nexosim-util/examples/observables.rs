@@ -191,10 +191,7 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let mut simu = SimInit::new()
-        .add_model(proc, proc_mbox, "proc")
-        .init(t0)?
-        .0;
+    let mut simu = SimInit::new().add_model(proc, proc_mbox, "proc").init(t0)?;
 
     // ----------
     // Simulation.

@@ -53,8 +53,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
     let simu = SimInit::new()
         .add_model(model, mailbox, "timed_model")
         .set_clock(SystemClock::from_instant(t0, Instant::now()))
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     let mut scheduler = simu.scheduler();
 

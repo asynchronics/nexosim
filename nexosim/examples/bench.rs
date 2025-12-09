@@ -97,24 +97,16 @@ pub fn bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> SimInit {
         .add_model(tank, tank_mbox, "tank");
 
     bench
-        .add_event_sink_endpoint(pump_cmd.into_reader(), "pump_cmd")
+        .add_event_sink(pump_cmd.into_reader(), "pump_cmd")
         .unwrap();
-    bench
-        .add_event_sink_endpoint(flow_rate, "flow_rate")
-        .unwrap();
-    bench
-        .add_event_sink_endpoint(water_sense, "water_sense")
-        .unwrap();
+    bench.add_event_sink(flow_rate, "flow_rate").unwrap();
+    bench.add_event_sink(water_sense, "water_sense").unwrap();
 
-    bench
-        .add_event_source_endpoint(brew_time, "brew_time")
-        .unwrap();
-    bench
-        .add_event_source_endpoint(brew_cmd, "brew_cmd")
-        .unwrap();
-    bench.add_event_source_endpoint(fill, "fill").unwrap();
+    bench.add_event_source(brew_time, "brew_time").unwrap();
+    bench.add_event_source(brew_cmd, "brew_cmd").unwrap();
+    bench.add_event_source(fill, "fill").unwrap();
 
-    bench.add_query_source_endpoint(volume, "volume").unwrap();
+    bench.add_query_source(volume, "volume").unwrap();
 
     bench
 }
@@ -131,7 +123,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, registry) = bench.init(t0)?;
+    let (mut simu, registry) = bench.init_with_registry(t0)?;
     let scheduler = simu.scheduler();
 
     // Sinks used in simulation.

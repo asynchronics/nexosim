@@ -197,7 +197,7 @@ impl SimInit {
     }
 
     /// Registers `EventSource<T>` as schedulable.
-    pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -205,7 +205,7 @@ impl SimInit {
     }
 
     /// Registers single model input as a schedulable event source.
-    pub fn register_input<M, F, S, T>(
+    pub fn link_input<M, F, S, T>(
         &mut self,
         input: F,
         address: impl Into<Address<M>>,
@@ -224,7 +224,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source_endpoint<T>(
+    pub fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
@@ -240,7 +240,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source_raw_endpoint<T>(
+    pub fn add_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
@@ -255,7 +255,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source_endpoint<T, R>(
+    pub fn add_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
@@ -272,7 +272,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source_raw_endpoint<T, R>(
+    pub fn add_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
@@ -288,7 +288,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event sink, the
     /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink_endpoint<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Message + Serialize,
@@ -301,11 +301,7 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event sink, the
     /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink_raw_endpoint<S>(
-        &mut self,
-        sink: S,
-        name: impl Into<String>,
-    ) -> Result<(), S>
+    pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
     where
         S: EventSinkReader + Send + Sync + 'static,
         S::Item: Serialize,
@@ -335,11 +331,10 @@ impl SimInit {
     }
 
     /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`] method on all
-    /// model initializers.
+    /// executing the [`Model::init`] method on all model initializers.
     ///
-    /// The simulation object is returned upon success.
-    pub fn init(
+    /// The simulation object and endpoints registry are returned upon success.
+    pub fn init_with_registry(
         mut self,
         start_time: MonotonicTime,
     ) -> Result<(Simulation, EndpointRegistry), SimulationError> {
@@ -362,9 +357,16 @@ impl SimInit {
         Ok((simulation, endpoint_registry))
     }
 
-    /// Restores a simulation from a previously persisted state.
-    /// executing the [`Model::restore`] method on
-    /// all registered models.
+    /// Builds a simulation initialized at the specified simulation time,
+    /// executing the [`Model::init`] method on all model initializers.
+    ///
+    /// The simulation object is returned upon success.
+    pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
+        Ok(self.init_with_registry(start_time)?.0)
+    }
+
+    /// Restores a simulation from a previously persisted state, executing the
+    /// [`Model::restore`] method on all registered models.
     ///
     /// The simulation object is returned upon success.
     pub fn restore<R: std::io::Read>(

@@ -220,8 +220,7 @@ fn main() -> Result<(), SimulationError> {
     let mut simu = SimInit::new()
         .add_model(listener, listener_mbox, "listener")
         .set_clock(AutoSystemClock::new())
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     // ----------
     // Simulation.
