@@ -27,15 +27,14 @@ impl MonitorService {
             } => move || -> Result<Vec<Vec<u8>>, Error> {
                 let sink_name = &request.sink_name;
 
-                let mut sink =
-                    event_sink_registry
-                        .lock()
-                        .unwrap()
-                        .get(sink_name)
-                        .ok_or(to_error(
-                            ErrorCode::SinkNotFound,
-                            format!("no sink is registered with the name '{sink_name}'"),
-                        ))?;
+                let mut sink = event_sink_registry
+                    .lock()
+                    .unwrap()
+                    .get_cloned(sink_name)
+                    .ok_or(to_error(
+                        ErrorCode::SinkNotFound,
+                        format!("no sink is registered with the name '{sink_name}'"),
+                    ))?;
 
                 sink.collect().map_err(|e| {
                     to_error(
@@ -71,15 +70,14 @@ impl MonitorService {
             } => move || -> Result<Vec<u8>, Error> {
                 let sink_name = &request.sink_name;
 
-                let mut sink =
-                    event_sink_registry
-                        .lock()
-                        .unwrap()
-                        .get(sink_name)
-                        .ok_or(to_error(
-                            ErrorCode::SinkNotFound,
-                            format!("no sink is registered with the name '{sink_name}'"),
-                        ))?;
+                let mut sink = event_sink_registry
+                    .lock()
+                    .unwrap()
+                    .get_cloned(sink_name)
+                    .ok_or(to_error(
+                        ErrorCode::SinkNotFound,
+                        format!("no sink is registered with the name '{sink_name}'"),
+                    ))?;
 
                 let timeout = request.timeout.map_or(Ok(Duration::ZERO), |timeout| {
                     to_positive_duration(timeout).ok_or(to_error(

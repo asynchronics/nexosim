@@ -12,9 +12,8 @@ use super::{map_simulation_error, timestamp_to_monotonic, to_error};
 
 use super::super::codegen::simulation::*;
 
-pub(crate) type InitResult = (SimInit, EndpointRegistry);
 type DeserializationError = ciborium::de::Error<std::io::Error>;
-type SimGen = Box<dyn FnMut(&[u8]) -> Result<InitResult, DeserializationError> + Send + 'static>;
+type SimGen = Box<dyn FnMut(&[u8]) -> Result<SimInit, DeserializationError> + Send + 'static>;
 
 /// Protobuf-based simulation initializer.
 ///
@@ -33,11 +32,11 @@ impl InitService {
     /// registry that exposes the public event and query interface.
     pub(crate) fn new<F, I>(mut sim_gen: F) -> Self
     where
-        F: FnMut(I) -> InitResult + Send + 'static,
+        F: FnMut(I) -> SimInit + Send + 'static,
         I: DeserializeOwned,
     {
         // Wrap `sim_gen` so it accepts a serialized init configuration.
-        let sim_gen = move |serialized_cfg: &[u8]| -> Result<InitResult, DeserializationError> {
+        let sim_gen = move |serialized_cfg: &[u8]| -> Result<SimInit, DeserializationError> {
             let cfg = ciborium::from_reader(serialized_cfg)?;
 
             Ok(sim_gen(cfg))
@@ -66,12 +65,7 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&request.cfg).map(|(mut sim_init, mut registry)| {
-                registry
-                    .event_source_registry
-                    .register_scheduler(sim_init.scheduler_registry());
-                sim_init.init(start_time).map(|simu| (simu, registry))
-            })
+            (self.sim_gen)(&request.cfg).map(|sim_init| sim_init.init_with_registry(start_time))
         }))
         .map_err(map_panic)
         .and_then(map_init_error);
@@ -118,14 +112,7 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&cfg).map(|(mut sim_init, mut registry)| {
-                registry
-                    .event_source_registry
-                    .register_scheduler(sim_init.scheduler_registry());
-                sim_init
-                    .restore(&request.state[..])
-                    .map(|simu| (simu, registry))
-            })
+            (self.sim_gen)(&cfg).map(|sim_init| sim_init.restore(&request.state[..]))
         }))
         .map_err(map_panic)
         .and_then(map_init_error);
@@ -186,15 +173,10 @@ pub fn init_bench<F, I>(
     start_time: MonotonicTime,
 ) -> Result<(Simulation, EndpointRegistry), SimulationError>
 where
-    F: FnMut(I) -> InitResult + Send + 'static,
+    F: FnMut(I) -> SimInit + Send + 'static,
     I: DeserializeOwned,
 {
-    let (mut sim_init, mut endpoint_registry) = sim_gen(cfg);
-    endpoint_registry
-        .event_source_registry
-        .register_scheduler(sim_init.scheduler_registry());
-    let simulation = sim_init.init(start_time)?;
-    Ok((simulation, endpoint_registry))
+    sim_gen(cfg).init_with_registry(start_time)
 }
 
 /// Allows restoring a previously saved server simulation and continuing it's
@@ -211,7 +193,7 @@ pub fn restore_bench<F, I>(
     cfg: Option<I>,
 ) -> Result<(Simulation, EndpointRegistry), SimulationError>
 where
-    F: FnMut(I) -> InitResult + Send + 'static,
+    F: FnMut(I) -> SimInit + Send + 'static,
     I: DeserializeOwned,
 {
     let cfg = match cfg {
@@ -224,10 +206,5 @@ where
         }
     };
 
-    let (mut sim_init, mut endpoint_registry) = sim_gen(cfg);
-    endpoint_registry
-        .event_source_registry
-        .register_scheduler(sim_init.scheduler_registry());
-    let simulation = sim_init.restore(state)?;
-    Ok((simulation, endpoint_registry))
+    sim_gen(cfg).restore(state)
 }

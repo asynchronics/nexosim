@@ -497,3 +497,22 @@ async fn deserialize_model<M: Model>(
     let _ = std::mem::replace(model, restored);
     Ok(())
 }
+
+/// Type alias for the generated schema type.
+pub type MessageSchema = String;
+
+/// An optional helper trait for event and query input / output arguments.
+/// Enables json schema generation to precisely describe the types of exchanged
+/// data.
+pub trait Message {
+    /// Returns a schema defining message type.
+    fn schema() -> MessageSchema;
+}
+impl<T> Message for T
+where
+    T: crate::JsonSchema,
+{
+    fn schema() -> MessageSchema {
+        schemars::schema_for!(T).as_value().to_string()
+    }
+}

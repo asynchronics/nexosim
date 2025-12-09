@@ -149,7 +149,7 @@ fn main() -> Result<(), SimulationError> {
         .add_model(sensor, sensor_mbox, "sensor")
         .add_model(env, env_mbox, "env");
 
-    let set_temp_id = bench.register_input(Env::set_temp, env_addr);
+    let set_temp_id = bench.link_input(Env::set_temp, env_addr);
 
     let mut simu = bench.init(t0)?;
     let scheduler = simu.scheduler();

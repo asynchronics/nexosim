@@ -89,7 +89,7 @@ fn no_input_from_scheduler(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
     let mut bench = SimInit::with_num_threads(num_threads);
 
-    let source_id = bench.register_input(TestModel::activate_output, &bad_mbox);
+    let source_id = bench.link_input(TestModel::activate_output, &bad_mbox);
     drop(bad_mbox);
 
     let mut simu = bench.init(t0).unwrap();

@@ -7,8 +7,9 @@ use serde::{de::DeserializeOwned, Serialize};
 
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
-use crate::model::{Model, ProtoModel, RegisteredModel};
-use crate::ports::{EventSource, InputFn};
+use crate::model::{Message, Model, ProtoModel, RegisteredModel};
+use crate::ports::{EventSinkReader, EventSource, InputFn, QuerySource};
+use crate::registry::EndpointRegistry;
 use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
 use crate::util::sync_cell::SyncCell;
 
@@ -24,6 +25,7 @@ pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     scheduler_registry: SchedulerSourceRegistry,
+    endpoint_registry: EndpointRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
     is_resumed: Arc<AtomicBool>,
@@ -73,6 +75,7 @@ impl SimInit {
             executor,
             scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
             scheduler_registry: SchedulerSourceRegistry::default(),
+            endpoint_registry: EndpointRegistry::default(),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
             is_resumed: Arc::new(AtomicBool::new(false)),
@@ -194,7 +197,7 @@ impl SimInit {
     }
 
     /// Registers `EventSource<T>` as schedulable.
-    pub fn register_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -202,7 +205,7 @@ impl SimInit {
     }
 
     /// Registers single model input as a schedulable event source.
-    pub fn register_input<M, F, S, T>(
+    pub fn link_input<M, F, S, T>(
         &mut self,
         input: F,
         address: impl Into<Address<M>>,
@@ -217,27 +220,124 @@ impl SimInit {
         self.scheduler_registry.add(source)
     }
 
-    fn build(self) -> Simulation {
-        Simulation::new(
-            self.executor,
-            self.scheduler_queue,
-            self.scheduler_registry,
-            self.time,
-            self.clock,
-            self.clock_tolerance,
-            self.timeout,
-            self.observers,
-            self.registered_models,
-            self.is_halted,
-        )
+    /// Adds an event source to the endpoint registry.
+    ///
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
+    pub fn add_event_source<T>(
+        &mut self,
+        source: EventSource<T>,
+        name: impl Into<String>,
+    ) -> Result<(), EventSource<T>>
+    where
+        T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        self.endpoint_registry.add_event_source(source, name)
+    }
+
+    /// Adds an event source to the endpoint registry without requiring a
+    /// `Message` implementation for its item type.
+    ///
+    /// If the specified name is already in use for another event source, the
+    /// source provided as argument is returned in the error.
+    pub fn add_event_source_raw<T>(
+        &mut self,
+        source: EventSource<T>,
+        name: impl Into<String>,
+    ) -> Result<(), EventSource<T>>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        self.endpoint_registry.add_event_source_raw(source, name)
+    }
+
+    /// Adds a query source to the endpoint registry.
+    ///
+    /// If the specified name is already in use for another query source, the
+    /// source provided as argument is returned in the error.
+    pub fn add_query_source<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+    ) -> Result<(), QuerySource<T, R>>
+    where
+        T: Message + DeserializeOwned + Clone + Send + 'static,
+        R: Message + Serialize + Send + 'static,
+    {
+        self.endpoint_registry.add_query_source(source, name)
+    }
+
+    /// Adds a query source to the endpoint registry without requiring `Message`
+    /// implementations for its query and response types.
+    ///
+    /// If the specified name is already in use for another query source, the
+    /// source provided as argument is returned in the error.
+    pub fn add_query_source_raw<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: impl Into<String>,
+    ) -> Result<(), QuerySource<T, R>>
+    where
+        T: DeserializeOwned + Clone + Send + 'static,
+        R: Serialize + Send + 'static,
+    {
+        self.endpoint_registry.add_query_source_raw(source, name)
+    }
+
+    /// Adds an event sink to the endpoint registry.
+    ///
+    /// If the specified name is already in use for another event sink, the
+    /// event sink provided as argument is returned in the error.
+    pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    where
+        S: EventSinkReader + Send + Sync + 'static,
+        S::Item: Message + Serialize,
+    {
+        self.endpoint_registry.add_event_sink(sink, name)
+    }
+
+    /// Adds an event sink to the endpoint registry without requiring a
+    /// `Message` implementation for its item type.
+    ///
+    /// If the specified name is already in use for another event sink, the
+    /// event sink provided as argument is returned in the error.
+    pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    where
+        S: EventSinkReader + Send + Sync + 'static,
+        S::Item: Serialize,
+    {
+        self.endpoint_registry.add_event_sink_raw(sink, name)
+    }
+
+    fn build(self) -> (Simulation, EndpointRegistry) {
+        let (mut simulation, mut endpoint_registry) = (
+            Simulation::new(
+                self.executor,
+                self.scheduler_queue,
+                self.scheduler_registry,
+                self.time,
+                self.clock,
+                self.clock_tolerance,
+                self.timeout,
+                self.observers,
+                self.registered_models,
+                self.is_halted,
+            ),
+            self.endpoint_registry,
+        );
+        endpoint_registry.register_scheduler(&mut simulation.scheduler_registry);
+
+        (simulation, endpoint_registry)
     }
 
     /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`] method on all
-    /// model initializers.
+    /// executing the [`Model::init`] method on all model initializers.
     ///
-    /// The simulation object is returned upon success.
-    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
+    /// The simulation object and endpoints registry are returned upon success.
+    pub fn init_with_registry(
+        mut self,
+        start_time: MonotonicTime,
+    ) -> Result<(Simulation, EndpointRegistry), SimulationError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
@@ -248,25 +348,35 @@ impl SimInit {
         }
 
         let callback = self.post_init_callback.take();
-        let mut simulation = self.build();
+        let (mut simulation, endpoint_registry) = self.build();
         if let Some(mut callback) = callback {
             callback(&mut simulation)?;
         }
         simulation.run()?;
 
-        Ok(simulation)
+        Ok((simulation, endpoint_registry))
     }
 
-    /// Restores a simulation from a previously persisted state.
-    /// executing the [`Model::restore`] method on
-    /// all registered models.
+    /// Builds a simulation initialized at the specified simulation time,
+    /// executing the [`Model::init`] method on all model initializers.
     ///
     /// The simulation object is returned upon success.
-    pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
+    pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
+        Ok(self.init_with_registry(start_time)?.0)
+    }
+
+    /// Restores a simulation from a previously persisted state, executing the
+    /// [`Model::restore`] method on all registered models.
+    ///
+    /// The simulation object is returned upon success.
+    pub fn restore<R: std::io::Read>(
+        mut self,
+        state: R,
+    ) -> Result<(Simulation, EndpointRegistry), SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();
-        let mut simulation = self.build();
+        let (mut simulation, endpoint_registry) = self.build();
 
         simulation.restore(state)?;
 
@@ -276,12 +386,7 @@ impl SimInit {
         // TODO should run?
         simulation.run()?;
 
-        Ok(simulation)
-    }
-
-    #[cfg(feature = "server")]
-    pub(crate) fn scheduler_registry(&mut self) -> &mut SchedulerSourceRegistry {
-        &mut self.scheduler_registry
+        Ok((simulation, endpoint_registry))
     }
 }
 

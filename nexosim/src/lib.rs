@@ -496,23 +496,19 @@ mod loom_exports;
 pub(crate) mod macros;
 pub mod model;
 pub mod ports;
-pub mod simulation;
-pub mod time;
-pub(crate) mod util;
-
-#[cfg(feature = "server")]
 pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
-
+pub mod simulation;
+pub mod time;
 #[cfg(feature = "tracing")]
 pub mod tracing;
+pub(crate) mod util;
 
 #[cfg(feature = "dev-hooks")]
 #[doc(hidden)]
 pub mod dev_hooks;
 
-#[cfg(feature = "server")]
-pub use nexosim_macros::Message;
-#[cfg(feature = "server")]
-pub use schemars::JsonSchema;
+pub use nexosim_macros::{self, Message};
+#[doc(hidden)]
+pub use schemars::{self, JsonSchema};

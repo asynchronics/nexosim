@@ -903,6 +903,7 @@ impl fmt::Display for ExecutionError {
 impl Error for ExecutionError {}
 
 /// An error returned upon simulation execution or scheduling failure.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum SimulationError {
     /// The execution of the simulation failed.

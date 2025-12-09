@@ -46,7 +46,7 @@ fn clock_sync(
         .set_clock(clock)
         .set_clock_tolerance(clock_tolerance);
 
-    let source_id = bench.register_input(TestModel::block_for, &addr);
+    let source_id = bench.link_input(TestModel::block_for, &addr);
 
     let mut simu = bench.init(t0).unwrap();
 
