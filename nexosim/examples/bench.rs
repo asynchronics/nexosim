@@ -7,7 +7,8 @@
 //! * model initialization,
 //! * simulation monitoring,
 //! * bench construction,
-//! * end points registry.
+//! * end points registry,
+//! * serialization.
 //!
 //! ```text
 //!                                                   flow rate
@@ -36,14 +37,22 @@
 use std::time::Duration;
 
 use nexosim::ports::{EventQueue, EventSlot, EventSource, QuerySource};
-use nexosim::simulation::{Mailbox, SimInit, SimulationError, SourceId};
+use nexosim::registry::EndpointRegistry;
+use nexosim::simulation::{Mailbox, SimInit, Simulation, SimulationError, SourceId};
 use nexosim::time::MonotonicTime;
 
 mod espresso_machine;
 
 pub use espresso_machine::{Controller, Pump, Tank};
 
-pub fn bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> SimInit {
+// The constant mass flow rate assumption is of course a gross
+// simplification, so the flow rate is set to an expected average over the
+// whole extraction [m³·s⁻¹].
+const PUMP_FLOW_RATE: f64 = 4.5e-6;
+// Start with 1.5l in the tank [m³].
+const INIT_TANK_VOLUME: f64 = 1.5e-3;
+
+pub fn get_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> SimInit {
     // Models.
     let mut pump = Pump::new(pump_flow_rate);
     let mut controller = Controller::new();
@@ -111,19 +120,11 @@ pub fn bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> SimInit {
     bench
 }
 
-fn main() -> Result<(), SimulationError> {
-    // The constant mass flow rate assumption is of course a gross
-    // simplification, so the flow rate is set to an expected average over the
-    // whole extraction [m³·s⁻¹].
-    let pump_flow_rate = 4.5e-6;
-    // Start with 1.5l in the tank [m³].
-    let init_tank_volume = 1.5e-3;
-
-    let bench = bench((pump_flow_rate, init_tank_volume));
-
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
-    let (mut simu, registry) = bench.init_with_registry(t0)?;
+fn rest_of_simulation(
+    mut simu: Simulation,
+    registry: EndpointRegistry,
+    mut t: MonotonicTime,
+) -> Result<(), SimulationError> {
     let scheduler = simu.scheduler();
 
     // Sinks used in simulation.
@@ -138,33 +139,17 @@ fn main() -> Result<(), SimulationError> {
     // Source IDs for scheduling.
     let brew_source_id: SourceId<()> = registry.get_event_source_id("brew_cmd").unwrap();
 
-    // ----------
-    // Simulation.
-    // ----------
-
-    // Check initial conditions.
-    let mut t = t0;
-    assert_eq!(simu.time(), t);
-
-    // Brew one espresso shot with the default brew time.
-    simu.process_action(brew_cmd.action(()))?;
-    assert_eq!(flow_rate.next(), Some(pump_flow_rate));
-
-    simu.step()?;
-    t += Controller::DEFAULT_BREW_TIME;
-    assert_eq!(simu.time(), t);
-    assert_eq!(flow_rate.next(), Some(0.0));
-
+    // Check volume.
     let (volume_action, mut volume_reply) = volume.query(());
     simu.process_action(volume_action)?;
     assert_eq!(volume_reply.take().unwrap().next(), Some(0.0013875));
 
     // Drink too much coffee.
-    let volume_per_shot = pump_flow_rate * Controller::DEFAULT_BREW_TIME.as_secs_f64();
-    let shots_per_tank = (init_tank_volume / volume_per_shot) as u64; // YOLO--who cares about floating-point rounding errors?
+    let volume_per_shot = PUMP_FLOW_RATE * Controller::DEFAULT_BREW_TIME.as_secs_f64();
+    let shots_per_tank = (INIT_TANK_VOLUME / volume_per_shot) as u64; // YOLO--who cares about floating-point rounding errors?
     for _ in 0..(shots_per_tank - 1) {
         simu.process_action(brew_cmd.action(()))?;
-        assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+        assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
         simu.step()?;
         t += Controller::DEFAULT_BREW_TIME;
         assert_eq!(simu.time(), t);
@@ -190,7 +175,7 @@ fn main() -> Result<(), SimulationError> {
     simu.process_action(brew_time.action(brew_t))?;
     simu.process_action(fill.action(1.0e-3))?;
     simu.process_action(brew_cmd.action(()))?;
-    assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+    assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
     t += brew_t;
@@ -202,7 +187,7 @@ fn main() -> Result<(), SimulationError> {
         .schedule_event(Duration::from_secs(15), &brew_source_id, ())
         .unwrap();
     simu.process_action(brew_cmd.action(()))?;
-    assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+    assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
     t += Duration::from_secs(15);
@@ -210,4 +195,46 @@ fn main() -> Result<(), SimulationError> {
     assert_eq!(flow_rate.next(), Some(0.0));
 
     Ok(())
+}
+
+fn main() -> Result<(), SimulationError> {
+    let bench = get_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME));
+
+    // Start time (arbitrary since models do not depend on absolute time).
+    let t0 = MonotonicTime::EPOCH;
+    let (mut simu, registry) = bench.init_with_registry(t0)?;
+
+    // Sinks used in simulation.
+    let mut flow_rate: EventSlot<f64> = registry.get_sink("flow_rate").unwrap();
+
+    // Sources used in simulation.
+    let brew_cmd: &EventSource<()> = registry.get_event_source("brew_cmd").unwrap();
+
+    // ----------
+    // Simulation.
+    // ----------
+
+    // Check initial conditions.
+    let mut t = t0;
+    assert_eq!(simu.time(), t);
+
+    // Brew one espresso shot with the default brew time.
+    simu.process_action(brew_cmd.action(()))?;
+    assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
+
+    simu.step()?;
+    t += Controller::DEFAULT_BREW_TIME;
+    assert_eq!(simu.time(), t);
+    assert_eq!(flow_rate.next(), Some(0.0));
+
+    let saved_time = simu.time();
+    let mut state = Vec::new();
+    simu.save(&mut state)?;
+
+    // Run the rest of the simulation twice: the second time from the saved
+    // state.
+    rest_of_simulation(simu, registry, t)?;
+
+    let (simu, registry) = get_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME)).restore(&state[..])?;
+    rest_of_simulation(simu, registry, saved_time)
 }
