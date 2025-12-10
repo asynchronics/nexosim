@@ -82,3 +82,82 @@ impl Deadline for MonotonicTime {
         self
     }
 }
+
+/// A cloneable clock reader, tracking current simulation time.
+///
+/// Note: it is discouraged to query the time before simulation is
+/// initialized as the returned value will have no useful meaning.
+#[derive(Clone)]
+pub struct ClockReader(AtomicTimeReader);
+impl ClockReader {
+    pub(crate) fn from_atomic_time_reader(reader: &AtomicTimeReader) -> Self {
+        Self(reader.clone())
+    }
+    /// Returns current simulation time.
+    ///
+    /// Note: it is discouraged to call this before simulation is initialized
+    /// as the returned value will have no useful meaning.
+    pub fn time(&self) -> MonotonicTime {
+        self.0.read()
+    }
+}
+impl std::fmt::Debug for ClockReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClockReader").finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use serde::{Deserialize, Serialize};
+
+    use crate::{
+        self as nexosim,
+        model::Model,
+        simulation::{Mailbox, SimInit},
+    };
+
+    use super::*;
+
+    #[derive(Serialize, Deserialize)]
+    struct TestModel;
+    #[Model]
+    impl TestModel {
+        fn input(&mut self) {}
+    }
+
+    fn test_clock_reader(num_threads: usize) {
+        let model = TestModel;
+        let mbox = Mailbox::new();
+        let addr = mbox.address();
+
+        let t0 = MonotonicTime::EPOCH;
+        let mut bench = SimInit::with_num_threads(num_threads).add_model(model, mbox, "test");
+
+        let source_id = bench.link_input(TestModel::input, &addr);
+        let reader = bench.clock_reader();
+
+        let mut simu = bench.init(t0).unwrap();
+        let scheduler = simu.scheduler();
+
+        scheduler
+            .schedule_event(Duration::from_millis(500), &source_id, ())
+            .unwrap();
+
+        assert_eq!(reader.time(), simu.time());
+        simu.step().unwrap();
+        assert_eq!(reader.time(), simu.time());
+    }
+
+    #[test]
+    fn clock_reader_st() {
+        test_clock_reader(1);
+    }
+
+    #[test]
+    fn clock_reader_mt() {
+        test_clock_reader(4);
+    }
+}

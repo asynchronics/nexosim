@@ -10,7 +10,9 @@ use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, Model, ProtoModel, RegisteredModel};
 use crate::ports::{EventSinkReader, EventSource, InputFn, QuerySource};
 use crate::registry::EndpointRegistry;
-use crate::time::{AtomicTime, Clock, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime};
+use crate::time::{
+    AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime,
+};
 use crate::util::sync_cell::SyncCell;
 
 use super::{
@@ -151,6 +153,12 @@ impl SimInit {
         self.clock_tolerance = Some(tolerance);
 
         self
+    }
+
+    /// Returns a clock reader instance, allowing to track simulation
+    /// time (once it is initialized).
+    pub fn clock_reader(&self) -> ClockReader {
+        ClockReader::from_atomic_time_reader(&self.time.reader())
     }
 
     /// Sets a timeout for the call to [`SimInit::init`] and for any subsequent
