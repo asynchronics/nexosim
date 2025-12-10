@@ -613,14 +613,14 @@ impl Simulation {
             .collect::<Result<Vec<_>, ExecutionError>>()?;
 
         bincode::serde::encode_to_vec(&queue, serialization_config())
-            .map_err(|_| ExecutionError::SaveError("Scheduler Queue".to_string()))
+            .map_err(|e| SaveError::SchedulerQueueEncodeError(e).into())
     }
 
     /// Restores the scheduler queue from the serialized state.
     fn restore_queue(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
         let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
             bincode::serde::decode_from_slice(state, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("Scheduler Queue".to_string()))?
+                .map_err(RestoreError::SchedulerQueueDecodeError)?
                 .0;
 
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
@@ -646,7 +646,7 @@ impl Simulation {
             cfg: None,
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
-            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+            .map_err(|e| SaveError::SimulationStateEncodeError(e).into())
     }
 
     /// Serializes simulation state together with CBOR serialized SimGen
@@ -664,7 +664,7 @@ impl Simulation {
             cfg: Some(serialized_cfg),
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
-            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+            .map_err(|e| SaveError::SimulationStateEncodeError(e).into())
     }
 
     /// Persists a serialized simulation state together with a SimGen
@@ -676,9 +676,8 @@ impl Simulation {
         writer: &mut W,
     ) -> Result<usize, ExecutionError> {
         let mut serialized_cfg = Vec::new();
-        ciborium::into_writer(&cfg, &mut serialized_cfg).map_err(|_| {
-            ExecutionError::SaveError("Config serialization has failed!".to_string())
-        })?;
+        ciborium::into_writer(&cfg, &mut serialized_cfg)
+            .map_err(SaveError::ConfigSerializationError)?;
         self.save_with_serialized_cfg(serialized_cfg, writer)
     }
 
@@ -688,12 +687,12 @@ impl Simulation {
         EVENT_KEY_REG.set(&event_key_reg, || {
             let state: SimulationState =
                 bincode::serde::decode_from_std_read(&mut state, serialization_config())
-                    .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
+                    .map_err(RestoreError::SimulationStateDecodeError)?;
 
             self.time.write(state.time);
             self.restore_models(state.models, &event_key_reg)?;
             self.restore_queue(&state.scheduler_queue)?;
-            Ok(())
+            Ok::<_, ExecutionError>(())
         })?;
         Ok(())
     }
@@ -705,7 +704,7 @@ impl Simulation {
     ) -> Result<Option<Vec<u8>>, ExecutionError> {
         let state: SimulationState =
             bincode::serde::decode_from_std_read(&mut state, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
+                .map_err(RestoreError::SimulationStateDecodeError)?;
         Ok(state.cfg)
     }
 }
@@ -738,6 +737,130 @@ pub struct DeadlockInfo {
     /// Number of messages in the mailbox.
     pub mailbox_size: usize,
 }
+
+/// An error returned upon failure during simulation state store procedure.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum SaveError {
+    #[cfg(feature = "server")]
+    /// Cbor serialization of the simulation's config has failed.
+    ConfigSerializationError(ciborium::ser::Error<std::io::Error>),
+    /// Failed attempt to binary encode model's state.
+    ModelEncodeError {
+        /// The fully qualified name of the model.
+        name: String,
+        /// Type name of the model.
+        type_name: &'static str,
+        /// `bincode` encoding error details.
+        encoding_error: bincode::error::EncodeError,
+    },
+    /// Failed attempt to binary encode an event.
+    EventEncodeError(usize, bincode::error::EncodeError),
+    /// Failed attempt to binary encode the scheduler queue.
+    SchedulerQueueEncodeError(bincode::error::EncodeError),
+    /// Failed attempt to binary encode the complete simulation state.
+    SimulationStateEncodeError(bincode::error::EncodeError),
+    /// Failed attempt to save an event with an unknown id.
+    EventNotFound(usize),
+    /// Argument data downcasting to a concrete type has failed.
+    ArgumentTypeMismatch(&'static str),
+    /// Failed attempt to binary encode an event argument.
+    ArgumentEncodeError(&'static str, bincode::error::EncodeError),
+}
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            #[cfg(feature = "server")]
+            Self::ConfigSerializationError(e) => e.fmt(f),
+            Self::ModelEncodeError {
+                name,
+                type_name,
+                encoding_error,
+            } => write!(
+                f,
+                "cannot encode model {name}: {type_name}. Error: {encoding_error}"
+            ),
+            Self::EventEncodeError(id, e) => write!(f, "cannot encode event {id}. Error: {e}"),
+            Self::SchedulerQueueEncodeError(e) | Self::SimulationStateEncodeError(e) => e.fmt(f),
+            Self::EventNotFound(id) => write!(f, "serialized event (id {id}) cannot be found"),
+            Self::ArgumentTypeMismatch(type_name) => write!(
+                f,
+                "type mismatch while casting event argument, expected: {type_name}"
+            ),
+            Self::ArgumentEncodeError(type_name, e) => {
+                write!(f, "cannot encode event arg, type: {type_name}. Error: {e}")
+            }
+        }
+    }
+}
+impl Error for SaveError {}
+
+/// An error returned upon failure during simulation restore from a saved state.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum RestoreError {
+    /// Simulation config is not found in the restored state data.
+    ConfigMissing,
+    /// Failed attempt to binary decode model's state.
+    ModelDecodeError {
+        /// The fully qualified name of the model.
+        name: String,
+        /// Type name of the model.
+        type_name: &'static str,
+        /// `bincode` decoding error details.
+        decoding_error: bincode::error::DecodeError,
+    },
+    /// Failed attempt to binary encode model's state.
+    ModelEncodeError {
+        /// The fully qualified name of the model.
+        name: String,
+        /// Type name of the model.
+        type_name: &'static str,
+        /// `bincode` encoding error details.
+        encoding_error: bincode::error::EncodeError,
+    },
+    /// Failed attempt to binary decode an event.
+    EventDecodeError(bincode::error::DecodeError),
+    /// Failed attempt to binary decode the scheduler queue.
+    SchedulerQueueDecodeError(bincode::error::DecodeError),
+    /// Failed attempt to binary decode the complete simulation state.
+    SimulationStateDecodeError(bincode::error::DecodeError),
+    /// Failed attempt to restore an event with an unknown id.
+    EventNotFound(usize),
+    /// Failed attempt to binary decode an event argument.
+    ArgumentDecodeError(&'static str, bincode::error::DecodeError),
+}
+impl fmt::Display for RestoreError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ConfigMissing => f.write_str("simulation config is missing"),
+            Self::ModelDecodeError {
+                name,
+                type_name,
+                decoding_error,
+            } => write!(
+                f,
+                "cannot decode model {name}: {type_name}. Error: {decoding_error}"
+            ),
+            Self::ModelEncodeError {
+                name,
+                type_name,
+                encoding_error,
+            } => write!(
+                f,
+                "cannot encode model {name}: {type_name}. Error: {encoding_error}"
+            ),
+            Self::EventDecodeError(e)
+            | Self::SchedulerQueueDecodeError(e)
+            | Self::SimulationStateDecodeError(e) => e.fmt(f),
+            Self::EventNotFound(id) => write!(f, "deserialized event (id {id}) cannot be found"),
+            Self::ArgumentDecodeError(type_name, e) => {
+                write!(f, "cannot decode event arg, type: {type_name}. Error: {e}")
+            }
+        }
+    }
+}
+impl Error for RestoreError {}
 
 /// An error returned upon simulation execution failure.
 #[non_exhaustive]
@@ -826,9 +949,9 @@ pub enum ExecutionError {
     /// Non-existent SourceId has been used.
     InvalidEvent(usize),
     /// Simulation serialization has failed.
-    SaveError(String),
+    SaveError(SaveError),
     /// Simulation deserialization has failed.
-    RestoreError(String),
+    RestoreError(RestoreError),
 }
 
 impl fmt::Display for ExecutionError {
@@ -901,6 +1024,18 @@ impl fmt::Display for ExecutionError {
 }
 
 impl Error for ExecutionError {}
+
+impl From<SaveError> for ExecutionError {
+    fn from(e: SaveError) -> Self {
+        Self::SaveError(e)
+    }
+}
+
+impl From<RestoreError> for ExecutionError {
+    fn from(e: RestoreError) -> Self {
+        Self::RestoreError(e)
+    }
+}
 
 /// An error returned upon simulation execution or scheduling failure.
 #[non_exhaustive]

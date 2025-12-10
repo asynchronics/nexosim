@@ -266,13 +266,7 @@ impl ControllerService {
         };
 
         let mut state = Vec::new();
-        let result = simulation
-            .save_with_serialized_cfg(cfg.clone(), &mut state)
-            .map_err(|_| {
-                crate::simulation::ExecutionError::SaveError(
-                    "Simulation config serialization has failed.".to_string(),
-                )
-            });
+        let result = simulation.save_with_serialized_cfg(cfg.clone(), &mut state);
 
         let result = match result {
             Err(e) => save_reply::Result::Error(map_execution_error(e)),
