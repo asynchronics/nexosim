@@ -11,7 +11,7 @@ use crate::simulation::{
     self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulerSourceRegistry,
     SchedulingError, SourceId, SourceIdErased,
 };
-use crate::time::{Deadline, MonotonicTime};
+use crate::time::{ClockReader, Deadline, MonotonicTime};
 
 use super::{Model, ProtoModel, RegisteredModel};
 
@@ -558,6 +558,12 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             self.registered_models,
             self.is_resumed.clone(),
         );
+    }
+
+    /// Returns a clock reader instance, allowing to track simulation
+    /// time (once it is initialized).
+    pub fn clock_reader(&self) -> ClockReader {
+        self.scheduler.clock_reader()
     }
 }
 

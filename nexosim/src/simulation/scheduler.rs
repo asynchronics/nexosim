@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::simulation::events::{Event, EventKey, SourceId};
-use crate::time::{AtomicTimeReader, Deadline, MonotonicTime};
+use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
 #[cfg(all(test, not(nexosim_loom)))]
@@ -258,6 +258,10 @@ impl GlobalScheduler {
         // concurrently. The chances of this happening are very small since
         // simulation time is not changed frequently.
         self.time.read()
+    }
+
+    pub(crate) fn clock_reader(&self) -> ClockReader {
+        ClockReader::from_atomic_time_reader(&self.time)
     }
 
     /// Schedules an event identified by its origin at a future time.
