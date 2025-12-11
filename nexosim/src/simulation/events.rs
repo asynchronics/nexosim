@@ -288,7 +288,9 @@ impl Event {
     ) -> Result<Vec<u8>, ExecutionError> {
         let source = registry
             .get(&self.source_id)
-            .ok_or(SaveError::EventNotFound(self.source_id.0))?;
+            .ok_or(SaveError::EventNotFound {
+                source_id: self.source_id.0,
+            })?;
         let arg = source.serialize_arg(&*self.arg)?;
 
         bincode::serde::encode_to_vec(
@@ -300,7 +302,13 @@ impl Event {
             },
             serialization_config(),
         )
-        .map_err(|e| SaveError::EventEncodeError(self.source_id.0, e).into())
+        .map_err(|e| {
+            SaveError::EventSerializationError {
+                source_id: self.source_id.0,
+                cause: Box::new(e),
+            }
+            .into()
+        })
     }
 
     pub(crate) fn deserialize(
@@ -309,12 +317,14 @@ impl Event {
     ) -> Result<Self, ExecutionError> {
         let mut event: SerializableEvent =
             bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(RestoreError::EventDecodeError)?
+                .map_err(|e| RestoreError::EventDeserializationError { cause: Box::new(e) })?
                 .0;
 
         let source = registry
             .get(&event.source_id)
-            .ok_or(RestoreError::EventNotFound(event.source_id.0))?;
+            .ok_or(RestoreError::EventNotFound {
+                source_id: event.source_id.0,
+            })?;
         let arg = source.deserialize_arg(&event.arg)?;
 
         Ok(Self {
@@ -340,16 +350,26 @@ fn serialize_event_arg<T: Serialize + Send + 'static>(
 ) -> Result<Vec<u8>, ExecutionError> {
     let value = arg
         .downcast_ref::<T>()
-        .ok_or(SaveError::ArgumentTypeMismatch(type_name::<T>()))?;
-    bincode::serde::encode_to_vec(value, serialization_config())
-        .map_err(|e| SaveError::ArgumentEncodeError(type_name::<T>(), e).into())
+        .ok_or(SaveError::ArgumentTypeMismatch {
+            type_name: type_name::<T>(),
+        })?;
+    bincode::serde::encode_to_vec(value, serialization_config()).map_err(|e| {
+        SaveError::ArgumentSerializationError {
+            type_name: type_name::<T>(),
+            cause: Box::new(e),
+        }
+        .into()
+    })
 }
 fn deserialize_event_arg<T: DeserializeOwned + Send + 'static>(
     arg: &[u8],
 ) -> Result<Box<dyn Any + Send>, ExecutionError> {
     Ok(Box::new(
         bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
-            .map_err(|e| RestoreError::ArgumentDecodeError(type_name::<T>(), e))?
+            .map_err(|e| RestoreError::ArgumentDeserializationError {
+                type_name: type_name::<T>(),
+                cause: Box::new(e),
+            })?
             .0,
     ))
 }

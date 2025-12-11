@@ -465,10 +465,10 @@ impl std::fmt::Debug for RegisteredModel {
 async fn serialize_model<M: Model>(model: &mut M, name: String) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config()).map_err(|e| {
         {
-            SaveError::ModelEncodeError {
+            SaveError::ModelSerializationError {
                 name,
                 type_name: type_name::<M>(),
-                encoding_error: e,
+                cause: Box::new(e),
             }
         }
         .into()
@@ -485,17 +485,17 @@ async fn deserialize_model<M: Model>(
         .set(&Mutex::new(VecDeque::new()), || {
             EVENT_KEY_REG.set(&state.1, || {
                 bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|e| {
-                    RestoreError::ModelEncodeError {
+                    RestoreError::ModelSerializationError {
                         name: state.2.clone(),
                         type_name: type_name::<M>(),
-                        encoding_error: e,
+                        cause: Box::new(e),
                     }
                 })?;
                 bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
-                    .map_err(|e| RestoreError::ModelDecodeError {
+                    .map_err(|e| RestoreError::ModelDeserializationError {
                         name: state.2,
                         type_name: type_name::<M>(),
-                        decoding_error: e,
+                        cause: Box::new(e),
                     })
             })
         })?
