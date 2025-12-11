@@ -82,13 +82,14 @@ mod sim_init;
 
 pub(crate) use scheduler::GlobalScheduler;
 
-pub use events::{Action, AutoEventKey, EventKey, SourceId};
+pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, QueryReplyReader};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{
-    Event, EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased, EVENT_KEY_REG,
+    Event, EventIdErased, EventKeyReg, InputSource, QueryReplyWriter, QueueItem, SchedulerRegistry,
+    EVENT_KEY_REG,
 };
 
 use std::any::{Any, TypeId};
@@ -161,7 +162,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-    scheduler_registry: SchedulerSourceRegistry,
+    scheduler_registry: SchedulerRegistry,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -178,7 +179,7 @@ impl Simulation {
     pub(crate) fn new(
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-        scheduler_registry: SchedulerSourceRegistry,
+        scheduler_registry: SchedulerRegistry,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
@@ -436,8 +437,12 @@ impl Simulation {
         let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
             loop {
                 match scheduler_queue.peek() {
-                    Some((&key, event)) if key.0 <= upper_time_bound => {
-                        if !event.is_cancelled() {
+                    Some((&key, item)) if key.0 <= upper_time_bound => {
+                        let is_cancelled = match item {
+                            QueueItem::Event(event) => event.is_cancelled(),
+                            QueueItem::Query(_) => false,
+                        };
+                        if !is_cancelled {
                             break Some(key);
                         }
                         // Discard cancelled actions.
@@ -464,16 +469,32 @@ impl Simulation {
             // might be not worth it.
             let mut action_seq = SeqFuture::new();
             loop {
-                let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
-                let source = self
-                    .scheduler_registry
-                    .get(&event.source_id)
-                    .ok_or(ExecutionError::InvalidEvent(event.source_id.0))?;
-                let fut = source.event_future(&*event.arg, event.key.clone());
+                let ((time, channel_id), item) = scheduler_queue.pull().unwrap();
 
-                if let Some(period) = event.period {
-                    scheduler_queue.insert((time + period, channel_id), event);
-                }
+                let fut = match item {
+                    QueueItem::Event(event) => {
+                        let source = self
+                            .scheduler_registry
+                            .event_registry
+                            .get(&event.event_id)
+                            .ok_or(ExecutionError::InvalidEvent(event.event_id.0))?;
+
+                        if let Some(period) = event.period {
+                            scheduler_queue
+                                .insert((time + period, channel_id), QueueItem::Event(event));
+                        }
+                        source.event_future(&*event.arg, event.key.clone())
+                    }
+                    QueueItem::Query(query) => {
+                        let source = self
+                            .scheduler_registry
+                            .query_registry
+                            .get(&query.query_id)
+                            // TODO add InvalidQuery error
+                            .ok_or(ExecutionError::InvalidEvent(query.query_id.0))?;
+                        source.query_future(&*query.arg, query.replier)
+                    }
+                };
 
                 action_seq.push(fut);
                 next_key = peek_next_key(&mut scheduler_queue);
@@ -949,7 +970,7 @@ pub(crate) fn add_model<P>(
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
-    scheduler_registry: &mut SchedulerSourceRegistry,
+    scheduler_registry: &mut SchedulerRegistry,
     executor: &Executor,
     abort_signal: &Signal,
     registered_models: &mut Vec<RegisteredModel>,

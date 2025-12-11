@@ -14,7 +14,7 @@ use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::model::{Message, MessageSchema};
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
-use crate::simulation::{SchedulerSourceRegistry, SourceId};
+use crate::simulation::{EventId, QueryId, SchedulerRegistry};
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
@@ -170,7 +170,7 @@ impl EndpointRegistry {
     /// Returns a typed SourceId for an EventSource registered by a given name.
     ///
     /// SourceId can be used to schedule events on the Scheduler instance.
-    pub fn get_event_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
+    pub fn get_event_source_id<T>(&self, name: &str) -> Result<EventId<T>, RegistryError>
     where
         T: Clone + Send + 'static,
     {
@@ -197,7 +197,7 @@ impl EndpointRegistry {
 
     /// Registers event sources in the scheduler's registry in order to make
     /// them schedulable.
-    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
+    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerRegistry) {
         self.event_source_registry.register_scheduler(registry);
     }
 }

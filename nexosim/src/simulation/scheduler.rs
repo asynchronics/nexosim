@@ -5,7 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::simulation::events::{Event, EventKey, SourceId};
+use crate::simulation::events::{
+    query_replier, Event, EventId, EventKey, Query, QueryId, QueryReplier, QueueItem,
+};
+use crate::simulation::QueryReplyReader;
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
@@ -77,14 +80,14 @@ impl Scheduler {
     pub fn schedule_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
         T: Send + Clone + 'static,
     {
         self.0
-            .schedule_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_event_from(deadline, event_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules a cancellable event by its id at a future time and returns an
@@ -98,14 +101,14 @@ impl Scheduler {
     pub fn schedule_keyed_event<T>(
         &self,
         deadline: impl Deadline,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
         T: Send + Clone + 'static,
     {
         self.0
-            .schedule_keyed_event_from(deadline, source_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_keyed_event_from(deadline, event_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Schedules a periodically recurring event by its id at a future time.
@@ -119,7 +122,7 @@ impl Scheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
     ) -> Result<(), SchedulingError>
     where
@@ -128,7 +131,7 @@ impl Scheduler {
         self.0.schedule_periodic_event_from(
             deadline,
             period,
-            source_id,
+            event_id,
             arg,
             GLOBAL_SCHEDULER_ORIGIN_ID,
         )
@@ -146,7 +149,7 @@ impl Scheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
     ) -> Result<EventKey, SchedulingError>
     where
@@ -155,7 +158,7 @@ impl Scheduler {
         self.0.schedule_keyed_periodic_event_from(
             deadline,
             period,
-            source_id,
+            event_id,
             arg,
             GLOBAL_SCHEDULER_ORIGIN_ID,
         )
@@ -225,7 +228,7 @@ impl Error for SchedulingError {}
 /// scheduler). The preservation of this ordering is implemented by the event
 /// loop, which aggregate events with the same origin into single sequential
 /// futures, thus ensuring that they are not executed concurrently.
-pub(crate) type SchedulerQueue = PriorityQueue<SchedulerKey, Event>;
+pub(crate) type SchedulerQueue = PriorityQueue<SchedulerKey, QueueItem>;
 
 pub(crate) type SchedulerKey = (MonotonicTime, usize);
 
@@ -287,7 +290,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), event);
+        scheduler_queue.insert((time, origin_id), QueueItem::Event(event));
 
         Ok(())
     }
@@ -296,7 +299,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
@@ -312,8 +315,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = Event::new(source_id, arg);
-        scheduler_queue.insert((time, origin_id), event);
+        let event = Event::new(event_id, arg);
+        scheduler_queue.insert((time, origin_id), QueueItem::Event(event));
 
         Ok(())
     }
@@ -323,7 +326,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_keyed_event_from<T>(
         &self,
         deadline: impl Deadline,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<EventKey, SchedulingError>
@@ -341,8 +344,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = Event::new(source_id, arg).with_key(event_key.clone());
-        scheduler_queue.insert((time, origin_id), event);
+        let event = Event::new(event_id, arg).with_key(event_key.clone());
+        scheduler_queue.insert((time, origin_id), QueueItem::Event(event));
 
         Ok(event_key)
     }
@@ -353,7 +356,7 @@ impl GlobalScheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<(), SchedulingError>
@@ -373,8 +376,8 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = Event::new(source_id, arg).with_period(period);
-        scheduler_queue.insert((time, origin_id), event);
+        let event = Event::new(event_id, arg).with_period(period);
+        scheduler_queue.insert((time, origin_id), QueueItem::Event(event));
 
         Ok(())
     }
@@ -385,7 +388,7 @@ impl GlobalScheduler {
         &self,
         deadline: impl Deadline,
         period: Duration,
-        source_id: &SourceId<T>,
+        event_id: &EventId<T>,
         arg: T,
         origin_id: usize,
     ) -> Result<EventKey, SchedulingError>
@@ -406,12 +409,39 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let event = Event::new(source_id, arg)
+        let event = Event::new(event_id, arg)
             .with_period(period)
             .with_key(event_key.clone());
-        scheduler_queue.insert((time, origin_id), event);
+        scheduler_queue.insert((time, origin_id), QueueItem::Event(event));
 
         Ok(event_key)
+    }
+
+    pub(crate) fn schedule_query_from<T, R>(
+        &self,
+        deadline: impl Deadline,
+        query_id: &QueryId<T, R>,
+        arg: T,
+        origin_id: usize,
+    ) -> Result<QueryReplyReader<R>, SchedulingError>
+    where
+        T: Send + Clone + 'static,
+        R: Send + 'static,
+    {
+        // The scheduler queue must always be locked when reading the time (see
+        // `schedule_from`).
+        let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
+        let now = self.time();
+        let time = deadline.into_time(now);
+        if now >= time {
+            return Err(SchedulingError::InvalidScheduledTime);
+        }
+
+        let (tx, rx) = query_replier();
+        let query = Query::new(query_id, arg, tx);
+        scheduler_queue.insert((time, origin_id), QueueItem::Query(query));
+
+        Ok(rx)
     }
 
     /// Requests the simulation to return as early as possible upon the

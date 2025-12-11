@@ -7,12 +7,12 @@ use std::sync::OnceLock;
 
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::SourceId;
-use crate::simulation::{Action, Address};
+use crate::simulation::{Action, Address, EventId, QueryReplyWriter};
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
-use broadcaster::{EventBroadcaster, QueryBroadcaster, ReplyIterator};
+pub(crate) use broadcaster::ReplyIterator;
+use broadcaster::{EventBroadcaster, QueryBroadcaster};
 use sender::{
     FilterMapInputSender, FilterMapReplierSender, InputSender, MapInputSender, MapReplierSender,
     ReplierSender,
@@ -28,7 +28,8 @@ use super::ReplierFn;
 /// simulation control endpoint instantiated during bench assembly.
 pub struct EventSource<T: Clone + Send + 'static> {
     broadcaster: EventBroadcaster<T>,
-    pub(crate) source_id: OnceLock<SourceId<T>>,
+    // FIXME
+    pub(crate) event_id: OnceLock<EventId<T>>,
 }
 
 impl<T: Clone + Send + 'static> EventSource<T> {
@@ -123,7 +124,7 @@ impl<T: Clone + Send + 'static> Default for EventSource<T> {
     fn default() -> Self {
         Self {
             broadcaster: EventBroadcaster::default(),
-            source_id: OnceLock::new(),
+            event_id: OnceLock::new(),
         }
     }
 }
@@ -250,6 +251,19 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
         };
 
         (Action::new(Box::pin(fut)), ReplyReceiver::<R>(reader))
+    }
+
+    pub(crate) fn query_future(
+        &self,
+        arg: T,
+        replier: QueryReplyWriter<R>,
+    ) -> impl Future<Output = ()> {
+        let fut = self.broadcaster.broadcast(arg);
+
+        async move {
+            let replies = fut.await.unwrap_or_throw();
+            replier.send(replies);
+        }
     }
 }
 

@@ -299,3 +299,4 @@ pub use sink::{
 pub use source::{EventSource, QuerySource, ReplyReceiver};
 
 pub(crate) use output::PORT_REG;
+pub(crate) use source::ReplyIterator;
