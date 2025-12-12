@@ -22,7 +22,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::ports::{EventQueue, EventSource, Output};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -206,7 +206,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
         .add_model(driver, driver_mbox, "driver")
         .add_model(motor, motor_mbox, "motor");
 
-    let pulse_rate_source_id = bench.link_input(Driver::pulse_rate, &driver_addr);
+    let pulse_rate_event_id = EventSource::new()
+        .connect(Driver::pulse_rate, &driver_addr)
+        .register(&mut bench);
 
     let mut simu = bench.init(t0)?;
 
@@ -224,7 +226,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(Duration::from_secs(2), &pulse_rate_source_id, 10.0)
+        .schedule_event(Duration::from_secs(2), &pulse_rate_event_id, 10.0)
         .unwrap();
 
     // Advance simulation time to two next events.
