@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 use crate::model::Model;
 use crate::ports::InputFn;
-use crate::simulation::{Action, Address, EventId, QueryReplyWriter};
+use crate::simulation::{Action, Address, EventId, ReplyWriter};
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -256,7 +256,7 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
     pub(crate) fn query_future(
         &self,
         arg: T,
-        replier: QueryReplyWriter<R>,
+        replier: ReplyWriter<R>,
     ) -> impl Future<Output = ()> + Send {
         let fut = self.broadcaster.broadcast(arg);
 

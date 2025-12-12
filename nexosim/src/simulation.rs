@@ -82,13 +82,13 @@ mod sim_init;
 
 pub(crate) use scheduler::GlobalScheduler;
 
-pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, QueryReplyReader};
+pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, ReplyReader};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::SimInit;
 
 pub(crate) use events::{
-    Event, EventIdErased, EventKeyReg, InputSource, QueryReplyWriter, QueueItem, SchedulerRegistry,
+    Event, EventIdErased, EventKeyReg, InputSource, QueueItem, ReplyWriter, SchedulerRegistry,
     EVENT_KEY_REG,
 };
 

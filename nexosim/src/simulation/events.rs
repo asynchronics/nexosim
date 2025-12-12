@@ -7,6 +7,7 @@ use std::pin::Pin;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::Poll;
 use std::time::Duration;
 
 use futures_channel::oneshot;
@@ -102,7 +103,7 @@ pub(crate) struct SchedulerRegistry {
 /// Therefore the `add` method should only be accessible from `SimInit` or
 /// `BuildContext` instances.
 #[derive(Default, Debug)]
-struct SchedulerEventRegistry(Vec<Box<dyn SchedulerEventSource>>);
+pub(crate) struct SchedulerEventRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerEventRegistry {
     pub(crate) fn add<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
     where
@@ -119,7 +120,7 @@ impl SchedulerEventRegistry {
 }
 
 #[derive(Default, Debug)]
-struct SchedulerQueryRegistry(Vec<Box<dyn SchedulerQuerySource>>);
+pub(crate) struct SchedulerQueryRegistry(Vec<Box<dyn SchedulerQuerySource>>);
 impl SchedulerQueryRegistry {
     pub(crate) fn add<T, R>(&mut self, source: impl TypedQuerySource<T, R>) -> QueryId<T, R>
     where
@@ -351,21 +352,36 @@ impl QueueItem {
         &self,
         registry: &SchedulerRegistry,
     ) -> Result<Vec<u8>, ExecutionError> {
-        match self {
-            Self::Event(event) => event.serialize(&registry.event_registry),
-            Self::Query(query) => query.serialize(&registry.query_registry),
-        }
+        let serializable = match self {
+            QueueItem::Event(event) => {
+                SerializableQueueItem::Event(event.to_serializable(&registry.event_registry)?)
+            }
+            QueueItem::Query(query) => {
+                SerializableQueueItem::Query(query.to_serializable(&registry.query_registry)?)
+            }
+        };
+
+        bincode::serde::encode_to_vec(serializable, serialization_config())
+            .map_err(|_| ExecutionError::SaveError(format!("TODO")))
     }
+
     pub(crate) fn deserialize(
         data: &[u8],
         registry: &SchedulerRegistry,
     ) -> Result<Self, ExecutionError> {
-        // TODO
-        Err(ExecutionError::RestoreError("".to_string()))
-        // match self {
-        //     Self::Event(event) => event.serialize(&registry.event_registry),
-        //     Self::Query(query) => query.serialize(&registry.query_registry),
-        // }
+        let item: SerializableQueueItem =
+            bincode::serde::decode_from_slice(data, serialization_config())
+                .map_err(|_| ExecutionError::RestoreError("ScheduledEvent".to_string()))?
+                .0;
+
+        Ok(match item {
+            SerializableQueueItem::Event(event) => {
+                QueueItem::Event(Event::from_serializable(event, &registry.event_registry)?)
+            }
+            SerializableQueueItem::Query(query) => {
+                QueueItem::Query(Query::from_serializable(query, &registry.query_registry)?)
+            }
+        })
     }
 }
 
@@ -402,10 +418,10 @@ impl Event {
         self.key.as_ref().map(|k| k.is_cancelled()).unwrap_or(false)
     }
 
-    pub(crate) fn serialize(
+    pub(crate) fn to_serializable(
         &self,
         registry: &SchedulerEventRegistry,
-    ) -> Result<Vec<u8>, ExecutionError> {
+    ) -> Result<SerializableEvent, ExecutionError> {
         let source = registry
             .get(&self.event_id)
             .ok_or(ExecutionError::SaveError(format!(
@@ -413,28 +429,18 @@ impl Event {
                 self.event_id.0
             )))?;
         let arg = source.serialize_arg(&*self.arg)?;
-
-        bincode::serde::encode_to_vec(
-            SerializableEvent {
-                event_id: self.event_id,
-                arg,
-                period: self.period,
-                key: self.key.clone(),
-            },
-            serialization_config(),
-        )
-        .map_err(|_| ExecutionError::SaveError(format!("ScheduledEvent({})", self.event_id.0)))
+        Ok(SerializableEvent {
+            event_id: self.event_id,
+            arg,
+            period: self.period,
+            key: self.key.clone(),
+        })
     }
 
-    pub(crate) fn deserialize(
-        data: &[u8],
+    pub(crate) fn from_serializable(
+        mut event: SerializableEvent,
         registry: &SchedulerEventRegistry,
     ) -> Result<Self, ExecutionError> {
-        let mut event: SerializableEvent =
-            bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("ScheduledEvent".to_string()))?
-                .0;
-
         let source = registry
             .get(&event.event_id)
             .ok_or(ExecutionError::RestoreError(format!(
@@ -461,7 +467,7 @@ impl Query {
     pub(crate) fn new<T: Send + 'static, R: Send + 'static>(
         query_id: &QueryId<T, R>,
         arg: T,
-        replier: QueryReplyWriter<R>,
+        replier: ReplyWriter<R>,
     ) -> Self {
         Self {
             query_id: query_id.into(),
@@ -469,10 +475,10 @@ impl Query {
             replier: Box::new(replier),
         }
     }
-    pub(crate) fn serialize(
+    pub(crate) fn to_serializable(
         &self,
         registry: &SchedulerQueryRegistry,
-    ) -> Result<Vec<u8>, ExecutionError> {
+    ) -> Result<SerializableQuery, ExecutionError> {
         let source = registry
             .get(&self.query_id)
             .ok_or(ExecutionError::SaveError(format!(
@@ -480,26 +486,16 @@ impl Query {
                 self.query_id.0
             )))?;
         let arg = source.serialize_arg(&*self.arg)?;
-
-        bincode::serde::encode_to_vec(
-            SerializableQuery {
-                query_id: self.query_id,
-                arg,
-            },
-            serialization_config(),
-        )
-        .map_err(|_| ExecutionError::SaveError(format!("ScheduledEvent({})", self.query_id.0)))
+        Ok(SerializableQuery {
+            query_id: self.query_id,
+            arg,
+        })
     }
 
-    pub(crate) fn deserialize(
-        data: &[u8],
+    pub(crate) fn from_serializable(
+        mut query: SerializableQuery,
         registry: &SchedulerQueryRegistry,
     ) -> Result<Self, ExecutionError> {
-        let query: SerializableQuery =
-            bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("ScheduledEvent".to_string()))?
-                .0;
-
         let source = registry
             .get(&query.query_id)
             .ok_or(ExecutionError::RestoreError(format!(
@@ -511,6 +507,7 @@ impl Query {
         // Create dummy channel
         // TODO check the effect of the wrong type (probably panic when casting
         // somewhere)
+        // Alternatively use option?
         let (_, rx) = query_replier::<()>();
 
         Ok(Self {
@@ -522,25 +519,49 @@ impl Query {
 }
 
 // TODO placeholder
-pub struct QueryReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);
-impl<R: Send + 'static> QueryReplyReader<R> {
-    pub async fn read(self) -> impl Iterator<Item = R> {
-        // TODO handle error
-        self.0.await.unwrap()
+#[derive(Debug)]
+pub struct ReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);
+impl<R: Send + 'static> ReplyReader<R> {
+    pub fn try_read(&mut self) -> Option<impl Iterator<Item = R>> {
+        self.0.try_recv().unwrap()
+    }
+
+    pub fn read(self) -> Option<impl Iterator<Item = R>> {
+        pollster::block_on(self)
     }
 }
 
-pub(crate) struct QueryReplyWriter<R>(oneshot::Sender<ReplyIterator<R>>);
-impl<R: Send + 'static> QueryReplyWriter<R> {
-    pub fn send(self, reply: ReplyIterator<R>) {
+impl<R: Send + 'static> Future for ReplyReader<R> {
+    type Output = Option<ReplyIterator<R>>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match Pin::new(&mut self.get_mut().0).poll(cx) {
+            Poll::Ready(a) => Poll::Ready(a.ok()),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+pub(crate) struct ReplyWriter<R>(oneshot::Sender<ReplyIterator<R>>);
+impl<R: Send + 'static> ReplyWriter<R> {
+    pub(crate) fn send(self, reply: ReplyIterator<R>) {
         // TODO handle error
         let _ = self.0.send(reply);
     }
 }
 
-pub(crate) fn query_replier<R: Send + 'static>() -> (QueryReplyWriter<R>, QueryReplyReader<R>) {
+pub(crate) fn query_replier<R: Send + 'static>() -> (ReplyWriter<R>, ReplyReader<R>) {
     let (tx, rx) = oneshot::channel();
-    (QueryReplyWriter(tx), QueryReplyReader(rx))
+    (ReplyWriter(tx), ReplyReader(rx))
+}
+
+#[derive(Serialize, Deserialize)]
+enum SerializableQueueItem {
+    Event(SerializableEvent),
+    Query(SerializableQuery),
 }
 
 /// Local helper struct organizing event data for serialization.

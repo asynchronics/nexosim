@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::simulation::events::{
-    query_replier, Event, EventId, EventKey, Query, QueryId, QueryReplyReader, QueueItem,
+    query_replier, Event, EventId, EventKey, Query, QueryId, QueueItem, ReplyReader,
 };
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
@@ -161,6 +161,20 @@ impl Scheduler {
             arg,
             GLOBAL_SCHEDULER_ORIGIN_ID,
         )
+    }
+
+    pub fn schedule_query<T, R>(
+        &self,
+        deadline: impl Deadline,
+        query_id: &QueryId<T, R>,
+        arg: T,
+    ) -> Result<ReplyReader<R>, SchedulingError>
+    where
+        T: Send + Clone + 'static,
+        R: Send + 'static,
+    {
+        self.0
+            .schedule_query_from(deadline, query_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
     }
 
     /// Requests the simulation to be interrupted at the earliest opportunity.
@@ -422,7 +436,7 @@ impl GlobalScheduler {
         query_id: &QueryId<T, R>,
         arg: T,
         origin_id: usize,
-    ) -> Result<QueryReplyReader<R>, SchedulingError>
+    ) -> Result<ReplyReader<R>, SchedulingError>
     where
         T: Send + Clone + 'static,
         R: Send + 'static,

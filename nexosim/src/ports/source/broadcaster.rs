@@ -378,7 +378,7 @@ enum SenderFutureState<R> {
 }
 
 /// An iterator over the replies to a broadcasted request.
-pub(crate) struct ReplyIterator<R>(vec::IntoIter<SenderFutureState<R>>);
+pub struct ReplyIterator<R>(vec::IntoIter<SenderFutureState<R>>);
 
 impl<R> Iterator for ReplyIterator<R> {
     type Item = R;
