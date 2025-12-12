@@ -257,7 +257,7 @@ impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
         &self,
         arg: T,
         replier: QueryReplyWriter<R>,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + Send {
         let fut = self.broadcaster.broadcast(arg);
 
         async move {

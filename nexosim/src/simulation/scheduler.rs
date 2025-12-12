@@ -6,9 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::simulation::events::{
-    query_replier, Event, EventId, EventKey, Query, QueryId, QueryReplier, QueueItem,
+    query_replier, Event, EventId, EventKey, Query, QueryId, QueryReplyReader, QueueItem,
 };
-use crate::simulation::QueryReplyReader;
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 

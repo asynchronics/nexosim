@@ -16,8 +16,8 @@ use crate::time::{
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, Address, ExecutionError, GlobalScheduler, InputSource, Mailbox, SchedulerQueue,
-    SchedulerSourceRegistry, Signal, Simulation, SimulationError, SourceId,
+    add_model, Address, EventId, ExecutionError, GlobalScheduler, InputSource, Mailbox, QueryId,
+    SchedulerQueue, SchedulerRegistry, Signal, Simulation, SimulationError,
 };
 
 type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static;
@@ -26,7 +26,7 @@ type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 
 pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-    scheduler_registry: SchedulerSourceRegistry,
+    scheduler_registry: SchedulerRegistry,
     endpoint_registry: EndpointRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
@@ -76,7 +76,7 @@ impl SimInit {
         Self {
             executor,
             scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
-            scheduler_registry: SchedulerSourceRegistry::default(),
+            scheduler_registry: SchedulerRegistry::default(),
             endpoint_registry: EndpointRegistry::default(),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
@@ -205,19 +205,15 @@ impl SimInit {
     }
 
     /// Registers `EventSource<T>` as schedulable.
-    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> EventId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.scheduler_registry.add(source)
+        self.scheduler_registry.event_registry.add(source)
     }
 
     /// Registers single model input as a schedulable event source.
-    pub fn link_input<M, F, S, T>(
-        &mut self,
-        input: F,
-        address: impl Into<Address<M>>,
-    ) -> SourceId<T>
+    pub fn link_input<M, F, S, T>(&mut self, input: F, address: impl Into<Address<M>>) -> EventId<T>
     where
         M: Model,
         F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
@@ -225,7 +221,7 @@ impl SimInit {
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         let source = InputSource::new(input, address);
-        self.scheduler_registry.add(source)
+        self.scheduler_registry.event_registry.add(source)
     }
 
     /// Adds an event source to the endpoint registry.

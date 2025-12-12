@@ -13,7 +13,7 @@ use ciborium;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::EventSource;
-use crate::simulation::{SchedulerSourceRegistry, SourceId};
+use crate::simulation::{EventId, QueryId, SchedulerRegistry};
 
 #[cfg(feature = "server")]
 use crate::simulation::{Action, Event, EventKey};
@@ -103,7 +103,7 @@ impl EventSourceRegistry {
     }
 
     /// Returns a typed SourceId of the requested EventSource.
-    pub(crate) fn get_source_id<T>(&self, name: &str) -> Result<SourceId<T>, RegistryError>
+    pub(crate) fn get_source_id<T>(&self, name: &str) -> Result<EventId<T>, RegistryError>
     where
         T: Clone + Send + 'static,
     {
@@ -115,7 +115,7 @@ impl EventSourceRegistry {
             .ok_or(RegistryError::InvalidType(std::any::type_name::<
                 &EventSource<T>,
             >()))?
-            .source_id
+            .event_id
             .get()
             .ok_or(RegistryError::Unregistered)
             .copied()
@@ -123,7 +123,7 @@ impl EventSourceRegistry {
 
     /// Registers event sources in the scheduler's registry in order to make
     /// them schedulable.
-    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
+    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerRegistry) {
         for entry in self.0.values_mut() {
             entry.register(registry);
         }
@@ -201,7 +201,7 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
     fn event_type_name(&self) -> &'static str;
 
     /// Register the source in the scheduler's registry to make it schedulable.
-    fn register(&self, registry: &mut SchedulerSourceRegistry);
+    fn register(&self, registry: &mut SchedulerRegistry);
 
     /// Returns the schema of the event type.
     /// If the source was added via `add_raw` method, it returns an empty
@@ -237,7 +237,7 @@ where
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, RegistryError> {
         let source_id = self
             .inner
-            .source_id
+            .event_id
             .get()
             .ok_or(RegistryError::Unregistered)?;
         ciborium::from_reader(serialized_arg)
@@ -249,7 +249,7 @@ where
     fn keyed_event(&self, serialized_arg: &[u8]) -> Result<(Event, EventKey), RegistryError> {
         let source_id = self
             .inner
-            .source_id
+            .event_id
             .get()
             .ok_or(RegistryError::Unregistered)?;
         let key = EventKey::new();
@@ -266,7 +266,7 @@ where
     ) -> Result<Event, RegistryError> {
         let source_id = self
             .inner
-            .source_id
+            .event_id
             .get()
             .ok_or(RegistryError::Unregistered)?;
         ciborium::from_reader(serialized_arg)
@@ -282,7 +282,7 @@ where
     ) -> Result<(Event, EventKey), RegistryError> {
         let source_id = self
             .inner
-            .source_id
+            .event_id
             .get()
             .ok_or(RegistryError::Unregistered)?;
         let key = EventKey::new();
@@ -307,9 +307,12 @@ where
         (self.schema_gen)()
     }
 
-    fn register(&self, registry: &mut SchedulerSourceRegistry) {
+    fn register(&self, registry: &mut SchedulerRegistry) {
         // TODO handle double registration error?
-        let _ = self.inner.source_id.set(registry.add(self.inner.clone()));
+        let _ = self
+            .inner
+            .event_id
+            .set(registry.event_registry.add(self.inner.clone()));
     }
 
     fn get_event_source(&self) -> &dyn Any {

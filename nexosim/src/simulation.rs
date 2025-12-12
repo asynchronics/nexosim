@@ -479,11 +479,13 @@ impl Simulation {
                             .get(&event.event_id)
                             .ok_or(ExecutionError::InvalidEvent(event.event_id.0))?;
 
+                        let fut = source.event_future(&*event.arg, event.key.clone());
                         if let Some(period) = event.period {
                             scheduler_queue
                                 .insert((time + period, channel_id), QueueItem::Event(event));
                         }
-                        source.event_future(&*event.arg, event.key.clone())
+                        fut
+                        // action_seq.push(fut);
                     }
                     QueueItem::Query(query) => {
                         let source = self
@@ -650,7 +652,7 @@ impl Simulation {
         for entry in deserialized {
             scheduler_queue.insert(
                 entry.0,
-                Event::deserialize(&entry.1, &self.scheduler_registry)?,
+                QueueItem::deserialize(&entry.1, &self.scheduler_registry)?,
             );
         }
         Ok(())

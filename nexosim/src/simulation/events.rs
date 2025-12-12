@@ -347,11 +347,25 @@ pub(crate) enum QueueItem {
     Query(Query),
 }
 impl QueueItem {
-    pub(crate) fn serialize(&self, registry: &SchedulerRegistry) -> () {
+    pub(crate) fn serialize(
+        &self,
+        registry: &SchedulerRegistry,
+    ) -> Result<Vec<u8>, ExecutionError> {
         match self {
             Self::Event(event) => event.serialize(&registry.event_registry),
-            Self::Query(query) => (),
+            Self::Query(query) => query.serialize(&registry.query_registry),
         }
+    }
+    pub(crate) fn deserialize(
+        data: &[u8],
+        registry: &SchedulerRegistry,
+    ) -> Result<Self, ExecutionError> {
+        // TODO
+        Err(ExecutionError::RestoreError("".to_string()))
+        // match self {
+        //     Self::Event(event) => event.serialize(&registry.event_registry),
+        //     Self::Query(query) => query.serialize(&registry.query_registry),
+        // }
     }
 }
 
@@ -441,7 +455,7 @@ impl Event {
 pub(crate) struct Query {
     pub query_id: QueryIdErased,
     pub arg: Box<dyn Any + Send>,
-    pub replier: Box<dyn Any>,
+    pub replier: Box<dyn Any + Send>,
 }
 impl Query {
     pub(crate) fn new<T: Send + 'static, R: Send + 'static>(
@@ -454,6 +468,56 @@ impl Query {
             arg: Box::new(arg),
             replier: Box::new(replier),
         }
+    }
+    pub(crate) fn serialize(
+        &self,
+        registry: &SchedulerQueryRegistry,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let source = registry
+            .get(&self.query_id)
+            .ok_or(ExecutionError::SaveError(format!(
+                "ScheduledEvent({}) (id not found)",
+                self.query_id.0
+            )))?;
+        let arg = source.serialize_arg(&*self.arg)?;
+
+        bincode::serde::encode_to_vec(
+            SerializableQuery {
+                query_id: self.query_id,
+                arg,
+            },
+            serialization_config(),
+        )
+        .map_err(|_| ExecutionError::SaveError(format!("ScheduledEvent({})", self.query_id.0)))
+    }
+
+    pub(crate) fn deserialize(
+        data: &[u8],
+        registry: &SchedulerQueryRegistry,
+    ) -> Result<Self, ExecutionError> {
+        let query: SerializableQuery =
+            bincode::serde::decode_from_slice(data, serialization_config())
+                .map_err(|_| ExecutionError::RestoreError("ScheduledEvent".to_string()))?
+                .0;
+
+        let source = registry
+            .get(&query.query_id)
+            .ok_or(ExecutionError::RestoreError(format!(
+                "ScheduledEvent({}) (id not found)",
+                query.query_id.0,
+            )))?;
+        let arg = source.deserialize_arg(&query.arg)?;
+
+        // Create dummy channel
+        // TODO check the effect of the wrong type (probably panic when casting
+        // somewhere)
+        let (_, rx) = query_replier::<()>();
+
+        Ok(Self {
+            query_id: query.query_id,
+            arg,
+            replier: Box::new(rx),
+        })
     }
 }
 
@@ -486,6 +550,13 @@ struct SerializableEvent {
     arg: Vec<u8>,
     period: Option<Duration>,
     key: Option<EventKey>,
+}
+
+/// Local helper struct organizing event data for serialization.
+#[derive(Serialize, Deserialize)]
+struct SerializableQuery {
+    query_id: QueryIdErased,
+    arg: Vec<u8>,
 }
 
 fn serialize_arg<T: Serialize + Send + 'static>(arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
