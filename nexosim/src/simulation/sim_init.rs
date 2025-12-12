@@ -8,7 +8,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use crate::channel::ChannelObserver;
 use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, Model, ProtoModel, RegisteredModel};
-use crate::ports::{EventSinkReader, EventSource, InputFn, QuerySource};
+use crate::ports::{
+    EventSinkReader, EventSource, InputFn, QuerySource, RegisteredEventSource,
+    RegisteredQuerySource,
+};
 use crate::registry::EndpointRegistry;
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime,
@@ -205,22 +208,10 @@ impl SimInit {
     }
 
     /// Registers `EventSource<T>` as schedulable.
-    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> EventId<T>
+    pub(crate) fn link_event_source<T>(&mut self, source: EventSource<T>) -> EventId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.scheduler_registry.event_registry.add(source)
-    }
-
-    /// Registers single model input as a schedulable event source.
-    pub fn link_input<M, F, S, T>(&mut self, input: F, address: impl Into<Address<M>>) -> EventId<T>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
-        S: Send + Sync + 'static,
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    {
-        let source = InputSource::new(input, address);
         self.scheduler_registry.event_registry.add(source)
     }
 
@@ -228,15 +219,28 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source<T>(
+    pub(crate) fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
-    ) -> Result<(), EventSource<T>>
+    ) -> Result<(), ()>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.endpoint_registry.add_event_source(source, name)
+        // TODO refactor `get_event_source` usage?
+        let name: String = name.into();
+        // Check for duplicates before registering in the scheduler.
+        if self.endpoint_registry.get_event_source::<T>(&name).is_ok() {
+            return Err(());
+        }
+        let source = Arc::new(source);
+        let event_id = self.scheduler_registry.event_registry.add(source.clone());
+        // Should not fail after the check above
+        let _ = self.endpoint_registry.add_event_source(
+            RegisteredEventSource::from_event_source(source, event_id),
+            name,
+        );
+        Ok(())
     }
 
     /// Adds an event source to the endpoint registry without requiring a
@@ -244,31 +248,66 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another event source, the
     /// source provided as argument is returned in the error.
-    pub fn add_event_source_raw<T>(
+    pub(crate) fn add_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
-    ) -> Result<(), EventSource<T>>
+    ) -> Result<(), ()>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.endpoint_registry.add_event_source_raw(source, name)
+        // TODO refactor `get_event_source` usage?
+        let name: String = name.into();
+        // Check for duplicates before registering in the scheduler.
+        if self.endpoint_registry.get_event_source::<T>(&name).is_ok() {
+            return Err(());
+        }
+        let source = Arc::new(source);
+        let event_id = self.scheduler_registry.event_registry.add(source.clone());
+        let _ = self.endpoint_registry.add_event_source_raw(
+            RegisteredEventSource::from_event_source(source, event_id),
+            name,
+        );
+        Ok(())
+    }
+
+    pub(crate) fn link_query_source<T, R>(&mut self, source: QuerySource<T, R>) -> QueryId<T, R>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.scheduler_registry.query_registry.add(source)
     }
 
     /// Adds a query source to the endpoint registry.
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source<T, R>(
+    pub(crate) fn add_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), ()>
     where
-        T: Message + DeserializeOwned + Clone + Send + 'static,
+        T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
-        self.endpoint_registry.add_query_source(source, name)
+        // TODO see add_event_source remarks
+        let name: String = name.into();
+        if self
+            .endpoint_registry
+            .get_query_source::<T, R>(&name)
+            .is_ok()
+        {
+            return Err(());
+        }
+        let source = Arc::new(source);
+        let query_id = self.scheduler_registry.query_registry.add(source.clone());
+        let _ = self.endpoint_registry.add_query_source(
+            RegisteredQuerySource::from_event_source(source, query_id),
+            name,
+        );
+        Ok(())
     }
 
     /// Adds a query source to the endpoint registry without requiring `Message`
@@ -276,16 +315,31 @@ impl SimInit {
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
-    pub fn add_query_source_raw<T, R>(
+    pub(crate) fn add_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), ()>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
-        self.endpoint_registry.add_query_source_raw(source, name)
+        // TODO see add_event_source remarks
+        let name: String = name.into();
+        if self
+            .endpoint_registry
+            .get_query_source::<T, R>(&name)
+            .is_ok()
+        {
+            return Err(());
+        }
+        let source = Arc::new(source);
+        let query_id = self.scheduler_registry.query_registry.add(source.clone());
+        let _ = self.endpoint_registry.add_query_source_raw(
+            RegisteredQuerySource::from_event_source(source, query_id),
+            name,
+        );
+        Ok(())
     }
 
     /// Adds an event sink to the endpoint registry.
@@ -329,7 +383,6 @@ impl SimInit {
             ),
             self.endpoint_registry,
         );
-        endpoint_registry.register_scheduler(&mut simulation.scheduler_registry);
 
         (simulation, endpoint_registry)
     }

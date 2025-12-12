@@ -7,7 +7,6 @@ use std::pin::Pin;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
 use std::time::Duration;
 
 use futures_channel::oneshot;
@@ -343,6 +342,33 @@ where
     }
 }
 
+impl<T, R> TypedQuerySource<T, R> for Arc<QuerySource<T, R>>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Send + 'static,
+{
+}
+impl<T, R> SchedulerQuerySource for Arc<QuerySource<T, R>>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        serialize_arg::<T>(arg)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        deserialize_arg::<T>(arg)
+    }
+    fn query_future(
+        &self,
+        arg: &dyn Any,
+        replier: Box<dyn Any>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let inner: &dyn SchedulerQuerySource = self.as_ref();
+        inner.query_future(arg, replier)
+    }
+}
+
 pub(crate) enum QueueItem {
     Event(Event),
     Query(Query),
@@ -523,7 +549,7 @@ impl Query {
 pub struct ReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);
 impl<R: Send + 'static> ReplyReader<R> {
     pub fn try_read(&mut self) -> Option<impl Iterator<Item = R>> {
-        self.0.try_recv().unwrap()
+        self.0.try_recv().ok()?
     }
 
     pub fn read(self) -> Option<impl Iterator<Item = R>> {
@@ -538,10 +564,7 @@ impl<R: Send + 'static> Future for ReplyReader<R> {
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        match Pin::new(&mut self.get_mut().0).poll(cx) {
-            Poll::Ready(a) => Poll::Ready(a.ok()),
-            Poll::Pending => Poll::Pending,
-        }
+        Pin::new(&mut self.get_mut().0).poll(cx).map(Result::ok)
     }
 }
 

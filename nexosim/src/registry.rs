@@ -13,7 +13,7 @@ mod query_source_registry;
 use serde::{de::DeserializeOwned, ser::Serialize};
 
 use crate::model::{Message, MessageSchema};
-use crate::ports::{EventSinkReader, EventSource, QuerySource};
+use crate::ports::{EventSinkReader, RegisteredEventSource, RegisteredQuerySource};
 use crate::simulation::{EventId, QueryId, SchedulerRegistry};
 
 pub(crate) use event_sink_registry::EventSinkRegistry;
@@ -35,9 +35,9 @@ impl EndpointRegistry {
     /// source provided as argument is returned in the error.
     pub(crate) fn add_event_source<T>(
         &mut self,
-        source: EventSource<T>,
+        source: RegisteredEventSource<T>,
         name: impl Into<String>,
-    ) -> Result<(), EventSource<T>>
+    ) -> Result<(), RegisteredEventSource<T>>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -51,9 +51,9 @@ impl EndpointRegistry {
     /// source provided as argument is returned in the error.
     pub(crate) fn add_event_source_raw<T>(
         &mut self,
-        source: EventSource<T>,
+        source: RegisteredEventSource<T>,
         name: impl Into<String>,
-    ) -> Result<(), EventSource<T>>
+    ) -> Result<(), RegisteredEventSource<T>>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -66,11 +66,11 @@ impl EndpointRegistry {
     /// source provided as argument is returned in the error.
     pub(crate) fn add_query_source<T, R>(
         &mut self,
-        source: QuerySource<T, R>,
+        source: RegisteredQuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), RegisteredQuerySource<T, R>>
     where
-        T: Message + DeserializeOwned + Clone + Send + 'static,
+        T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
         self.query_source_registry.add(source, name)
@@ -83,11 +83,11 @@ impl EndpointRegistry {
     /// source provided as argument is returned in the error.
     pub(crate) fn add_query_source_raw<T, R>(
         &mut self,
-        source: QuerySource<T, R>,
+        source: RegisteredQuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), RegisteredQuerySource<T, R>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
         self.query_source_registry.add_raw(source, name)
@@ -138,9 +138,12 @@ impl EndpointRegistry {
 
     /// Returns an immutable reference to a QuerySource registered by a given
     /// name.
-    pub fn get_query_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
+    pub fn get_query_source<T, R>(
+        &self,
+        name: &str,
+    ) -> Result<&RegisteredQuerySource<T, R>, RegistryError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
         self.query_source_registry.get_source(name)
@@ -160,9 +163,12 @@ impl EndpointRegistry {
 
     /// Returns an immutable reference to an EventSource registered by a given
     /// name.
-    pub fn get_event_source<T>(&self, name: &str) -> Result<&EventSource<T>, RegistryError>
+    pub fn get_event_source<T>(
+        &self,
+        name: &str,
+    ) -> Result<&RegisteredEventSource<T>, RegistryError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.get_source(name)
     }
@@ -172,7 +178,7 @@ impl EndpointRegistry {
     /// SourceId can be used to schedule events on the Scheduler instance.
     pub fn get_event_source_id<T>(&self, name: &str) -> Result<EventId<T>, RegistryError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.get_source_id(name)
     }
@@ -193,12 +199,6 @@ impl EndpointRegistry {
         E: EventSinkReader + Send + Sync + 'static,
     {
         self.event_sink_registry.get_sink_reader(name)
-    }
-
-    /// Registers event sources in the scheduler's registry in order to make
-    /// them schedulable.
-    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerRegistry) {
-        self.event_source_registry.register_scheduler(registry);
     }
 }
 

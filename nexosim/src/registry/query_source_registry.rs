@@ -9,7 +9,7 @@ use ciborium;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::ports::QuerySource;
+use crate::ports::RegisteredQuerySource;
 
 #[cfg(feature = "server")]
 use crate::ports::ReplyReceiver;
@@ -33,11 +33,11 @@ impl QuerySourceRegistry {
     /// source provided as argument is returned in the error.
     pub(crate) fn add<T, R>(
         &mut self,
-        source: QuerySource<T, R>,
+        source: RegisteredQuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), RegisteredQuerySource<T, R>>
     where
-        T: Message + DeserializeOwned + Clone + Send + 'static,
+        T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
         self.insert_entry(source, name, || (T::schema(), R::schema()))
@@ -49,11 +49,11 @@ impl QuerySourceRegistry {
     /// source provided as argument is returned in the error.
     pub(crate) fn add_raw<T, R>(
         &mut self,
-        source: QuerySource<T, R>,
+        source: RegisteredQuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), RegisteredQuerySource<T, R>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
         self.insert_entry(source, name, || (String::new(), String::new()))
@@ -61,12 +61,12 @@ impl QuerySourceRegistry {
 
     fn insert_entry<T, R, F>(
         &mut self,
-        source: QuerySource<T, R>,
+        source: RegisteredQuerySource<T, R>,
         name: impl Into<String>,
         schema_gen: F,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), RegisteredQuerySource<T, R>>
     where
-        T: DeserializeOwned + Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
         F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
     {
@@ -92,18 +92,21 @@ impl QuerySourceRegistry {
 
     /// Returns an immutable reference to a QuerySource registered by a given
     /// name.
-    pub(crate) fn get_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
+    pub(crate) fn get_source<T, R>(
+        &self,
+        name: &str,
+    ) -> Result<&RegisteredQuerySource<T, R>, RegistryError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
         // Downcast_ref used as a runtime type-check.
         self.get(name)
             .ok_or(RegistryError::SourceNotFound(name.to_string()))?
             .get_query_source()
-            .downcast_ref::<QuerySource<T, R>>()
+            .downcast_ref::<RegisteredQuerySource<T, R>>()
             .ok_or(RegistryError::InvalidType(std::any::type_name::<
-                &QuerySource<T, R>,
+                &RegisteredQuerySource<T, R>,
             >()))
     }
 
@@ -166,17 +169,17 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
 
 struct QuerySourceEntry<T, R, F>
 where
-    T: DeserializeOwned + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Serialize + Send + 'static,
     F: Fn() -> (MessageSchema, MessageSchema),
 {
-    inner: QuerySource<T, R>,
+    inner: RegisteredQuerySource<T, R>,
     schema_gen: F,
 }
 
 impl<T, R, F> QuerySourceEntryAny for QuerySourceEntry<T, R, F>
 where
-    T: DeserializeOwned + Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Serialize + Send + 'static,
     F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
 {
