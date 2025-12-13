@@ -387,8 +387,19 @@ impl QueueItem {
             }
         };
 
-        bincode::serde::encode_to_vec(serializable, serialization_config())
-            .map_err(|_| ExecutionError::SaveError(format!("TODO")))
+        bincode::serde::encode_to_vec(serializable, serialization_config()).map_err(|e| {
+            match self {
+                QueueItem::Event(event) => SaveError::EventSerializationError {
+                    event_id: event.event_id.0,
+                    cause: Box::new(e),
+                },
+                QueueItem::Query(query) => SaveError::QuerySerializationError {
+                    query_id: query.query_id.0,
+                    cause: Box::new(e),
+                },
+            }
+            .into()
+        })
     }
 
     pub(crate) fn deserialize(
@@ -397,7 +408,7 @@ impl QueueItem {
     ) -> Result<Self, ExecutionError> {
         let item: SerializableQueueItem =
             bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("ScheduledEvent".to_string()))?
+                .map_err(|e| RestoreError::QueueItemDeserializationError { cause: Box::new(e) })?
                 .0;
 
         Ok(match item {

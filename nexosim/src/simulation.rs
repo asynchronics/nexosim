@@ -786,7 +786,14 @@ pub enum SaveError {
     /// Failed attempt to serialize an event.
     EventSerializationError {
         /// Event's sourceId.
-        source_id: usize,
+        event_id: usize,
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to serialize an event.
+    QuerySerializationError {
+        /// Query's sourceId.
+        query_id: usize,
         /// Underlying serialization error.
         cause: Box<dyn Error + Send>,
     },
@@ -830,8 +837,11 @@ impl fmt::Display for SaveError {
             Self::ModelSerializationError {
                 name, type_name, ..
             } => write!(f, "cannot serialize model {name}: {type_name}"),
-            Self::EventSerializationError { source_id, .. } => {
-                write!(f, "cannot serialize event {source_id}")
+            Self::EventSerializationError { event_id, .. } => {
+                write!(f, "cannot serialize event {event_id}")
+            }
+            Self::QuerySerializationError { query_id, .. } => {
+                write!(f, "cannot serialize query {query_id}")
             }
             Self::SchedulerQueueSerializationError { .. } => {
                 f.write_str("cannot serialize scheduler queue")
@@ -861,6 +871,7 @@ impl Error for SaveError {
             Self::ConfigSerializationError { cause } => Some(cause.as_ref()),
             Self::ModelSerializationError { cause, .. } => Some(cause.as_ref()),
             Self::EventSerializationError { cause, .. } => Some(cause.as_ref()),
+            Self::QuerySerializationError { cause, .. } => Some(cause.as_ref()),
             Self::SchedulerQueueSerializationError { cause } => Some(cause.as_ref()),
             Self::SimulationStateSerializationError { cause } => Some(cause.as_ref()),
             Self::EventNotFound { .. } => None,
@@ -895,8 +906,8 @@ pub enum RestoreError {
         /// Underlying serialization error.
         cause: Box<dyn Error + Send>,
     },
-    /// Failed attempt to deserialize an event.
-    EventDeserializationError {
+    /// Failed attempt to deserialize a queue item.
+    QueueItemDeserializationError {
         /// Underlying deserialization error.
         cause: Box<dyn Error + Send>,
     },
