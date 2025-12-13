@@ -5,7 +5,7 @@ use ciborium;
 use serde::de::DeserializeOwned;
 
 use crate::registry::EndpointRegistry;
-use crate::simulation::{ExecutionError, SimInit, Simulation, SimulationError};
+use crate::simulation::{ExecutionError, RestoreError, SimInit, Simulation, SimulationError};
 use crate::time::MonotonicTime;
 
 use super::{map_simulation_error, timestamp_to_monotonic, to_error};
@@ -199,9 +199,8 @@ where
     let cfg = match cfg {
         Some(a) => a,
         None => {
-            let serialized_cfg = Simulation::restore_cfg(state)?.ok_or(
-                ExecutionError::RestoreError("Bench config not found".to_string()),
-            )?;
+            let serialized_cfg = Simulation::restore_cfg(state)?
+                .ok_or(ExecutionError::RestoreError(RestoreError::ConfigMissing))?;
             ciborium::from_reader(&serialized_cfg[..]).unwrap()
         }
     };
