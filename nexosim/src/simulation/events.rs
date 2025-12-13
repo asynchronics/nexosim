@@ -19,7 +19,7 @@ use crate::channel::Sender;
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::Model;
 use crate::ports::{EventSource, InputFn, QuerySource, ReplyIterator};
-use crate::simulation::Address;
+use crate::simulation::{Address, RestoreError, SaveError};
 use crate::util::serialization::serialization_config;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -450,10 +450,9 @@ impl Event {
     ) -> Result<SerializableEvent, ExecutionError> {
         let source = registry
             .get(&self.event_id)
-            .ok_or(ExecutionError::SaveError(format!(
-                "ScheduledEvent({}) (id not found)",
-                self.event_id.0
-            )))?;
+            .ok_or(SaveError::EventNotFound {
+                event_id: self.event_id.0,
+            })?;
         let arg = source.serialize_arg(&*self.arg)?;
         Ok(SerializableEvent {
             event_id: self.event_id,
@@ -469,10 +468,9 @@ impl Event {
     ) -> Result<Self, ExecutionError> {
         let source = registry
             .get(&event.event_id)
-            .ok_or(ExecutionError::RestoreError(format!(
-                "ScheduledEvent({}) (id not found)",
-                event.event_id.0,
-            )))?;
+            .ok_or(RestoreError::EventNotFound {
+                event_id: event.event_id.0,
+            })?;
         let arg = source.deserialize_arg(&event.arg)?;
 
         Ok(Self {
@@ -507,10 +505,9 @@ impl Query {
     ) -> Result<SerializableQuery, ExecutionError> {
         let source = registry
             .get(&self.query_id)
-            .ok_or(ExecutionError::SaveError(format!(
-                "ScheduledEvent({}) (id not found)",
-                self.query_id.0
-            )))?;
+            .ok_or(SaveError::QueryNotFound {
+                query_id: self.query_id.0,
+            })?;
         let arg = source.serialize_arg(&*self.arg)?;
         Ok(SerializableQuery {
             query_id: self.query_id,
@@ -519,15 +516,14 @@ impl Query {
     }
 
     pub(crate) fn from_serializable(
-        mut query: SerializableQuery,
+        query: SerializableQuery,
         registry: &SchedulerQueryRegistry,
     ) -> Result<Self, ExecutionError> {
         let source = registry
             .get(&query.query_id)
-            .ok_or(ExecutionError::RestoreError(format!(
-                "ScheduledEvent({}) (id not found)",
-                query.query_id.0,
-            )))?;
+            .ok_or(RestoreError::QueryNotFound {
+                query_id: query.query_id.0,
+            })?;
         let arg = source.deserialize_arg(&query.arg)?;
 
         // Create dummy channel
@@ -606,19 +602,26 @@ struct SerializableQuery {
 fn serialize_arg<T: Serialize + Send + 'static>(arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
     let value = arg
         .downcast_ref::<T>()
-        .ok_or(ExecutionError::SaveError(format!(
-            "Event arg ({})",
-            type_name::<T>()
-        )))?;
-    bincode::serde::encode_to_vec(value, serialization_config())
-        .map_err(|_| ExecutionError::SaveError(format!("Event arg: {}", type_name::<T>())))
+        .ok_or(SaveError::ArgumentTypeMismatch {
+            type_name: type_name::<T>(),
+        })?;
+    bincode::serde::encode_to_vec(value, serialization_config()).map_err(|e| {
+        SaveError::ArgumentSerializationError {
+            type_name: type_name::<T>(),
+            cause: Box::new(e),
+        }
+        .into()
+    })
 }
 fn deserialize_arg<T: DeserializeOwned + Send + 'static>(
     arg: &[u8],
 ) -> Result<Box<dyn Any + Send>, ExecutionError> {
     Ok(Box::new(
         bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
-            .map_err(|_| ExecutionError::RestoreError(format!("Event arg ({})", type_name::<T>())))?
+            .map_err(|e| RestoreError::ArgumentDeserializationError {
+                type_name: type_name::<T>(),
+                cause: Box::new(e),
+            })?
             .0,
     ))
 }

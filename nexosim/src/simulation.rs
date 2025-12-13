@@ -636,14 +636,16 @@ impl Simulation {
             .collect::<Result<Vec<_>, ExecutionError>>()?;
 
         bincode::serde::encode_to_vec(&queue, serialization_config())
-            .map_err(|_| ExecutionError::SaveError("Scheduler Queue".to_string()))
+            .map_err(|e| SaveError::SchedulerQueueSerializationError { cause: Box::new(e) }.into())
     }
 
     /// Restores the scheduler queue from the serialized state.
     fn restore_queue(&mut self, state: &[u8]) -> Result<(), ExecutionError> {
         let deserialized: Vec<(SchedulerKey, Vec<u8>)> =
             bincode::serde::decode_from_slice(state, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("Scheduler Queue".to_string()))?
+                .map_err(|e| RestoreError::SchedulerQueueDeserializationError {
+                    cause: Box::new(e),
+                })?
                 .0;
 
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
@@ -669,7 +671,7 @@ impl Simulation {
             cfg: None,
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
-            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+            .map_err(|e| SaveError::SimulationStateSerializationError { cause: Box::new(e) }.into())
     }
 
     /// Serializes simulation state together with CBOR serialized SimGen
@@ -687,7 +689,7 @@ impl Simulation {
             cfg: Some(serialized_cfg),
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
-            .map_err(|_| ExecutionError::SaveError("Simulation State".to_string()))
+            .map_err(|e| SaveError::SimulationStateSerializationError { cause: Box::new(e) }.into())
     }
 
     /// Persists a serialized simulation state together with a SimGen
@@ -699,9 +701,8 @@ impl Simulation {
         writer: &mut W,
     ) -> Result<usize, ExecutionError> {
         let mut serialized_cfg = Vec::new();
-        ciborium::into_writer(&cfg, &mut serialized_cfg).map_err(|_| {
-            ExecutionError::SaveError("Config serialization has failed!".to_string())
-        })?;
+        ciborium::into_writer(&cfg, &mut serialized_cfg)
+            .map_err(|e| SaveError::ConfigSerializationError { cause: Box::new(e) })?;
         self.save_with_serialized_cfg(serialized_cfg, writer)
     }
 
@@ -710,13 +711,14 @@ impl Simulation {
         let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
         EVENT_KEY_REG.set(&event_key_reg, || {
             let state: SimulationState =
-                bincode::serde::decode_from_std_read(&mut state, serialization_config())
-                    .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
+                bincode::serde::decode_from_std_read(&mut state, serialization_config()).map_err(
+                    |e| RestoreError::SimulationStateDeserializationError { cause: Box::new(e) },
+                )?;
 
             self.time.write(state.time);
             self.restore_models(state.models, &event_key_reg)?;
             self.restore_queue(&state.scheduler_queue)?;
-            Ok(())
+            Ok::<_, ExecutionError>(())
         })?;
         Ok(())
     }
@@ -727,8 +729,9 @@ impl Simulation {
         mut state: R,
     ) -> Result<Option<Vec<u8>>, ExecutionError> {
         let state: SimulationState =
-            bincode::serde::decode_from_std_read(&mut state, serialization_config())
-                .map_err(|_| ExecutionError::RestoreError("Simulation State".to_string()))?;
+            bincode::serde::decode_from_std_read(&mut state, serialization_config()).map_err(
+                |e| RestoreError::SimulationStateDeserializationError { cause: Box::new(e) },
+            )?;
         Ok(state.cfg)
     }
 }
@@ -760,6 +763,217 @@ pub struct DeadlockInfo {
     pub model: String,
     /// Number of messages in the mailbox.
     pub mailbox_size: usize,
+}
+
+/// An error returned upon failure during simulation state store procedure.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum SaveError {
+    /// Serialization of the simulation's config has failed.
+    ConfigSerializationError {
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to binary encode model's state.
+    ModelSerializationError {
+        /// The fully qualified name of the model.
+        name: String,
+        /// Type name of the model.
+        type_name: &'static str,
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to serialize an event.
+    EventSerializationError {
+        /// Event's sourceId.
+        source_id: usize,
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to serialize the scheduler queue.
+    SchedulerQueueSerializationError {
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to serialize the complete simulation state.
+    SimulationStateSerializationError {
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to save an event with an unknown id.
+    EventNotFound {
+        /// Event's sourceId.
+        event_id: usize,
+    },
+    /// Failed attempt to save a query with an unknown id.
+    QueryNotFound {
+        /// Query's sourceId.
+        query_id: usize,
+    },
+    /// Argument data downcasting to a concrete type has failed.
+    ArgumentTypeMismatch {
+        /// Expected type name.
+        type_name: &'static str,
+    },
+    /// Failed attempt to serialize an event argument.
+    ArgumentSerializationError {
+        /// Expected type name.
+        type_name: &'static str,
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+}
+impl fmt::Display for SaveError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ConfigSerializationError { .. } => f.write_str("config serialization has failed"),
+            Self::ModelSerializationError {
+                name, type_name, ..
+            } => write!(f, "cannot serialize model {name}: {type_name}"),
+            Self::EventSerializationError { source_id, .. } => {
+                write!(f, "cannot serialize event {source_id}")
+            }
+            Self::SchedulerQueueSerializationError { .. } => {
+                f.write_str("cannot serialize scheduler queue")
+            }
+            Self::SimulationStateSerializationError { .. } => {
+                f.write_str("cannot serialize simulation state")
+            }
+            Self::EventNotFound { event_id } => {
+                write!(f, "serialized event (id {event_id}) cannot be found")
+            }
+            Self::QueryNotFound { query_id } => {
+                write!(f, "serialized query (id {query_id}) cannot be found")
+            }
+            Self::ArgumentTypeMismatch { type_name } => write!(
+                f,
+                "type mismatch while casting event argument, expected: {type_name}"
+            ),
+            Self::ArgumentSerializationError { type_name, .. } => {
+                write!(f, "cannot serialize event arg, expected type: {type_name}")
+            }
+        }
+    }
+}
+impl Error for SaveError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::ConfigSerializationError { cause } => Some(cause.as_ref()),
+            Self::ModelSerializationError { cause, .. } => Some(cause.as_ref()),
+            Self::EventSerializationError { cause, .. } => Some(cause.as_ref()),
+            Self::SchedulerQueueSerializationError { cause } => Some(cause.as_ref()),
+            Self::SimulationStateSerializationError { cause } => Some(cause.as_ref()),
+            Self::EventNotFound { .. } => None,
+            Self::QueryNotFound { .. } => None,
+            Self::ArgumentTypeMismatch { .. } => None,
+            Self::ArgumentSerializationError { cause, .. } => Some(cause.as_ref()),
+        }
+    }
+}
+
+/// An error returned upon failure during simulation restore from a saved state.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum RestoreError {
+    /// Simulation config is not found in the restored state data.
+    ConfigMissing,
+    /// Failed attempt to deserialize model's state.
+    ModelDeserializationError {
+        /// The fully qualified name of the model.
+        name: String,
+        /// Type name of the model.
+        type_name: &'static str,
+        /// Underlying deserialization error
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to serialize model's state.
+    ModelSerializationError {
+        /// The fully qualified name of the model.
+        name: String,
+        /// Type name of the model.
+        type_name: &'static str,
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to deserialize an event.
+    EventDeserializationError {
+        /// Underlying deserialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to deserialize the scheduler queue.
+    SchedulerQueueDeserializationError {
+        /// Underlying deserialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to deserialize the complete simulation state.
+    SimulationStateDeserializationError {
+        /// Underlying deserialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to restore an event with an unknown id.
+    EventNotFound {
+        /// Event's sourceId
+        event_id: usize,
+    },
+    /// Failed attempt to restore a query with an unknown id.
+    QueryNotFound {
+        /// Query's sourceId
+        query_id: usize,
+    },
+    /// Failed attempt to deserialize an event argument.
+    ArgumentDeserializationError {
+        /// Expected type name
+        type_name: &'static str,
+        /// Underlying deserialization error.
+        cause: Box<dyn Error + Send>,
+    },
+}
+impl fmt::Display for RestoreError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::ConfigMissing => f.write_str("simulation config is missing"),
+            Self::ModelDeserializationError {
+                name, type_name, ..
+            } => write!(f, "cannot deserialize model {name}: {type_name}"),
+            Self::ModelSerializationError {
+                name, type_name, ..
+            } => write!(f, "cannot serialize model {name}: {type_name}"),
+            Self::EventDeserializationError { .. } => f.write_str("cannot deserialize an event"),
+            Self::SchedulerQueueDeserializationError { .. } => {
+                f.write_str("cannot deserialize scheduler queue")
+            }
+            Self::SimulationStateDeserializationError { .. } => {
+                f.write_str("cannot deserialize simulation state")
+            }
+            Self::EventNotFound { event_id } => {
+                write!(f, "deserialized event (id {event_id}) cannot be found")
+            }
+            Self::QueryNotFound { query_id } => {
+                write!(f, "deserialized query (id {query_id}) cannot be found")
+            }
+            Self::ArgumentDeserializationError { type_name, .. } => {
+                write!(
+                    f,
+                    "cannot deserialize event arg, expected type: {type_name}"
+                )
+            }
+        }
+    }
+}
+impl Error for RestoreError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::ConfigMissing => None,
+            Self::ModelDeserializationError { cause, .. } => Some(cause.as_ref()),
+            Self::ModelSerializationError { cause, .. } => Some(cause.as_ref()),
+            Self::EventDeserializationError { cause, .. } => Some(cause.as_ref()),
+            Self::SchedulerQueueDeserializationError { cause } => Some(cause.as_ref()),
+            Self::SimulationStateDeserializationError { cause } => Some(cause.as_ref()),
+            Self::EventNotFound { .. } => None,
+            Self::QueryNotFound { .. } => None,
+            Self::ArgumentDeserializationError { cause, .. } => Some(cause.as_ref()),
+        }
+    }
 }
 
 /// An error returned upon simulation execution failure.
@@ -849,9 +1063,9 @@ pub enum ExecutionError {
     /// Non-existent SourceId has been used.
     InvalidEvent(usize),
     /// Simulation serialization has failed.
-    SaveError(String),
+    SaveError(SaveError),
     /// Simulation deserialization has failed.
-    RestoreError(String),
+    RestoreError(RestoreError),
 }
 
 impl fmt::Display for ExecutionError {
@@ -924,6 +1138,18 @@ impl fmt::Display for ExecutionError {
 }
 
 impl Error for ExecutionError {}
+
+impl From<SaveError> for ExecutionError {
+    fn from(e: SaveError) -> Self {
+        Self::SaveError(e)
+    }
+}
+
+impl From<RestoreError> for ExecutionError {
+    fn from(e: RestoreError) -> Self {
+        Self::RestoreError(e)
+    }
+}
 
 /// An error returned upon simulation execution or scheduling failure.
 #[non_exhaustive]

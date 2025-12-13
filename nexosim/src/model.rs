@@ -267,7 +267,9 @@ use std::sync::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::PORT_REG;
-use crate::simulation::{Address, EventKeyReg, ExecutionError, Simulation, EVENT_KEY_REG};
+use crate::simulation::{
+    Address, EventKeyReg, ExecutionError, RestoreError, SaveError, Simulation, EVENT_KEY_REG,
+};
 use crate::util::serialization::serialization_config;
 
 pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
@@ -464,8 +466,14 @@ pub(crate) async fn serialize_model<M: Model>(
     model: &mut M,
     name: String,
 ) -> Result<Vec<u8>, ExecutionError> {
-    bincode::serde::encode_to_vec(model, serialization_config())
-        .map_err(|_| ExecutionError::SaveError(format!("Model: {} ({})", name, type_name::<M>())))
+    bincode::serde::encode_to_vec(model, serialization_config()).map_err(|_| {
+        SaveError::ModelSerializationError {
+            name,
+            type_name: type_name::<M>(),
+            cause: Box::new(e),
+        }
+        .into()
+    })
 }
 
 pub(crate) async fn deserialize_model<M: Model>(
@@ -477,21 +485,18 @@ pub(crate) async fn deserialize_model<M: Model>(
     let restored = PORT_REG
         .set(&Mutex::new(VecDeque::new()), || {
             EVENT_KEY_REG.set(&state.1, || {
-                bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|_| {
-                    ExecutionError::RestoreError(format!(
-                        "Model: {} ({})",
-                        state.2,
-                        type_name::<M>()
-                    ))
+                bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|e| {
+                    RestoreError::ModelSerializationError {
+                        name: state.2.clone(),
+                        type_name: type_name::<M>(),
+                        cause: Box::new(e),
+                    }
                 })?;
-
                 bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
-                    .map_err(|_| {
-                        ExecutionError::RestoreError(format!(
-                            "Model: {} ({})",
-                            state.2,
-                            type_name::<M>()
-                        ))
+                    .map_err(|e| RestoreError::ModelDeserializationError {
+                        name: state.2,
+                        type_name: type_name::<M>(),
+                        cause: Box::new(e),
                     })
             })
         })?
