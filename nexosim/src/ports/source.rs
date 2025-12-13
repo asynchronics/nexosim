@@ -138,7 +138,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
 }
 
 impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
-    pub fn add(self, name: impl Into<String>, sim_init: &mut SimInit) -> Result<(), ()> {
+    pub fn add(self, sim_init: &mut SimInit, name: impl Into<String>) -> Result<(), ()> {
         sim_init.add_event_source(self, name)
     }
 }
@@ -332,7 +332,7 @@ impl<
         R: Message + Serialize + Send + 'static,
     > QuerySource<T, R>
 {
-    pub fn add(self, name: impl Into<String>, sim_init: &mut SimInit) -> Result<(), ()> {
+    pub fn add(self, sim_init: &mut SimInit, name: impl Into<String>) -> Result<(), ()> {
         sim_init.add_query_source(self, name)
     }
 }

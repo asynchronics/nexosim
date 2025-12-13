@@ -149,6 +149,14 @@ impl EndpointRegistry {
         self.query_source_registry.get_source(name)
     }
 
+    pub fn get_query_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, RegistryError>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.query_source_registry.get_source_id(name)
+    }
+
     /// Returns an iterator over the names (keys) of the registered event
     /// sources.
     pub fn list_event_sources(&self) -> impl Iterator<Item = &String> {

@@ -85,6 +85,7 @@ pub(crate) use scheduler::GlobalScheduler;
 pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, ReplyReader};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
+use serde::de::DeserializeOwned;
 pub use sim_init::SimInit;
 
 pub(crate) use events::{
@@ -114,7 +115,8 @@ use scheduler::{SchedulerKey, SchedulerQueue};
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
-use crate::ports::{InputFn, ReplierFn};
+use crate::ports::{InputFn, QuerySource, ReplierFn};
+use crate::simulation::events::query_replier;
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -267,7 +269,7 @@ impl Simulation {
     }
 
     /// Processes a future immediately, blocking until completion.
-    pub(crate) fn process_future(
+    fn process_future(
         &mut self,
         fut: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ExecutionError> {
@@ -276,44 +278,20 @@ impl Simulation {
         self.run()
     }
 
-    /// Processes an action immediately, blocking until completion.
-    ///
-    /// Simulation time remains unchanged.
-    pub fn process_action(&mut self, action: Action) -> Result<(), ExecutionError> {
-        self.process_future(action.consume())
-    }
-
     /// Processes an event immediately, blocking until completion.
     ///
     /// Simulation time remains unchanged.
-    pub fn process_event<M, F, T, S>(
-        &mut self,
-        func: F,
-        arg: T,
-        address: impl Into<Address<M>>,
-    ) -> Result<(), ExecutionError>
+    pub fn process_event<T>(&mut self, event_id: &EventId<T>, arg: T) -> Result<(), ExecutionError>
     where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
-        T: Send + Clone + 'static,
+        T: Serialize + DeserializeOwned + Send + Clone + 'static,
     {
-        let sender = address.into().0;
-        let fut = async move {
-            // Ignore send errors.
-            let _ = sender
-                .send(
-                    move |model: &mut M,
-                          scheduler,
-                          env,
-                          recycle_box: RecycleBox<()>|
-                          -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                        let fut = func.call(model, arg, scheduler, env);
+        let source = self
+            .scheduler_registry
+            .event_registry
+            .get(&(*event_id).into())
+            .unwrap();
 
-                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
-                    },
-                )
-                .await;
-        };
+        let fut = source.event_future(&arg, None);
 
         self.process_future(fut)
     }
@@ -323,7 +301,29 @@ impl Simulation {
     /// Simulation time remains unchanged. If the mailbox targeted by the query
     /// was not found in the simulation, an [`ExecutionError::BadQuery`] is
     /// returned.
-    pub fn process_query<M, F, T, R, S>(
+    pub fn process_query<T, R>(
+        &mut self,
+        query_id: &QueryId<T, R>,
+        arg: T,
+    ) -> Result<ReplyReader<R>, ExecutionError>
+    where
+        T: Send + Clone + 'static,
+        R: Send + 'static,
+    {
+        let (tx, rx) = query_replier();
+        let source = self
+            .scheduler_registry
+            .query_registry
+            .get(&(*query_id).into())
+            .unwrap();
+
+        let fut = source.query_future(&arg, Box::new(tx));
+
+        self.process_future(fut)?;
+        Ok(rx)
+    }
+
+    pub(crate) fn process_replier_fn<M, F, T, R, S>(
         &mut self,
         func: F,
         arg: T,
@@ -1000,6 +1000,7 @@ pub(crate) fn add_model<P>(
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
     let model_id = ModelId::new(registered_models.len());
+
     registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
 
     let cx = Context::new(name, scheduler, address, model_id.0, model_registry);

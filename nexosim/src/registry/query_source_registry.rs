@@ -9,7 +9,7 @@ use ciborium;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::ports::RegisteredQuerySource;
+use crate::{ports::RegisteredQuerySource, simulation::QueryId};
 
 #[cfg(feature = "server")]
 use crate::ports::ReplyReceiver;
@@ -108,6 +108,24 @@ impl QuerySourceRegistry {
             .ok_or(RegistryError::InvalidType(std::any::type_name::<
                 &RegisteredQuerySource<T, R>,
             >()))
+    }
+
+    /// Returns a typed SourceId of the requested EventSource.
+    pub(crate) fn get_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, RegistryError>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        // Downcast_ref used as a runtime type-check.
+        Ok(self
+            .get(name)
+            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get_query_source()
+            .downcast_ref::<RegisteredQuerySource<T, R>>()
+            .ok_or(RegistryError::InvalidType(std::any::type_name::<
+                &RegisteredQuerySource<T, R>,
+            >()))?
+            .query_id)
     }
 
     /// Returns an iterator over the names of the registered query sources.

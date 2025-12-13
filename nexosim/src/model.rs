@@ -435,10 +435,10 @@ impl RegisteredModel {
         let de_name = name.clone();
 
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_query(serialize_model, ser_name.clone(), &ser_address)?
+            sim.process_replier_fn(serialize_model, ser_name.clone(), &ser_address)?
         });
         let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
-            sim.process_query(
+            sim.process_replier_fn(
                 deserialize_model,
                 (state.0, state.1, de_name.clone()),
                 &de_address,
@@ -460,12 +460,15 @@ impl std::fmt::Debug for RegisteredModel {
     }
 }
 
-async fn serialize_model<M: Model>(model: &mut M, name: String) -> Result<Vec<u8>, ExecutionError> {
+pub(crate) async fn serialize_model<M: Model>(
+    model: &mut M,
+    name: String,
+) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config())
         .map_err(|_| ExecutionError::SaveError(format!("Model: {} ({})", name, type_name::<M>())))
 }
 
-async fn deserialize_model<M: Model>(
+pub(crate) async fn deserialize_model<M: Model>(
     model: &mut M,
     state: (Vec<u8>, EventKeyReg, String),
     cx: &Context<M>,
