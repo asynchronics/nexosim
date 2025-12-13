@@ -89,22 +89,30 @@ pub fn get_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> SimInit {
     let mut bench = SimInit::new();
 
     // Controller.
-    let mut brew_time = EventSource::new()
+    EventSource::new()
         .connect(Controller::brew_time, &controller_mbox)
-        .add(&mut bench, "brew_time");
+        .add_endpoint(&mut bench, "brew_time")
+        // FIXME
+        .unwrap();
 
-    let mut brew_cmd = EventSource::new()
+    EventSource::new()
         .connect(Controller::brew_cmd, &controller_mbox)
-        .add(&mut bench, "brew_cmd");
+        .add_endpoint(&mut bench, "brew_cmd")
+        // FIXME
+        .unwrap();
 
     // Tank.
-    let mut fill = EventSource::new()
+    EventSource::new()
         .connect(Tank::fill, &tank_mbox)
-        .add(&mut bench, "fill");
+        .add_endpoint(&mut bench, "fill")
+        // FIXME
+        .unwrap();
 
-    let mut volume = QuerySource::new()
+    QuerySource::new()
         .connect(Tank::volume, &tank_mbox)
-        .add(&mut bench, "volume");
+        .add_endpoint(&mut bench, "volume")
+        // FIXME
+        .unwrap();
 
     bench = bench
         .add_model(controller, controller_mbox, "controller")

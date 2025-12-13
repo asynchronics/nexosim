@@ -13,7 +13,7 @@ use ciborium;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::ports::RegisteredEventSource;
-use crate::simulation::{EventId, QueryId, SchedulerRegistry};
+use crate::simulation::EventId;
 
 #[cfg(feature = "server")]
 use crate::simulation::{Action, Event, EventKey};
