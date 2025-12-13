@@ -153,7 +153,7 @@ pub(crate) trait SchedulerQuerySource: std::fmt::Debug + Send + 'static {
     fn query_future(
         &self,
         arg: &dyn Any,
-        replier: Box<dyn Any>,
+        replier: Option<Box<dyn Any + Send>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
 }
 
@@ -332,12 +332,13 @@ where
     fn query_future(
         &self,
         arg: &dyn Any,
-        replier: Box<dyn Any>,
+        replier: Option<Box<dyn Any + Send>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let replier = replier.map(|r| *r.downcast::<ReplyWriter<R>>().unwrap());
         Box::pin(QuerySource::query_future(
             self,
             arg.downcast_ref::<T>().unwrap().clone(),
-            *replier.downcast().unwrap(),
+            replier,
         ))
     }
 }
@@ -362,7 +363,7 @@ where
     fn query_future(
         &self,
         arg: &dyn Any,
-        replier: Box<dyn Any>,
+        replier: Option<Box<dyn Any + Send>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let inner: &dyn SchedulerQuerySource = self.as_ref();
         inner.query_future(arg, replier)
@@ -496,7 +497,7 @@ impl Event {
 pub(crate) struct Query {
     pub query_id: QueryIdErased,
     pub arg: Box<dyn Any + Send>,
-    pub replier: Box<dyn Any + Send>,
+    pub replier: Option<Box<dyn Any + Send>>,
 }
 impl Query {
     pub(crate) fn new<T: Send + 'static, R: Send + 'static>(
@@ -507,7 +508,7 @@ impl Query {
         Self {
             query_id: query_id.into(),
             arg: Box::new(arg),
-            replier: Box::new(replier),
+            replier: Some(Box::new(replier)),
         }
     }
     pub(crate) fn to_serializable(
@@ -537,16 +538,10 @@ impl Query {
             })?;
         let arg = source.deserialize_arg(&query.arg)?;
 
-        // Create dummy channel
-        // TODO check the effect of the wrong type (probably panic when casting
-        // somewhere)
-        // Alternatively use option?
-        let (_, rx) = query_replier::<()>();
-
         Ok(Self {
             query_id: query.query_id,
             arg,
-            replier: Box::new(rx),
+            replier: None,
         })
     }
 }

@@ -317,7 +317,7 @@ impl Simulation {
             .get(&(*query_id).into())
             .unwrap();
 
-        let fut = source.query_future(&arg, Box::new(tx));
+        let fut = source.query_future(&arg, Some(Box::new(tx)));
 
         self.process_future(fut)?;
         Ok(rx)
@@ -485,7 +485,6 @@ impl Simulation {
                                 .insert((time + period, channel_id), QueueItem::Event(event));
                         }
                         fut
-                        // action_seq.push(fut);
                     }
                     QueueItem::Query(query) => {
                         let source = self
@@ -949,7 +948,9 @@ impl fmt::Display for RestoreError {
             Self::ModelSerializationError {
                 name, type_name, ..
             } => write!(f, "cannot serialize model {name}: {type_name}"),
-            Self::EventDeserializationError { .. } => f.write_str("cannot deserialize an event"),
+            Self::QueueItemDeserializationError { .. } => {
+                f.write_str("cannot deserialize queue item")
+            }
             Self::SchedulerQueueDeserializationError { .. } => {
                 f.write_str("cannot deserialize scheduler queue")
             }
@@ -977,7 +978,7 @@ impl Error for RestoreError {
             Self::ConfigMissing => None,
             Self::ModelDeserializationError { cause, .. } => Some(cause.as_ref()),
             Self::ModelSerializationError { cause, .. } => Some(cause.as_ref()),
-            Self::EventDeserializationError { cause, .. } => Some(cause.as_ref()),
+            Self::QueueItemDeserializationError { cause, .. } => Some(cause.as_ref()),
             Self::SchedulerQueueDeserializationError { cause } => Some(cause.as_ref()),
             Self::SimulationStateDeserializationError { cause } => Some(cause.as_ref()),
             Self::EventNotFound { .. } => None,

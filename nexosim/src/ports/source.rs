@@ -308,13 +308,15 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
     pub(crate) fn query_future(
         &self,
         arg: T,
-        replier: ReplyWriter<R>,
+        replier: Option<ReplyWriter<R>>,
     ) -> impl Future<Output = ()> + Send {
         let fut = self.broadcaster.broadcast(arg);
 
         async move {
             let replies = fut.await.unwrap_or_throw();
-            replier.send(replies);
+            if let Some(replier) = replier {
+                replier.send(replies);
+            }
         }
     }
 }

@@ -466,7 +466,7 @@ pub(crate) async fn serialize_model<M: Model>(
     model: &mut M,
     name: String,
 ) -> Result<Vec<u8>, ExecutionError> {
-    bincode::serde::encode_to_vec(model, serialization_config()).map_err(|_| {
+    bincode::serde::encode_to_vec(model, serialization_config()).map_err(|e| {
         SaveError::ModelSerializationError {
             name,
             type_name: type_name::<M>(),
