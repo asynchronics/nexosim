@@ -6,8 +6,8 @@ mod task;
 
 use std::any::Any;
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crossbeam_utils::CachePadded;
@@ -142,8 +142,8 @@ impl Signal {
 
 #[cfg(all(test, not(nexosim_loom)))]
 mod tests {
-    use std::sync::atomic::Ordering;
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
 
     use futures_channel::mpsc;
     use futures_util::StreamExt;

@@ -1,23 +1,27 @@
 //! Simulation server.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::{Mutex, RwLock};
+use std::sync::Mutex;
 
 use serde::de::DeserializeOwned;
-use tonic::{transport::Server, Request, Response, Status};
+use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::RwLock as TokioRwLock;
+use tonic::{Request, Response, Status, transport::Server};
 
-use crate::registry::EndpointRegistry;
+use crate::endpoints::Endpoints;
 use crate::simulation::{SimInit, Simulation};
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
 use super::services::{
     ControllerService, InitService, InspectorService, MonitorService, SchedulerService,
+    monitor_service_read_event,
 };
 
 /// Runs a simulation from a network server.
@@ -196,12 +200,28 @@ fn run_local_service(
     })
 }
 
+/// The global gRPC service.
+///
+/// In order to allow concurrent non-mutating requests, all such requests are
+/// routed to an `InspectorService` which is under an async RW lock. The only
+/// time it is accessed in writing mode is during initialization and
+/// termination.
+///
+/// Mutable resources that can be managed through non-blocking or async calls,
+/// namely the `KeyRegistry` (held by `SchedulerService`) and the
+/// `EventSinkRegistry` (held by `MonitorService`), are bundled with all
+/// necessary immutable resources in a service object held under an async mutex.
+///
+/// In the case of the `Simulation` instance, managed by `ControllerService`, a
+/// standard mutex is used and wrapped in an `Arc`. This allows mutating
+/// blocking requests to the simulation object to be spawned on a separate
+/// thread with `tokio::task::spawn_blocking`.
 struct GrpcSimulationService {
-    init_service: Mutex<InitService>,
+    init_service: TokioMutex<InitService>,
     controller_service: Arc<Mutex<ControllerService>>,
-    inspector_service: Mutex<InspectorService>,
-    monitor_service: Arc<RwLock<MonitorService>>,
-    scheduler_service: Mutex<SchedulerService>,
+    scheduler_service: TokioMutex<SchedulerService>,
+    monitor_service: TokioMutex<MonitorService>,
+    inspector_service: TokioRwLock<InspectorService>,
 }
 
 impl GrpcSimulationService {
@@ -217,106 +237,45 @@ impl GrpcSimulationService {
         I: DeserializeOwned,
     {
         Self {
-            init_service: Mutex::new(InitService::new(sim_gen)),
-            controller_service: Arc::new(Mutex::new(ControllerService::NotStarted)),
-            inspector_service: Mutex::new(InspectorService::NotStarted),
-            monitor_service: Arc::new(RwLock::new(MonitorService::NotStarted)),
-            scheduler_service: Mutex::new(SchedulerService::NotStarted),
+            init_service: TokioMutex::new(InitService::new(sim_gen)),
+            controller_service: Arc::new(Mutex::new(ControllerService::Halted)),
+            scheduler_service: TokioMutex::new(SchedulerService::Halted),
+            monitor_service: TokioMutex::new(MonitorService::Halted),
+            inspector_service: TokioRwLock::new(InspectorService::Halted),
         }
     }
 
     /// Executes a method of the controller service.
-    async fn execute_controller_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
+    async fn execute_controller_fn<T, U, F>(&self, request: T, f: F) -> U
     where
         T: Send + 'static,
         U: Send + 'static,
         F: Fn(&mut ControllerService, T) -> U + Send + 'static,
     {
         let controller = self.controller_service.clone();
-        // May block.
-        let res = tokio::task::spawn_blocking(move || f(&mut controller.lock().unwrap(), request))
+
+        // May block!
+        tokio::task::spawn_blocking(move || f(&mut controller.lock().unwrap(), request))
             .await
-            .unwrap();
-
-        Ok(Response::new(res))
+            .unwrap()
     }
 
-    /// Executes a method of the inspector service.
-    fn execute_inspector_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
-    where
-        F: Fn(&InspectorService, T) -> U,
-    {
-        Ok(Response::new(f(
-            &self.inspector_service.lock().unwrap(),
-            request,
-        )))
-    }
-
-    /// Executes a read method of the monitor service.
-    async fn execute_monitor_read_fn<T, U, F>(
-        &self,
-        request: T,
-        f: F,
-    ) -> Result<Response<U>, Status>
-    where
-        T: Send + 'static,
-        U: Send + 'static,
-        F: Fn(&MonitorService, T) -> U + Send + 'static,
-    {
-        let monitor = self.monitor_service.clone();
-        // May block.
-        let res = tokio::task::spawn_blocking(move || f(&monitor.read().unwrap(), request))
-            .await
-            .unwrap();
-
-        Ok(Response::new(res))
-    }
-
-    /// Executes a write method of the monitor service.
-    async fn execute_monitor_write_fn<T, U, F>(
-        &self,
-        request: T,
-        f: F,
-    ) -> Result<Response<U>, Status>
-    where
-        T: Send + 'static,
-        U: Send + 'static,
-        F: Fn(&mut MonitorService, T) -> U + Send + 'static,
-    {
-        let monitor = self.monitor_service.clone();
-        // May block.
-        let res = tokio::task::spawn_blocking(move || f(&mut monitor.write().unwrap(), request))
-            .await
-            .unwrap();
-
-        Ok(Response::new(res))
-    }
-
-    /// Executes a method of the scheduler service.
-    // For some reason clippy emits a warning when generic `Response<U>` is
-    // used, while not complaining with a concrete type.
-    #[allow(clippy::result_large_err)]
-    fn execute_scheduler_fn<T, U, F>(&self, request: T, f: F) -> Result<Response<U>, Status>
-    where
-        F: Fn(&mut SchedulerService, T) -> U,
-    {
-        Ok(Response::new(f(
-            &mut self.scheduler_service.lock().unwrap(),
-            request,
-        )))
-    }
-
-    fn start_services(
+    async fn start_services(
         &self,
         simulation: Simulation,
-        endpoint_registry: EndpointRegistry,
+        endpoint_registry: Endpoints,
         cfg: Vec<u8>,
     ) {
         let scheduler = simulation.scheduler();
 
-        let event_source_registry = Arc::new(endpoint_registry.event_source_registry);
-        let query_source_registry = Arc::new(endpoint_registry.query_source_registry);
-        let event_sink_registry = Arc::new(Mutex::new(endpoint_registry.event_sink_registry));
+        let (
+            event_sink_registry,
+            event_sink_info_registry,
+            event_source_registry,
+            query_source_registry,
+        ) = endpoint_registry.into_parts();
+        let event_source_registry = Arc::new(event_source_registry);
+        let query_source_registry = Arc::new(query_source_registry);
 
         *self.controller_service.lock().unwrap() = ControllerService::Started {
             cfg,
@@ -324,15 +283,16 @@ impl GrpcSimulationService {
             event_source_registry: event_source_registry.clone(),
             query_source_registry: query_source_registry.clone(),
         };
-        *self.inspector_service.lock().unwrap() = InspectorService::Started {
-            event_sink_registry: event_sink_registry.clone(),
+        *self.inspector_service.write().await = InspectorService::Started {
+            scheduler: scheduler.clone(),
+            event_sink_info_registry,
             event_source_registry: event_source_registry.clone(),
             query_source_registry,
         };
-        *self.monitor_service.write().unwrap() = MonitorService::Started {
+        *self.monitor_service.lock().await = MonitorService::Started {
             event_sink_registry,
         };
-        *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
+        *self.scheduler_service.lock().await = SchedulerService::Started {
             scheduler,
             event_source_registry,
             key_registry: KeyRegistry::default(),
@@ -342,13 +302,29 @@ impl GrpcSimulationService {
 
 #[tonic::async_trait]
 impl simulation_server::Simulation for GrpcSimulationService {
+    // Terminate.
+    async fn terminate(
+        &self,
+        _request: Request<TerminateRequest>,
+    ) -> Result<Response<TerminateReply>, Status> {
+        *self.controller_service.lock().unwrap() = ControllerService::Halted;
+        *self.inspector_service.write().await = InspectorService::Halted;
+        *self.monitor_service.lock().await = MonitorService::Halted;
+        *self.scheduler_service.lock().await = SchedulerService::Halted;
+
+        Ok(Response::new(TerminateReply {
+            result: Some(terminate_reply::Result::Empty(())),
+        }))
+    }
+
+    // Init service.
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
-
-        let (reply, bench) = self.init_service.lock().unwrap().init(request);
+        let (reply, bench) = self.init_service.lock().await.init(request);
 
         if let Some((simulation, endpoint_registry, cfg)) = bench {
-            self.start_services(simulation, endpoint_registry, cfg);
+            self.start_services(simulation, endpoint_registry, cfg)
+                .await;
         }
 
         Ok(Response::new(reply))
@@ -358,184 +334,366 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<RestoreRequest>,
     ) -> Result<Response<RestoreReply>, Status> {
         let request = request.into_inner();
-
-        let (reply, bench) = self.init_service.lock().unwrap().restore(request);
+        let (reply, bench) = self.init_service.lock().await.restore(request);
 
         if let Some((simulation, endpoint_registry, cfg)) = bench {
-            self.start_services(simulation, endpoint_registry, cfg);
+            self.start_services(simulation, endpoint_registry, cfg)
+                .await;
         }
 
         Ok(Response::new(reply))
     }
-    async fn terminate(
-        &self,
-        _request: Request<TerminateRequest>,
-    ) -> Result<Response<TerminateReply>, Status> {
-        *self.controller_service.lock().unwrap() = ControllerService::NotStarted;
-        *self.inspector_service.lock().unwrap() = InspectorService::NotStarted;
-        *self.monitor_service.write().unwrap() = MonitorService::NotStarted;
-        *self.scheduler_service.lock().unwrap() = SchedulerService::NotStarted;
 
-        Ok(Response::new(TerminateReply {
-            result: Some(terminate_reply::Result::Empty(())),
-        }))
-    }
-    async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_scheduler_fn(request, SchedulerService::halt)
-    }
+    // Controller service.
     async fn save(&self, request: Request<SaveRequest>) -> Result<Response<SaveReply>, Status> {
         let request = request.into_inner();
+        let reply = self
+            .execute_controller_fn(request, ControllerService::save)
+            .await;
 
-        self.execute_controller_fn(request, ControllerService::save)
-            .await
-    }
-    async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_scheduler_fn(request, SchedulerService::time)
+        Ok(Response::new(SaveReply {
+            result: Some(match reply {
+                Ok(state) => save_reply::Result::State(state),
+                Err(e) => save_reply::Result::Error(e),
+            }),
+        }))
     }
     async fn step(&self, request: Request<StepRequest>) -> Result<Response<StepReply>, Status> {
         let request = request.into_inner();
+        let reply = self
+            .execute_controller_fn(request, ControllerService::step)
+            .await;
 
-        self.execute_controller_fn(request, ControllerService::step)
-            .await
+        Ok(Response::new(StepReply {
+            result: Some(match reply {
+                Ok(timestamp) => step_reply::Result::Time(timestamp),
+                Err(e) => step_reply::Result::Error(e),
+            }),
+        }))
     }
     async fn step_until(
         &self,
         request: Request<StepUntilRequest>,
     ) -> Result<Response<StepUntilReply>, Status> {
         let request = request.into_inner();
+        let reply = self
+            .execute_controller_fn(request, ControllerService::step_until)
+            .await;
 
-        self.execute_controller_fn(request, ControllerService::step_until)
-            .await
+        Ok(Response::new(StepUntilReply {
+            result: Some(match reply {
+                Ok(timestamp) => step_until_reply::Result::Time(timestamp),
+                Err(error) => step_until_reply::Result::Error(error),
+            }),
+        }))
     }
     async fn step_unbounded(
         &self,
         request: Request<StepUnboundedRequest>,
     ) -> Result<Response<StepUnboundedReply>, Status> {
         let request = request.into_inner();
+        let reply = self
+            .execute_controller_fn(request, ControllerService::step_unbounded)
+            .await;
 
-        self.execute_controller_fn(request, ControllerService::step_unbounded)
-            .await
-    }
-    async fn schedule_event(
-        &self,
-        request: Request<ScheduleEventRequest>,
-    ) -> Result<Response<ScheduleEventReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_scheduler_fn(request, SchedulerService::schedule_event)
-    }
-    async fn cancel_event(
-        &self,
-        request: Request<CancelEventRequest>,
-    ) -> Result<Response<CancelEventReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_scheduler_fn(request, SchedulerService::cancel_event)
-    }
-    async fn list_event_sources(
-        &self,
-        request: Request<ListEventSourcesRequest>,
-    ) -> Result<Response<ListEventSourcesReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_inspector_fn(request, InspectorService::list_event_sources)
-    }
-    async fn get_event_source_schemas(
-        &self,
-        request: Request<GetEventSourceSchemasRequest>,
-    ) -> Result<Response<GetEventSourceSchemasReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_inspector_fn(request, InspectorService::get_event_source_schemas)
-    }
-    async fn list_query_sources(
-        &self,
-        request: Request<ListQuerySourcesRequest>,
-    ) -> Result<Response<ListQuerySourcesReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_inspector_fn(request, InspectorService::list_query_sources)
-    }
-    async fn get_query_source_schemas(
-        &self,
-        request: Request<GetQuerySourceSchemasRequest>,
-    ) -> Result<Response<GetQuerySourceSchemasReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_inspector_fn(request, InspectorService::get_query_source_schemas)
-    }
-    async fn list_event_sinks(
-        &self,
-        request: Request<ListEventSinksRequest>,
-    ) -> Result<Response<ListEventSinksReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_inspector_fn(request, InspectorService::list_event_sinks)
-    }
-    async fn get_event_sink_schemas(
-        &self,
-        request: Request<GetEventSinkSchemasRequest>,
-    ) -> Result<Response<GetEventSinkSchemasReply>, Status> {
-        let request = request.into_inner();
-
-        self.execute_inspector_fn(request, InspectorService::get_event_sink_schemas)
+        Ok(Response::new(StepUnboundedReply {
+            result: Some(match reply {
+                Ok(timestamp) => step_unbounded_reply::Result::Time(timestamp),
+                Err(error) => step_unbounded_reply::Result::Error(error),
+            }),
+        }))
     }
     async fn process_event(
         &self,
         request: Request<ProcessEventRequest>,
     ) -> Result<Response<ProcessEventReply>, Status> {
         let request = request.into_inner();
+        let reply = self
+            .execute_controller_fn(request, ControllerService::process_event)
+            .await;
 
-        self.execute_controller_fn(request, ControllerService::process_event)
-            .await
+        Ok(Response::new(ProcessEventReply {
+            result: Some(match reply {
+                Ok(()) => process_event_reply::Result::Empty(()),
+                Err(error) => process_event_reply::Result::Error(error),
+            }),
+        }))
     }
     async fn process_query(
         &self,
         request: Request<ProcessQueryRequest>,
     ) -> Result<Response<ProcessQueryReply>, Status> {
         let request = request.into_inner();
+        let reply = self
+            .execute_controller_fn(request, ControllerService::process_query)
+            .await;
 
-        self.execute_controller_fn(request, ControllerService::process_query)
-            .await
+        Ok(Response::new(match reply {
+            Ok(replies) => ProcessQueryReply {
+                replies,
+                result: Some(process_query_reply::Result::Empty(())),
+            },
+            Err(error) => ProcessQueryReply {
+                replies: Vec::new(),
+                result: Some(process_query_reply::Result::Error(error)),
+            },
+        }))
     }
-    async fn read_events(
+
+    // Scheduler service.
+    async fn schedule_event(
         &self,
-        request: Request<ReadEventsRequest>,
-    ) -> Result<Response<ReadEventsReply>, Status> {
+        request: Request<ScheduleEventRequest>,
+    ) -> Result<Response<ScheduleEventReply>, Status> {
+        let request = request.into_inner();
+        let reply = self.scheduler_service.lock().await.schedule_event(request);
+
+        Ok(Response::new(ScheduleEventReply {
+            result: Some(match reply {
+                Ok(Some(key_id)) => {
+                    let (subkey1, subkey2) = key_id.into_raw_parts();
+                    schedule_event_reply::Result::Key(EventKey {
+                        subkey1: subkey1
+                            .try_into()
+                            .expect("action key index is too large to be serialized"),
+                        subkey2,
+                    })
+                }
+                Ok(None) => schedule_event_reply::Result::Empty(()),
+                Err(error) => schedule_event_reply::Result::Error(error),
+            }),
+        }))
+    }
+    async fn cancel_event(
+        &self,
+        request: Request<CancelEventRequest>,
+    ) -> Result<Response<CancelEventReply>, Status> {
+        let request = request.into_inner();
+        let reply = self.scheduler_service.lock().await.cancel_event(request);
+
+        Ok(Response::new(CancelEventReply {
+            result: Some(match reply {
+                Ok(()) => cancel_event_reply::Result::Empty(()),
+                Err(error) => cancel_event_reply::Result::Error(error),
+            }),
+        }))
+    }
+
+    // Inspector service.
+    async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_monitor_read_fn(request, MonitorService::read_events)
-            .await
+        Ok(Response::new(TimeReply {
+            result: Some(match self.inspector_service.read().await.time(request) {
+                Ok(timestamp) => time_reply::Result::Time(timestamp),
+                Err(e) => time_reply::Result::Error(e),
+            }),
+        }))
     }
-    async fn await_event(
-        &self,
-        request: Request<AwaitEventRequest>,
-    ) -> Result<Response<AwaitEventReply>, Status> {
+    async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
         let request = request.into_inner();
 
-        self.execute_monitor_read_fn(request, MonitorService::await_event)
+        Ok(Response::new(HaltReply {
+            result: Some(match self.inspector_service.read().await.halt(request) {
+                Ok(()) => halt_reply::Result::Empty(()),
+                Err(e) => halt_reply::Result::Error(e),
+            }),
+        }))
+    }
+    async fn list_event_sources(
+        &self,
+        request: Request<ListEventSourcesRequest>,
+    ) -> Result<Response<ListEventSourcesReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .inspector_service
+            .read()
             .await
+            .list_event_sources(request);
+
+        Ok(Response::new(match reply {
+            Ok(source_names) => ListEventSourcesReply {
+                source_names,
+                result: Some(list_event_sources_reply::Result::Empty(())),
+            },
+            Err(e) => ListEventSourcesReply {
+                source_names: Vec::new(),
+                result: Some(list_event_sources_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn get_event_source_schemas(
+        &self,
+        request: Request<GetEventSourceSchemasRequest>,
+    ) -> Result<Response<GetEventSourceSchemasReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .inspector_service
+            .read()
+            .await
+            .get_event_source_schemas(request);
+
+        Ok(Response::new(match reply {
+            Ok(schemas) => GetEventSourceSchemasReply {
+                schemas,
+                result: Some(get_event_source_schemas_reply::Result::Empty(())),
+            },
+            Err(e) => GetEventSourceSchemasReply {
+                schemas: HashMap::new(),
+                result: Some(get_event_source_schemas_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn list_query_sources(
+        &self,
+        request: Request<ListQuerySourcesRequest>,
+    ) -> Result<Response<ListQuerySourcesReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .inspector_service
+            .read()
+            .await
+            .list_query_sources(request);
+
+        Ok(Response::new(match reply {
+            Ok(source_names) => ListQuerySourcesReply {
+                source_names,
+                result: Some(list_query_sources_reply::Result::Empty(())),
+            },
+            Err(e) => ListQuerySourcesReply {
+                source_names: Vec::new(),
+                result: Some(list_query_sources_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn get_query_source_schemas(
+        &self,
+        request: Request<GetQuerySourceSchemasRequest>,
+    ) -> Result<Response<GetQuerySourceSchemasReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .inspector_service
+            .read()
+            .await
+            .get_query_source_schemas(request);
+
+        Ok(Response::new(match reply {
+            Ok(schemas) => GetQuerySourceSchemasReply {
+                schemas,
+                result: Some(get_query_source_schemas_reply::Result::Empty(())),
+            },
+            Err(e) => GetQuerySourceSchemasReply {
+                schemas: HashMap::new(),
+                result: Some(get_query_source_schemas_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn list_event_sinks(
+        &self,
+        request: Request<ListEventSinksRequest>,
+    ) -> Result<Response<ListEventSinksReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .inspector_service
+            .read()
+            .await
+            .list_event_sinks(request);
+
+        Ok(Response::new(match reply {
+            Ok(sink_names) => ListEventSinksReply {
+                sink_names,
+                result: Some(list_event_sinks_reply::Result::Empty(())),
+            },
+            Err(e) => ListEventSinksReply {
+                sink_names: Vec::new(),
+                result: Some(list_event_sinks_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn get_event_sink_schemas(
+        &self,
+        request: Request<GetEventSinkSchemasRequest>,
+    ) -> Result<Response<GetEventSinkSchemasReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .inspector_service
+            .read()
+            .await
+            .get_event_sink_schemas(request);
+
+        Ok(Response::new(match reply {
+            Ok(schemas) => GetEventSinkSchemasReply {
+                schemas,
+                result: Some(get_event_sink_schemas_reply::Result::Empty(())),
+            },
+            Err(e) => GetEventSinkSchemasReply {
+                schemas: HashMap::new(),
+                result: Some(get_event_sink_schemas_reply::Result::Error(e)),
+            },
+        }))
+    }
+
+    // Monitor service.
+    async fn try_read_events(
+        &self,
+        request: Request<TryReadEventsRequest>,
+    ) -> Result<Response<TryReadEventsReply>, Status> {
+        let request = request.into_inner();
+
+        let reply = self.monitor_service.lock().await.try_read_events(request);
+
+        Ok(Response::new(match reply {
+            Ok(events) => TryReadEventsReply {
+                events,
+                result: Some(try_read_events_reply::Result::Empty(())),
+            },
+            Err(error) => TryReadEventsReply {
+                events: Vec::new(),
+                result: Some(try_read_events_reply::Result::Error(error)),
+            },
+        }))
+    }
+    async fn read_event(
+        &self,
+        request: Request<ReadEventRequest>,
+    ) -> Result<Response<ReadEventReply>, Status> {
+        let request = request.into_inner();
+
+        let reply = monitor_service_read_event(&self.monitor_service, request).await;
+
+        Ok(Response::new(ReadEventReply {
+            result: Some(match reply {
+                Ok(event) => read_event_reply::Result::Event(event),
+                Err(error) => read_event_reply::Result::Error(error),
+            }),
+        }))
     }
     async fn open_sink(
         &self,
         request: Request<OpenSinkRequest>,
     ) -> Result<Response<OpenSinkReply>, Status> {
         let request = request.into_inner();
+        let reply = self.monitor_service.lock().await.open_sink(request);
 
-        self.execute_monitor_write_fn(request, MonitorService::open_sink)
-            .await
+        Ok(Response::new(OpenSinkReply {
+            result: Some(match reply {
+                Ok(()) => open_sink_reply::Result::Empty(()),
+                Err(e) => open_sink_reply::Result::Error(e),
+            }),
+        }))
     }
     async fn close_sink(
         &self,
         request: Request<CloseSinkRequest>,
     ) -> Result<Response<CloseSinkReply>, Status> {
         let request = request.into_inner();
+        let reply = self.monitor_service.lock().await.close_sink(request);
 
-        self.execute_monitor_write_fn(request, MonitorService::close_sink)
-            .await
+        Ok(Response::new(CloseSinkReply {
+            result: Some(match reply {
+                Ok(()) => close_sink_reply::Result::Empty(()),
+                Err(e) => close_sink_reply::Result::Error(e),
+            }),
+        }))
     }
 }

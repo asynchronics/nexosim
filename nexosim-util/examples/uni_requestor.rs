@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use nexosim_util::observable::Observable;
 
 use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, Output, UniRequestor};
+use nexosim::ports::{EventQueue, EventSinkReader, Output, UniRequestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -137,7 +137,7 @@ fn main() -> Result<(), SimulationError> {
     // Model handles for simulation.
     let env_addr = env_mbox.address();
 
-    let overheat = EventQueue::new();
+    let overheat = EventQueue::new_open();
     sensor.overheat.connect_sink(&overheat);
     let mut overheat = overheat.into_reader();
 
@@ -160,8 +160,8 @@ fn main() -> Result<(), SimulationError> {
 
     // Check initial conditions.
     assert_eq!(simu.time(), t0);
-    assert_eq!(overheat.next(), Some(false));
-    assert!(overheat.next().is_none());
+    assert_eq!(overheat.try_read(), Some(false));
+    assert!(overheat.try_read().is_none());
 
     // Change temperature in 2s.
     scheduler
@@ -174,10 +174,10 @@ fn main() -> Result<(), SimulationError> {
         .unwrap();
 
     simu.step_until(Duration::from_secs(3))?;
-    assert!(overheat.next().is_none());
+    assert!(overheat.try_read().is_none());
 
     simu.step_until(Duration::from_secs(5))?;
-    assert_eq!(overheat.next(), Some(true));
+    assert_eq!(overheat.try_read(), Some(true));
 
     Ok(())
 }

@@ -3,10 +3,10 @@ use std::future::Future;
 use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::time::Duration;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, EventQueueReader, Output};
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, Output};
 use nexosim::simulation::{Address, EventKey, Mailbox, SimInit, SourceId};
 use nexosim::time::MonotonicTime;
 
@@ -204,7 +204,7 @@ fn model_with_output() {
         let mbox = Mailbox::new();
         let mut model = ModelWithOutput::default();
 
-        let msg = EventQueue::new();
+        let msg = EventQueue::new_open();
         model.output.connect_sink(&msg);
 
         let mut bench = SimInit::new();
@@ -233,7 +233,7 @@ fn model_with_output() {
 
     // Verify that the scheduled event gets fired.
     simu.step().unwrap();
-    assert_eq!(msg.next(), Some("5".to_string()));
+    assert_eq!(msg.try_read(), Some("5".to_string()));
 }
 
 #[test]
@@ -250,7 +250,7 @@ fn model_with_key() {
         let key_mbox = Mailbox::new();
         let key_model = ModelWithKey { key: None };
 
-        let msg = EventQueue::new();
+        let msg = EventQueue::new_open();
         output_model.output.connect_sink(&msg);
 
         let key_addr = key_mbox.address();
@@ -289,7 +289,7 @@ fn model_with_key() {
 
     // Verify that the scheduled event does not fire.
     simu.step().unwrap();
-    assert_eq!(msg.next(), None);
+    assert_eq!(msg.try_read(), None);
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn model_with_schedule() {
         let mbox = Mailbox::new();
         let mut model = ModelWithSchedule::new();
 
-        let msg = EventQueue::new();
+        let msg = EventQueue::new_open();
         model.output.connect_sink(&msg);
 
         let bench = SimInit::new().add_model(model, mbox, "modelWithSchedule");
@@ -345,7 +345,7 @@ fn model_with_schedule() {
 
     let mut simu = bench.init(t0).unwrap();
     simu.step().unwrap();
-    assert_eq!(msg.next(), Some(7));
+    assert_eq!(msg.try_read(), Some(7));
 
     // Store state with a scheduled model after one step.
     let mut state = Vec::new();
@@ -357,7 +357,7 @@ fn model_with_schedule() {
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
-    assert_eq!(msg.next(), Some(21));
+    assert_eq!(msg.try_read(), Some(21));
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn model_with_generics() {
             output: Output::<f64>::default(),
         };
 
-        let msg = EventQueue::new();
+        let msg = EventQueue::new_open();
         model.output.connect_sink(&msg);
         let address = mbox.address();
 
@@ -392,7 +392,7 @@ fn model_with_generics() {
         .unwrap();
     simu.step().unwrap();
 
-    assert_eq!(msg.next(), Some(5.14));
+    assert_eq!(msg.try_read(), Some(5.14));
 
     // Store state with a scheduled model after one step.
     let mut state = Vec::new();
@@ -404,7 +404,7 @@ fn model_with_generics() {
 
     // Verify that the scheduled event gets fired as step two.
     simu.step().unwrap();
-    assert_eq!(msg.next(), Some(7.14));
+    assert_eq!(msg.try_read(), Some(7.14));
 }
 
 #[test]
@@ -445,7 +445,7 @@ fn model_with_hashmap() {
         };
         for idx in 0..COUNT {
             let mut output = Output::new();
-            let msg = EventQueue::new();
+            let msg = EventQueue::new_open();
             output.connect_sink(&msg);
             model.outputs.insert(idx, output);
             sinks.push(msg.into_reader());
@@ -475,7 +475,7 @@ fn model_with_hashmap() {
         for idx in 0..COUNT {
             simu.process_event(ModelWithHashMap::send, idx, &address)
                 .unwrap();
-            assert_eq!(sinks[idx].next(), Some(idx));
+            assert_eq!(sinks[idx].try_read(), Some(idx));
         }
     }
 }

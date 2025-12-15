@@ -1,10 +1,10 @@
 //! Primitive for the efficient management of concurrent tasks.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use diatomic_waker::WakeSource;
-use futures_task::{waker_ref, ArcWake, WakerRef};
+use futures_task::{ArcWake, WakerRef, waker_ref};
 
 use crate::loom_exports::sync::atomic::{AtomicU32, AtomicU64};
 

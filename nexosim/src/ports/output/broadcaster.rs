@@ -503,8 +503,8 @@ fn recycle_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
 
 #[cfg(all(test, not(nexosim_loom)))]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
     use futures_executor::block_on;

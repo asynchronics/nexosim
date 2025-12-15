@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use std::alloc::{dealloc, Layout};
+use std::alloc::{Layout, dealloc};
 use std::future::Future;
 use std::mem::{self, ManuallyDrop};
 use std::panic::{RefUnwindSafe, UnwindSafe};
@@ -11,8 +11,8 @@ use crate::loom_exports::debug_or_loom_assert;
 use crate::loom_exports::sync::atomic::{self, AtomicU64, Ordering};
 
 use super::util::RunOnDrop;
-use super::{raw_waker_vtable, Task};
 use super::{CLOSED, POLLING, REF_MASK, WAKE_MASK};
+use super::{Task, raw_waker_vtable};
 
 /// Virtual table for a `Runnable`.
 #[derive(Debug)]
@@ -29,7 +29,7 @@ where
     S: Fn(Runnable, T) + Send + Sync + 'static,
     T: Clone + Send + Sync + 'static,
 {
-    let this = &*(ptr as *const Task<F, S, T>);
+    let this = unsafe { &*(ptr as *const Task<F, S, T>) };
 
     // A this point, the task cannot be in the `Completed` phase, otherwise
     // it would not have been scheduled in the first place. It could,
@@ -71,21 +71,21 @@ where
     loop {
         // Drop the future if the phase has transitioned to `Wind-down`.
         if state & CLOSED == CLOSED {
-            cancel::<F, S, T>(ptr);
+            unsafe { cancel::<F, S, T>(ptr) };
 
             return;
         }
 
         // Poll the task.
         let raw_waker = RawWaker::new(ptr, raw_waker_vtable::<F, S, T>());
-        let waker = ManuallyDrop::new(Waker::from_raw(raw_waker));
+        let waker = ManuallyDrop::new(unsafe { Waker::from_raw(raw_waker) });
 
         let cx = &mut Context::from_waker(&waker);
-        let fut = Pin::new_unchecked(this.core.with_mut(|c| &mut *(*c).future));
+        let fut = unsafe { Pin::new_unchecked(this.core.with_mut(|c| &mut *(*c).future)) };
 
         // Set a panic guard to cancel the task if the future panics when
         // polled.
-        let panic_guard = RunOnDrop::new(|| cancel::<F, S, T>(ptr));
+        let panic_guard = RunOnDrop::new(|| unsafe { cancel::<F, S, T>(ptr) });
 
         let poll_state = fut.poll(cx);
         mem::forget(panic_guard);
@@ -104,11 +104,14 @@ where
                 // ensure that all memory operations on the future or the
                 // output are visible when the last reference deallocates
                 // the task.
-                let state = (*state_ptr)
-                    .fetch_update(Ordering::Release, Ordering::Relaxed, |s| {
-                        Some((s | CLOSED) & !POLLING)
-                    })
-                    .unwrap();
+
+                let state = unsafe {
+                    (*state_ptr)
+                        .fetch_update(Ordering::Release, Ordering::Relaxed, |s| {
+                            Some((s | CLOSED) & !POLLING)
+                        })
+                        .unwrap()
+                };
 
                 // Deallocate if there are no more references to the task.
                 if state & REF_MASK == 0 {
@@ -120,12 +123,12 @@ where
                     // references to the task.
                     atomic::fence(Ordering::Acquire);
 
-                    dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+                    unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
                 }
             });
 
             // Drop the future and publish its output.
-            this.core.with_mut(|c| {
+            this.core.with_mut(|c| unsafe {
                 ManuallyDrop::drop(&mut (*c).future);
                 (*c).output = ManuallyDrop::new(output);
             });
@@ -151,7 +154,8 @@ where
 
             // The task is in the `Wind-down` phase or this `Runnable`
             // was the last reference, so the output must be dropped.
-            this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+            this.core
+                .with_mut(|c| unsafe { ManuallyDrop::drop(&mut (*c).output) });
             mem::forget(panic_guard);
 
             // Clear the `POLLING` flag to enter the `Closed` phase. This is
@@ -171,7 +175,7 @@ where
                 // Release operations that decrement the number of
                 // references to the task.
                 atomic::fence(Ordering::Acquire);
-                dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+                unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
             }
 
             return;
@@ -198,11 +202,12 @@ where
             // the task since it can never be scheduled again.
             if state & REF_MASK == 0 {
                 let _drop_guard = RunOnDrop::new(|| {
-                    dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+                    unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
                 });
 
                 // Drop the future;
-                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
+                this.core
+                    .with_mut(|c| unsafe { ManuallyDrop::drop(&mut (*c).future) });
             }
 
             return;
@@ -218,7 +223,7 @@ where
     S: Fn(Runnable, T) + Send + Sync + 'static,
     T: Clone + Send + Sync + 'static,
 {
-    let this = &*(ptr as *const Task<F, S, T>);
+    let this = unsafe { &*(ptr as *const Task<F, S, T>) };
 
     // Ensure that the modifications of the future by the previous
     // `Runnable` are visible.
@@ -255,12 +260,13 @@ where
             // operations that decrement the number of references to the
             // task.
             atomic::fence(Ordering::Acquire);
-            dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+            unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
         }
     });
 
     // Drop the future;
-    this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
+    this.core
+        .with_mut(|c| unsafe { ManuallyDrop::drop(&mut (*c).future) });
 }
 
 /// Handle to a scheduled task.

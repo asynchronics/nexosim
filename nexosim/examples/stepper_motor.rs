@@ -17,12 +17,13 @@
 //!                                                   └─────────┘
 //! ```
 
+use std::iter;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -192,7 +193,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     driver.current_out.connect(Motor::current_in, &motor_mbox);
 
     // Model handles for simulation.
-    let position = EventQueue::new();
+    let position = EventQueue::new_open();
     motor.position.connect_sink(&position);
     let mut position = position.into_reader();
     let motor_addr = motor_mbox.address();
@@ -219,8 +220,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Check initial conditions.
     let mut t = t0;
     assert_eq!(simu.time(), t);
-    assert_eq!(position.next(), Some(init_pos));
-    assert!(position.next().is_none());
+    assert_eq!(position.try_read(), Some(init_pos));
+    assert!(position.try_read().is_none());
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
@@ -239,7 +240,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // driver the rotor should have synchronized with the driver, with a
     // position given by this beautiful formula.
     let mut pos = (((init_pos + 1) / 4) * 4 + 1) % Motor::STEPS_PER_REV;
-    assert_eq!(position.by_ref().last().unwrap(), pos);
+    let last_pos = iter::from_fn(|| position.try_read()).last();
+    assert_eq!(last_pos, Some(pos));
 
     // Advance simulation time by 0.9s, which with a 10Hz PPS should correspond to
     // 9 position increments.
@@ -248,9 +250,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert_eq!(simu.time(), t);
     for _ in 0..9 {
         pos = (pos + 1) % Motor::STEPS_PER_REV;
-        assert_eq!(position.next(), Some(pos));
+        assert_eq!(position.try_read(), Some(pos));
     }
-    assert!(position.next().is_none());
+    assert!(position.try_read().is_none());
 
     // Increase the load beyond the torque limit for a 1A driver current.
     simu.process_event(Motor::load, 2.0, &motor_addr)?;
@@ -259,13 +261,13 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     simu.step()?;
     t += Duration::new(0, 100_000_000);
     assert_eq!(simu.time(), t);
-    assert!(position.next().is_none());
+    assert!(position.try_read().is_none());
 
     // Do it again.
     simu.step()?;
     t += Duration::new(0, 100_000_000);
     assert_eq!(simu.time(), t);
-    assert!(position.next().is_none());
+    assert!(position.try_read().is_none());
 
     // Decrease the load below the torque limit for a 1A driver current and
     // advance simulation time.
@@ -278,7 +280,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // makes a step backward before it moves forward again.
     assert_eq!(simu.time(), t);
     pos = (pos + Motor::STEPS_PER_REV - 1) % Motor::STEPS_PER_REV;
-    assert_eq!(position.next(), Some(pos));
+    assert_eq!(position.try_read(), Some(pos));
 
     // Advance simulation time by 0.7s, which with a 10Hz PPS should correspond to
     // 7 position increments.
@@ -287,9 +289,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert_eq!(simu.time(), t);
     for _ in 0..7 {
         pos = (pos + 1) % Motor::STEPS_PER_REV;
-        assert_eq!(position.next(), Some(pos));
+        assert_eq!(position.try_read(), Some(pos));
     }
-    assert!(position.next().is_none());
+    assert!(position.try_read().is_none());
 
     // Now make the motor rotate in the opposite direction. Note that this
     // driver only accounts for a new PPS at the next pulse.
@@ -298,7 +300,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 100_000_000);
     assert_eq!(simu.time(), t);
     pos = (pos + 1) % Motor::STEPS_PER_REV;
-    assert_eq!(position.next(), Some(pos));
+    assert_eq!(position.try_read(), Some(pos));
 
     // Advance simulation time by 1.9s, which with a -10Hz PPS should correspond
     // to 19 position decrements.
@@ -306,7 +308,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(1, 900_000_000);
     assert_eq!(simu.time(), t);
     pos = (pos + Motor::STEPS_PER_REV - 19) % Motor::STEPS_PER_REV;
-    assert_eq!(position.by_ref().last(), Some(pos));
+    let last_pos = iter::from_fn(|| position.try_read()).last();
+    assert_eq!(last_pos, Some(pos));
 
     Ok(())
 }

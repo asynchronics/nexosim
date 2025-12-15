@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, EventQueueReader, Output};
+use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, Output};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 use nexosim_util::observable::{Observable, Observe};
@@ -174,9 +174,9 @@ fn main() -> Result<(), SimulationError> {
     let proc_mbox = Mailbox::new();
 
     // Model handles for simulation.
-    let mode = EventQueue::new();
-    let value = EventQueue::new();
-    let hk = EventQueue::new();
+    let mode = EventQueue::new_open();
+    let value = EventQueue::new_open();
+    let hk = EventQueue::new_open();
 
     proc.mode.connect_sink(&mode);
     proc.value.connect_sink(&value);
@@ -282,9 +282,9 @@ fn main() -> Result<(), SimulationError> {
     // Wait long enough, no state change as the long processing has been
     // cancelled.
     simu.step_until(Duration::from_millis(100))?;
-    assert_eq!(mode.next(), None);
-    assert_eq!(value.next(), None);
-    assert_eq!(hk.next(), None);
+    assert_eq!(mode.try_read(), None);
+    assert_eq!(value.try_read(), None);
+    assert_eq!(hk.try_read(), None);
 
     Ok(())
 }
@@ -299,9 +299,9 @@ fn expect(
     voltage_ex: f64,
     current_ex: f64,
 ) {
-    assert_eq!(mode.next(), mode_ex);
-    assert_eq!(value.next(), value_ex);
-    let hk_value = hk.next().unwrap();
+    assert_eq!(mode.try_read(), mode_ex);
+    assert_eq!(value.try_read(), value_ex);
+    let hk_value = hk.try_read().unwrap();
     assert!(same(hk_value.voltage, voltage_ex));
     assert!(same(hk_value.current, current_ex));
 }

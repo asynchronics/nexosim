@@ -101,9 +101,7 @@ impl<K: Copy + Ord, V> PriorityQueue<K, V> {
     ///
     /// This operation has *O*(1) non-amortized theoretical complexity.
     pub(crate) fn peek(&self) -> Option<(&K, &V)> {
-        let Item {
-            ref key, ref value, ..
-        } = self.heap.peek()?;
+        let Item { key, value, .. } = self.heap.peek()?;
 
         Some((key, value))
     }

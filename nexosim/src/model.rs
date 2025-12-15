@@ -264,16 +264,16 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::Mutex;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::ports::PORT_REG;
 use crate::simulation::{
-    Address, EventKeyReg, ExecutionError, RestoreError, SaveError, Simulation, EVENT_KEY_REG,
+    Address, EVENT_KEY_REG, EventKeyReg, ExecutionError, RestoreError, SaveError, Simulation,
 };
 use crate::util::serialization::serialization_config;
 
 pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
-pub use nexosim_macros::{schedulable, Model};
+pub use nexosim_macros::{Model, schedulable};
 
 mod context;
 

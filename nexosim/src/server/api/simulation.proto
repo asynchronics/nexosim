@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 
 enum ErrorCode {
+  // Generic errors.
   INTERNAL_ERROR = 0;
   MISSING_ARGUMENT = 1;
   INVALID_TIME = 2;
@@ -16,25 +17,40 @@ enum ErrorCode {
   INVALID_MESSAGE = 5;
   INVALID_KEY = 6;
   INVALID_TIMEOUT = 7;
-  INITIALIZER_PANIC = 10;
-  SIMULATION_NOT_STARTED = 11;
-  SIMULATION_HALTED = 12;
-  SIMULATION_TERMINATED = 13;
-  SIMULATION_DEADLOCK = 14;
-  SIMULATION_MESSAGE_LOSS = 15;
-  SIMULATION_NO_RECIPIENT = 16;
-  SIMULATION_PANIC = 17;
-  SIMULATION_TIMEOUT = 18;
-  SIMULATION_OUT_OF_SYNC = 19;
-  SIMULATION_BAD_QUERY = 20;
-  SIMULATION_TIME_OUT_OF_RANGE = 21;
-  SOURCE_NOT_FOUND = 30;
-  SINK_NOT_FOUND = 31;
-  UNREGISTERED = 32;
-  INVALID_TYPE = 33;
-  DESERIALIZATION_ERROR = 34;
-  SAVE_ERROR = 40;
-  RESTORE_ERROR = 41;
+
+  // Bench initialization errors.
+  INITIALIZER_PANIC = 30;
+  DUPLICATE_EVENT_NAME = 60;
+  DUPLICATE_QUERY_NAME = 61;
+  DUPLICATE_SINK_NAME = 62;
+  DESERIALIZATION_ERROR = 63;
+  
+  // Simulation runtime error.
+  SIMULATION_NOT_STARTED = 31;
+  SIMULATION_HALTED = 32;
+  SIMULATION_TERMINATED = 33;
+  SIMULATION_DEADLOCK = 34;
+  SIMULATION_MESSAGE_LOSS = 35;
+  SIMULATION_NO_RECIPIENT = 36;
+  SIMULATION_PANIC = 37;
+  SIMULATION_TIMEOUT = 38;
+  SIMULATION_OUT_OF_SYNC = 39;
+  SIMULATION_BAD_QUERY = 40;
+  SIMULATION_TIME_OUT_OF_RANGE = 41;
+  
+  // Monitoring errors.
+  EVENT_SOURCE_NOT_FOUND = 50;
+  QUERY_SOURCE_NOT_FOUND = 51;
+  SINK_NOT_FOUND = 52;
+  SINK_TERMINATED = 53;
+  SINK_READ_RACE = 54;
+  SINK_READ_TIMEOUT = 55;
+  INVALID_EVENT_TYPE = 56;
+  INVALID_QUERY_TYPE = 57;
+
+  // Serialization error.
+  SAVE_ERROR = 70;
+  RESTORE_ERROR = 71;
 }
 
 message Error {
@@ -258,8 +274,8 @@ message ProcessQueryReply {
   }
 }
 
-message ReadEventsRequest { string sink_name = 1; }
-message ReadEventsReply {
+message TryReadEventsRequest { string sink_name = 1; }
+message TryReadEventsReply {
   // This field is hoisted because protobuf3 does not support `repeated` within
   // a `oneof`. It is Always empty if an error is returned
   repeated bytes events = 1;
@@ -269,11 +285,11 @@ message ReadEventsReply {
   }
 }
 
-message AwaitEventRequest {
+message ReadEventRequest {
   string sink_name = 1;
   google.protobuf.Duration timeout = 2;
 }
-message AwaitEventReply {
+message ReadEventReply {
   oneof result { // Always returns exactly 1 variant.
     bytes event = 1;
     Error error = 100;
@@ -301,28 +317,36 @@ message AnyRequest {
   oneof request { // Expects exactly 1 variant.
     InitRequest init_request = 1;
     HaltRequest halt_request = 2;
-    TimeRequest time_request = 3;
-    StepRequest step_request = 4;
-    StepUntilRequest step_until_request = 5;
-    ScheduleEventRequest schedule_event_request = 6;
-    CancelEventRequest cancel_event_request = 7;
-    ProcessEventRequest process_event_request = 8;
-    ProcessQueryRequest process_query_request = 9;
-    ReadEventsRequest read_events_request = 10;
-    OpenSinkRequest open_sink_request = 11;
-    CloseSinkRequest close_sink_request = 12;
-    AwaitEventRequest await_event_request = 13;
-    StepUnboundedRequest step_unbounded_request = 14;
-    TerminateRequest terminate_request = 15;
+    TerminateRequest terminate_request = 3;
+    SaveRequest save_request = 4;
+    RestoreRequest restore_request = 5;
+    TimeRequest time_request = 6;
+    StepRequest step_request = 7;
+    StepUntilRequest step_until_request = 8;
+    StepUnbounded step_unbounded_request = 9;
+    ListEventSources list_event_sources = 10;
+    GetEventSourceSchemas get_event_source_schemas = 11;
+    ListQuerySources list_query_sources = 12;
+    GetQuerySourceSchemas get_query_source_schemas = 13;
+    ListEventSinks list_event_sinks = 14;
+    GetEventSinkSchemas get_event_sink_schemas = 15;
+    ScheduleEventRequest schedule_event_request = 16;
+    CancelEventRequest cancel_event_request = 17;
+    ProcessEventRequest process_event_request = 18;
+    ProcessQueryRequest process_query_request = 19;
+    TryReadEventsRequest try_read_events_request = 20;
+    ReadEventRequest read_event_request = 21;
+    OpenSinkRequest open_sink_request = 22;
+    CloseSinkRequest close_sink_request = 23;
   }
 }
 
 service Simulation {
   rpc Init(InitRequest) returns (InitReply);
-  rpc Restore(RestoreRequest) returns (RestoreReply);
-  rpc Terminate(TerminateRequest) returns (TerminateReply);
   rpc Halt(HaltRequest) returns (HaltReply);
+  rpc Terminate(TerminateRequest) returns (TerminateReply);
   rpc Save(SaveRequest) returns (SaveReply);
+  rpc Restore(RestoreRequest) returns (RestoreReply);
   rpc Time(TimeRequest) returns (TimeReply);
   rpc Step(StepRequest) returns (StepReply);
   rpc StepUntil(StepUntilRequest) returns (StepUntilReply);
@@ -337,8 +361,8 @@ service Simulation {
   rpc CancelEvent(CancelEventRequest) returns (CancelEventReply);
   rpc ProcessEvent(ProcessEventRequest) returns (ProcessEventReply);
   rpc ProcessQuery(ProcessQueryRequest) returns (ProcessQueryReply);
-  rpc ReadEvents(ReadEventsRequest) returns (ReadEventsReply);
-  rpc AwaitEvent(AwaitEventRequest) returns (AwaitEventReply);
+  rpc TryReadEvents(TryReadEventsRequest) returns (TryReadEventsReply);
+  rpc ReadEvent(ReadEventRequest) returns (ReadEventReply);
   rpc OpenSink(OpenSinkRequest) returns (OpenSinkReply);
   rpc CloseSink(CloseSinkRequest) returns (CloseSinkReply);
 }

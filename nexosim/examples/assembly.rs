@@ -23,12 +23,13 @@
 //!                       └────────────────────────────────────────────┘
 //! ```
 
+use std::iter;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{BuildContext, Model, ProtoModel};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -128,7 +129,7 @@ fn main() -> Result<(), SimulationError> {
     let assembly_addr = assembly_mbox.address();
 
     // Model handles for simulation.
-    let position = EventQueue::new();
+    let position = EventQueue::new_open();
     assembly.position.connect_sink(&position);
     let mut position = position.into_reader();
 
@@ -151,8 +152,8 @@ fn main() -> Result<(), SimulationError> {
     // Check initial conditions.
     let mut t = t0;
     assert_eq!(simu.time(), t);
-    assert_eq!(position.next(), Some(init_pos));
-    assert!(position.next().is_none());
+    assert_eq!(position.try_read(), Some(init_pos));
+    assert!(position.try_read().is_none());
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
@@ -171,7 +172,8 @@ fn main() -> Result<(), SimulationError> {
     // driver the rotor should have synchronized with the driver, with a
     // position given by this beautiful formula.
     let mut pos = (((init_pos + 1) / 4) * 4 + 1) % Motor::STEPS_PER_REV;
-    assert_eq!(position.by_ref().last().unwrap(), pos);
+    let last_pos = iter::from_fn(|| position.try_read()).last();
+    assert_eq!(last_pos, Some(pos));
 
     // Advance simulation time by 0.9s, which with a 10Hz PPS should correspond to
     // 9 position increments.
@@ -180,9 +182,9 @@ fn main() -> Result<(), SimulationError> {
     assert_eq!(simu.time(), t);
     for _ in 0..9 {
         pos = (pos + 1) % Motor::STEPS_PER_REV;
-        assert_eq!(position.next(), Some(pos));
+        assert_eq!(position.try_read(), Some(pos));
     }
-    assert!(position.next().is_none());
+    assert!(position.try_read().is_none());
 
     Ok(())
 }

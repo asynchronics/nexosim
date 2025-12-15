@@ -2,12 +2,12 @@
 
 use std::time::Duration;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 #[cfg(not(miri))]
 use nexosim::model::Context;
 use nexosim::model::Model;
-use nexosim::ports::{EventQueue, EventQueueReader, Output};
+use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, Output};
 use nexosim::simulation::{Mailbox, Scheduler, SimInit, Simulation, SourceId};
 use nexosim::time::MonotonicTime;
 
@@ -54,7 +54,7 @@ where
     let mut model = PassThroughModel::new();
     let mbox = Mailbox::new();
 
-    let out_stream = EventQueue::new();
+    let out_stream = EventQueue::new_open();
     model.output.connect_sink(&out_stream);
     let addr = mbox.address();
 
@@ -83,7 +83,7 @@ fn schedule_events(num_threads: usize) {
     // Move to the 1st event at t0+2s.
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert!(output.next().is_some());
+    assert!(output.try_read().is_some());
 
     // Schedule another event in 4s (at t0+6s).
     scheduler
@@ -93,13 +93,13 @@ fn schedule_events(num_threads: usize) {
     // Move to the 2nd event at t0+3s.
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(3));
-    assert!(output.next().is_some());
+    assert!(output.try_read().is_some());
 
     // Move to the 3rd event at t0+6s.
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(6));
-    assert!(output.next().is_some());
-    assert!(output.next().is_none());
+    assert!(output.try_read().is_some());
+    assert!(output.try_read().is_none());
 }
 
 fn schedule_keyed_events(num_threads: usize) {
@@ -125,15 +125,15 @@ fn schedule_keyed_events(num_threads: usize) {
     // that the cancellation had no effect.
     event_t1.cancel();
     assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-    assert_eq!(output.next(), Some(1));
+    assert_eq!(output.try_read(), Some(1));
 
     // Cancel the second event (t0+2) before it is meant to takes place and
     // check that we move directly to the 3rd event.
     event_t2_1.cancel();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert_eq!(output.next(), Some(22));
-    assert!(output.next().is_none());
+    assert_eq!(output.try_read(), Some(22));
+    assert!(output.try_read().is_none());
 }
 
 fn schedule_periodic_events(num_threads: usize) {
@@ -165,9 +165,9 @@ fn schedule_periodic_events(num_threads: usize) {
             simu.time(),
             t0 + Duration::from_secs(3) + k * Duration::from_secs(2)
         );
-        assert_eq!(output.next(), Some(1));
-        assert_eq!(output.next(), Some(2));
-        assert!(output.next().is_none());
+        assert_eq!(output.try_read(), Some(1));
+        assert_eq!(output.try_read(), Some(2));
+        assert!(output.try_read().is_none());
     }
 }
 
@@ -196,9 +196,9 @@ fn schedule_periodic_keyed_events(num_threads: usize) {
     // Move to the next event at t0+3s.
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(3));
-    assert_eq!(output.next(), Some(1));
-    assert_eq!(output.next(), Some(2));
-    assert!(output.next().is_none());
+    assert_eq!(output.try_read(), Some(1));
+    assert_eq!(output.try_read(), Some(2));
+    assert!(output.try_read().is_none());
 
     // Cancel the second event.
     event2_key.cancel();
@@ -210,8 +210,8 @@ fn schedule_periodic_keyed_events(num_threads: usize) {
             simu.time(),
             t0 + Duration::from_secs(3) + k * Duration::from_secs(2)
         );
-        assert_eq!(output.next(), Some(1));
-        assert!(output.next().is_none());
+        assert_eq!(output.try_read(), Some(1));
+        assert!(output.try_read().is_none());
     }
 }
 
@@ -303,7 +303,7 @@ fn timestamp_bench(
     let mut model = TimestampModel::default();
     let mbox = Mailbox::new();
 
-    let stamp_stream = EventQueue::new();
+    let stamp_stream = EventQueue::new_open();
     model.stamp.connect_sink(&stamp_stream);
     let addr = mbox.address();
 
@@ -354,7 +354,7 @@ fn system_clock_from_instant(num_threads: usize) {
             simulation_ref_offset + wall_clock_offset,
             simulation_ref_offset + wall_clock_offset + 0.1,
         ] {
-            let measured_time = (stamp.next().unwrap().0 - wall_clock_init).as_secs_f64();
+            let measured_time = (stamp.try_read().unwrap().0 - wall_clock_init).as_secs_f64();
             assert!(
                 (expected_time - measured_time).abs() <= TOLERANCE,
                 "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
@@ -401,7 +401,7 @@ fn system_clock_from_system_time(num_threads: usize) {
             simulation_ref_offset + wall_clock_offset + 0.1,
         ] {
             let measured_time = stamp
-                .next()
+                .try_read()
                 .unwrap()
                 .1
                 .duration_since(wall_clock_init)
@@ -443,7 +443,7 @@ fn auto_system_clock(num_threads: usize) {
 
     // Check the stamps.
     for expected_time in [0.0, 0.2, 0.3, 0.4, 0.6] {
-        let measured_time = (stamp.next().unwrap().0 - instant_t0).as_secs_f64();
+        let measured_time = (stamp.try_read().unwrap().0 - instant_t0).as_secs_f64();
         assert!(
             (expected_time - measured_time).abs() <= TOLERANCE,
             "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",

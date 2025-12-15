@@ -11,7 +11,7 @@ name = "nexosim"
 # - Create a "vX.Y.Z" git tag
 authors = ["Asynchronics and the NeXosim Contributors"]
 version = "0.4.0-alpha.1"
-edition = "2021"
+edition = "2024"
 rust-version = "1.86.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/asynchronics/nexosim"
@@ -35,7 +35,6 @@ server = [
     "dep:half",
     "dep:prost",
     "dep:prost-types",
-    "dep:tonic",
     "dep:tokio",
     "dep:tokio-stream",
     "dep:tonic",
@@ -51,15 +50,17 @@ nexosim-macros = { version = "0.1.0-alpha.1", path = "../nexosim-macros" }
 # Mandatory dependencies.
 async-event = "0.2.1"
 bincode = { version = "2.0", features = ["serde"] }
-crossbeam-channel = "0.5"
 crossbeam-utils = "0.8"
 diatomic-waker = "0.2.3"
 dyn-clone = "1.0"
 futures-channel = "0.3"
+futures-core = "0.3"
 futures-task = "0.3"
+futures-util = "0.3"
 multishot = "0.3.2"
 num_cpus = "1.13"
 parking = "2"
+pollster = "0.4"
 pin-project = "1"
 recycle-box = "0.2"
 schemars = "1.0"
@@ -77,7 +78,7 @@ ciborium = { version = "0.2.2", optional = true }
 half = { version = "=2.4.1", optional = true }
 prost = { version = "0.13", optional = true }
 prost-types = { version = "0.13", optional = true }
-tokio = { version = "1.0", features = ["net"], optional = true }
+tokio = { version = "1.0", features = ["net", "time"], optional = true }
 tonic = { version = "0.12", default-features = false, features = [
     "codegen",
     "prost",

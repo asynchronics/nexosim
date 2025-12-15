@@ -19,15 +19,15 @@
 
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, UdpSocket};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, sleep, JoinHandle};
+use std::thread::{self, JoinHandle, sleep};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, BuildContext, Context, InitializedModel, Model, ProtoModel};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::model::{BuildContext, Context, InitializedModel, Model, ProtoModel, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
@@ -175,8 +175,8 @@ impl WaitBarrier {
     fn wait(self) {
         let _unused = self
             .0
-             .1
-            .wait_while(self.0 .0.lock().unwrap(), |pending| *pending)
+            .1
+            .wait_while(self.0.0.lock().unwrap(), |pending| *pending)
             .unwrap();
     }
 }
@@ -186,8 +186,8 @@ struct Notifier(Arc<(Mutex<bool>, Condvar)>);
 
 impl Notifier {
     fn notify(self) {
-        *self.0 .0.lock().unwrap() = false;
-        self.0 .1.notify_one();
+        *self.0.0.lock().unwrap() = false;
+        self.0.1.notify_one();
     }
 }
 
@@ -208,7 +208,7 @@ fn main() -> Result<(), SimulationError> {
     let listener_mbox = Mailbox::new();
 
     // Model handles for simulation.
-    let message = EventQueue::new();
+    let message = EventQueue::new_open();
     listener.message.connect_sink(&message);
     let mut message = message.into_reader();
 
@@ -256,10 +256,10 @@ fn main() -> Result<(), SimulationError> {
     for _ in 0..N {
         // Check all messages accounting for possible UDP packet re-ordering,
         // but assuming no packet loss.
-        packets |= 1 << message.next().unwrap().parse::<u8>().unwrap();
+        packets |= 1 << message.try_read().unwrap().parse::<u8>().unwrap();
     }
     assert_eq!(packets, u32::MAX >> 22);
-    assert_eq!(message.next(), None);
+    assert_eq!(message.try_read(), None);
 
     Ok(())
 }

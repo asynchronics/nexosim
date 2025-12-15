@@ -126,7 +126,7 @@ impl<T> ScopedLocalKey<T> {
 #[cfg(all(test, not(nexosim_loom)))]
 mod tests {
     use std::cell::Cell;
-    use std::sync::mpsc::{channel, Sender};
+    use std::sync::mpsc::{Sender, channel};
     use std::thread;
 
     scoped_thread_local!(static FOO: u32);
