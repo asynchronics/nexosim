@@ -33,7 +33,7 @@
 use std::time::Duration;
 
 use nexosim::endpoints::Endpoints;
-use nexosim::ports::{EventQueue, EventSource, QuerySource};
+use nexosim::ports::{EventQueue, EventSinkReader, EventSource, QuerySource};
 use nexosim::simulation::{
     EventId, InitError, Mailbox, QueryId, SimInit, Simulation, SimulationError,
 };
@@ -134,11 +134,12 @@ fn run_simulation(
     mut simu: Simulation,
     mut registry: Endpoints,
     mut t: MonotonicTime,
+    flow_rate: &mut Box<dyn EventSinkReader<f64>>,
 ) -> Result<(), SimulationError> {
     let scheduler = simu.scheduler();
 
     // Sinks used in simulation.
-    let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
+    // let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
 
     // Sources used in simulation.
     let brew_cmd: EventId<()> = registry.get_event_source_id("brew_cmd").unwrap();
@@ -147,7 +148,7 @@ fn run_simulation(
     let volume: QueryId<(), f64> = registry.get_query_source_id("volume").unwrap();
 
     // Check volume.
-    let mut volume_reader = simu.process_query(&volume, ())?;
+    let volume_reader = simu.process_query(&volume, ())?;
     assert_eq!(volume_reader.read().unwrap().next(), Some(0.0013875));
 
     // Drink too much coffee.
@@ -168,7 +169,7 @@ fn run_simulation(
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
     assert_eq!(flow_rate.try_read(), Some(0.0));
-    let mut volume_reader = simu.process_query(&volume, ())?;
+    let volume_reader = simu.process_query(&volume, ())?;
     assert_eq!(volume_reader.read().unwrap().next(), Some(0.0));
 
     // Try to brew another shot while the tank is still empty.
@@ -239,8 +240,8 @@ fn main() -> Result<(), SimulationError> {
 
     // Run the rest of the simulation twice: the second time from the saved
     // state.
-    run_simulation(simu, registry, t)?;
+    run_simulation(simu, registry, t, &mut flow_rate)?;
 
     let (simu, registry) = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?.restore(&state[..])?;
-    run_simulation(simu, registry, saved_time)
+    run_simulation(simu, registry, saved_time, &mut flow_rate)
 }
