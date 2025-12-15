@@ -1,15 +1,15 @@
 extern crate alloc;
 
-use std::alloc::{dealloc, Layout};
+use std::alloc::{Layout, dealloc};
 use std::future::Future;
 use std::mem::ManuallyDrop;
 use std::panic::{RefUnwindSafe, UnwindSafe};
 
 use crate::loom_exports::sync::atomic::{self, Ordering};
 
-use super::runnable::Runnable;
-use super::util::{runnable_exists, RunOnDrop};
 use super::Task;
+use super::runnable::Runnable;
+use super::util::{RunOnDrop, runnable_exists};
 use super::{CLOSED, POLLING, REF_INC, REF_MASK};
 
 /// Virtual table for a `CancelToken`.
@@ -32,7 +32,7 @@ where
     S: Fn(Runnable, T) + Send + Sync + 'static,
     T: Clone + Send + Sync + 'static,
 {
-    let this = &*(ptr as *const Task<F, S, T>);
+    let this = unsafe { &*(ptr as *const Task<F, S, T>) };
 
     // Enter the `Closed` or `Wind-down` phase if the tasks is not
     // completed.
@@ -87,12 +87,13 @@ where
             // Set a drop guard to ensure that the task is deallocated,
             // whether or not the output panics when dropped.
             let _drop_guard = RunOnDrop::new(|| {
-                dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+                unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
             });
 
             // Drop the output if any.
             if state & CLOSED == 0 {
-                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+                this.core
+                    .with_mut(|c| unsafe { ManuallyDrop::drop(&mut (*c).output) });
             }
         }
 
@@ -115,11 +116,12 @@ where
             // task.
             atomic::fence(Ordering::Acquire);
 
-            dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+            unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
         }
     });
 
-    this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
+    this.core
+        .with_mut(|c| unsafe { ManuallyDrop::drop(&mut (*c).future) });
 }
 
 /// Drops the token without cancelling the task.
@@ -130,7 +132,7 @@ where
     S: Fn(Runnable, T) + Send + Sync + 'static,
     T: Clone + Send + Sync + 'static,
 {
-    let this = &*(ptr as *const Task<F, S, T>);
+    let this = unsafe { &*(ptr as *const Task<F, S, T>) };
 
     // Decrement the reference count.
     //
@@ -151,13 +153,14 @@ where
         // Set a drop guard to ensure that the task is deallocated whether
         // or not the future or output panics when dropped.
         let _drop_guard = RunOnDrop::new(|| {
-            dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>());
+            unsafe { dealloc(ptr as *mut u8, Layout::new::<Task<F, S, T>>()) };
         });
-
-        if state & POLLING == POLLING {
-            this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
-        } else if state & CLOSED == 0 {
-            this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+        unsafe {
+            if state & POLLING == POLLING {
+                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
+            } else if state & CLOSED == 0 {
+                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+            }
         }
         // Else the `CLOSED` flag is set but the `POLLING` flag is cleared
         // so the future was already dropped.

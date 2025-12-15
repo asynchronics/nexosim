@@ -11,7 +11,7 @@ name = "nexosim"
 # - Create a "vX.Y.Z" git tag
 authors = ["Asynchronics and the NeXosim Contributors"]
 version = "0.4.0-alpha.1"
-edition = "2021"
+edition = "2024"
 rust-version = "1.86.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/asynchronics/nexosim"
@@ -35,7 +35,6 @@ server = [
     "dep:half",
     "dep:prost",
     "dep:prost-types",
-    "dep:tonic",
     "dep:tokio",
     "dep:tokio-stream",
     "dep:tonic",

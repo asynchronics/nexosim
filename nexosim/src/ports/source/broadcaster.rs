@@ -106,7 +106,10 @@ impl<T: Clone + Send> EventBroadcaster<T> {
     }
 
     /// Broadcasts an event to all addresses.
-    pub(super) fn broadcast(&self, arg: T) -> impl Future<Output = Result<(), SendError>> + Send {
+    pub(super) fn broadcast(
+        &self,
+        arg: T,
+    ) -> impl Future<Output = Result<(), SendError>> + Send + use<T> {
         enum Fut<F1, F2> {
             Empty,
             Single(F1),
@@ -182,7 +185,7 @@ impl<T: Clone + Send, R: Send> QueryBroadcaster<T, R> {
     pub(super) fn broadcast(
         &self,
         arg: T,
-    ) -> impl Future<Output = Result<ReplyIterator<R>, SendError>> + Send {
+    ) -> impl Future<Output = Result<ReplyIterator<R>, SendError>> + Send + use<T, R> {
         enum Fut<F1, F2> {
             Empty,
             Single(F1),
@@ -397,8 +400,8 @@ impl<R> Iterator for ReplyIterator<R> {
 
 #[cfg(all(test, not(nexosim_loom)))]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
     use futures_executor::block_on;

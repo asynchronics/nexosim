@@ -40,7 +40,7 @@ impl<T> Inner<T> {
     //
     // The caller must have exclusive access to the value.
     unsafe fn write_value(&self, t: T) {
-        self.value.with_mut(|value| (*value).write(t));
+        unsafe { self.value.with_mut(|value| (*value).write(t)) };
     }
 
     // Reads the value without moving it.
@@ -51,7 +51,7 @@ impl<T> Inner<T> {
     // to the value. After the call, the value slot within `Inner` should be
     // considered uninitialized in order to avoid a double-drop.
     unsafe fn read_value(&self) -> T {
-        self.value.with(|value| (*value).as_ptr().read())
+        unsafe { self.value.with(|value| (*value).as_ptr().read()) }
     }
 
     // Drops the value in place without deallocation.
@@ -61,8 +61,10 @@ impl<T> Inner<T> {
     // The value must be initialized and the caller must have exclusive access
     // to the value.
     unsafe fn drop_value_in_place(&self) {
-        self.value
-            .with_mut(|value| ptr::drop_in_place((*value).as_mut_ptr()));
+        unsafe {
+            self.value
+                .with_mut(|value| ptr::drop_in_place((*value).as_mut_ptr()))
+        };
     }
 }
 

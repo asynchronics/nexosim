@@ -258,8 +258,8 @@ impl<T: ?Sized> Queue<T> {
 
             // Extract the closure from the slot and set the stamp to the value of
             // the dequeue position increased by one sequence increment.
-            slot.message.with_mut(
-                |msg_box| match mem::replace(&mut *msg_box, MessageBox::None) {
+            slot.message.with_mut(|msg_box| {
+                match mem::replace(unsafe { &mut *msg_box }, MessageBox::None) {
                     MessageBox::Populated(msg) => {
                         let borrow = MessageBorrow {
                             queue: self,
@@ -271,8 +271,8 @@ impl<T: ?Sized> Queue<T> {
                         Ok(borrow)
                     }
                     _ => unreachable!(),
-                },
-            )
+                }
+            })
         } else {
             // Check whether the queue was closed. Even if the closed flag is
             // set and the slot is empty, there might still be a producer that
@@ -653,8 +653,8 @@ mod tests {
     use super::*;
 
     use loom::model::Builder;
-    use loom::sync::atomic::AtomicUsize;
     use loom::sync::Arc;
+    use loom::sync::atomic::AtomicUsize;
     use loom::thread;
 
     fn loom_queue_push_pop(

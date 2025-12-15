@@ -104,7 +104,7 @@ impl<T: Clone + Send + 'static> EventSource<T> {
     ///
     /// When processed, it broadcasts the event to all connected input
     /// ports.
-    pub(crate) fn event_future(&self, arg: T) -> impl Future<Output = ()> {
+    pub(crate) fn event_future(&self, arg: T) -> impl Future<Output = ()> + use<T> {
         let fut = self.broadcaster.broadcast(arg);
 
         async {

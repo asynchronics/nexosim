@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
+use std::alloc::{Layout, alloc, dealloc, handle_alloc_error};
 use std::future::Future;
 use std::mem::{self, ManuallyDrop};
 use std::task::{RawWaker, RawWakerVTable};
@@ -20,7 +20,7 @@ pub(crate) use cancel_token::CancelToken;
 pub(crate) use promise::Promise;
 pub(crate) use runnable::Runnable;
 
-use self::util::{runnable_exists, RunOnDrop};
+use self::util::{RunOnDrop, runnable_exists};
 
 /// Flag indicating that the future has not been polled to completion yet.
 const POLLING: u64 = 1 << 0;
@@ -127,7 +127,7 @@ where
 {
     /// Clones a waker.
     unsafe fn clone_waker(ptr: *const ()) -> RawWaker {
-        let this = &*(ptr as *const Self);
+        let this = unsafe { &*(ptr as *const Self) };
 
         let ref_count = this.state.fetch_add(REF_INC, Ordering::Relaxed) & REF_MASK;
         if ref_count > REF_CRITICAL {
@@ -152,12 +152,12 @@ where
         if mem::size_of::<S>() != 0 {
             // Note: a static assert is not possible as `S` is defined in the
             // outer scope.
-            Self::drop_waker(ptr);
+            unsafe { Self::drop_waker(ptr) };
             panic!("Scheduling functions with captured variables are not supported");
         }
 
         // Wake the task, decreasing at the same time the reference count.
-        let state = Self::wake(ptr, WAKE_INC - REF_INC);
+        let state = unsafe { Self::wake(ptr, WAKE_INC - REF_INC) };
 
         // Deallocate the task if this waker is the last reference to the task,
         // meaning that the reference count was 1 and the `POLLING` flag was
@@ -174,18 +174,19 @@ where
             // reference count decrement for a `Runnable`).
             atomic::fence(Ordering::Acquire);
 
-            let this = &*(ptr as *const Self);
+            let this = unsafe { &*(ptr as *const Self) };
 
             // Set a drop guard to ensure that the task is deallocated whether
             // or not `output` panics when dropped.
             let _drop_guard = RunOnDrop::new(|| {
-                dealloc(ptr as *mut u8, Layout::new::<Self>());
+                unsafe { dealloc(ptr as *mut u8, Layout::new::<Self>()) };
             });
 
             if state & CLOSED == 0 {
                 // Since the `CLOSED` and `POLLING` flags are both cleared, the
                 // output is present and must be dropped.
-                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+                this.core
+                    .with_mut(|c| unsafe { ManuallyDrop::drop(&mut (*c).output) });
             }
             // Else the `CLOSED` flag is set and the `POLLING` flag is cleared
             // so the task is already in the `Closed` phase.
@@ -195,13 +196,13 @@ where
     /// Wakes the task by reference.
     unsafe fn wake_by_ref(ptr: *const ()) {
         // Wake the task.
-        Self::wake(ptr, WAKE_INC);
+        unsafe { Self::wake(ptr, WAKE_INC) };
     }
 
     /// Wakes the task, either by value or by reference.
     #[inline(always)]
     unsafe fn wake(ptr: *const (), state_delta: u64) -> u64 {
-        let this = &*(ptr as *const Self);
+        let this = unsafe { &*(ptr as *const Self) };
 
         // Increment the wake count and, if woken by value, decrement the
         // reference count at the same time.
@@ -235,7 +236,7 @@ where
             // `POLLING` flag is set; the `CLOSED` flag is cleared; the task
             // contains a live future.
 
-            let runnable = Runnable::new_unchecked(ptr as *const Self);
+            let runnable = unsafe { Runnable::new_unchecked(ptr as *const Self) };
             (this.schedule_fn)(runnable, this.tag.clone());
         }
 
@@ -244,7 +245,7 @@ where
 
     /// Drops a waker.
     unsafe fn drop_waker(ptr: *const ()) {
-        let this = &*(ptr as *const Self);
+        let this = unsafe { &*(ptr as *const Self) };
 
         // Ordering: Release ordering is necessary to synchronize with the
         // Acquire fence in the drop handler of the last reference to the task
@@ -266,13 +267,15 @@ where
             // Set a drop guard to ensure that the task is deallocated whether
             // or not the `core` member panics when dropped.
             let _drop_guard = RunOnDrop::new(|| {
-                dealloc(ptr as *mut u8, Layout::new::<Self>());
+                unsafe { dealloc(ptr as *mut u8, Layout::new::<Self>()) };
             });
 
-            if state & POLLING == POLLING {
-                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
-            } else if state & CLOSED == 0 {
-                this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+            unsafe {
+                if state & POLLING == POLLING {
+                    this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).future));
+                } else if state & CLOSED == 0 {
+                    this.core.with_mut(|c| ManuallyDrop::drop(&mut (*c).output));
+                }
             }
             // Else the `CLOSED` flag is set but the `POLLING` flag is cleared
             // so the future was already dropped.

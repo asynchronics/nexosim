@@ -9,8 +9,8 @@ use std::error;
 use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
-use std::sync::atomic::{self, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{self, AtomicUsize, Ordering};
 
 use async_event::Event;
 use diatomic_waker::primitives::DiatomicWaker;
@@ -96,7 +96,7 @@ impl<M: Model> Receiver<M> {
     }
 
     /// Creates a new observer.
-    pub(crate) fn observer(&self) -> impl ChannelObserver {
+    pub(crate) fn observer(&self) -> impl ChannelObserver + use<M> {
         Observer {
             inner: self.inner.clone(),
         }
