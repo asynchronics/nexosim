@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::channel::ChannelObserver;
 use crate::endpoints::{
@@ -21,8 +21,8 @@ use crate::time::{
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, EventId, ExecutionError, GlobalScheduler, Mailbox, QueryId, SchedulerQueue,
-    SchedulerRegistry, Signal, Simulation, SimulationError,
+    EventId, ExecutionError, GlobalScheduler, Mailbox, QueryId, SchedulerQueue, SchedulerRegistry,
+    Signal, Simulation, SimulationError, add_model,
 };
 
 type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static;
@@ -261,14 +261,12 @@ impl SimInit {
         if self.event_source_registry.get(&name).is_ok() {
             return Err(DuplicateEventSourceError { name, source });
         }
-        let source = Arc::new(source);
-        let event_id = self.scheduler_registry.event_registry.add(source.clone());
+        let event_id = self.scheduler_registry.event_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self.event_source_registry.add(
-            RegisteredEventSource::from_event_source(source, event_id),
-            name.into(),
-        );
+        let _ = self
+            .event_source_registry
+            .add(RegisteredEventSource::new(event_id), name);
 
         Ok(())
     }
@@ -297,14 +295,12 @@ impl SimInit {
         if self.event_source_registry.get(&name).is_ok() {
             return Err(DuplicateEventSourceError { name, source });
         }
-        let source = Arc::new(source);
-        let event_id = self.scheduler_registry.event_registry.add(source.clone());
+        let event_id = self.scheduler_registry.event_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self.event_source_registry.add_raw(
-            RegisteredEventSource::from_event_source(source, event_id),
-            name.into(),
-        );
+        let _ = self
+            .event_source_registry
+            .add_raw(RegisteredEventSource::new(event_id), name);
 
         Ok(())
     }
@@ -328,14 +324,12 @@ impl SimInit {
             return Err(DuplicateQuerySourceError { name, source });
         }
 
-        let source = Arc::new(source);
-        let query_id = self.scheduler_registry.query_registry.add(source.clone());
+        let query_id = self.scheduler_registry.query_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self.query_source_registry.add(
-            RegisteredQuerySource::from_query_source(source, query_id),
-            name.into(),
-        );
+        let _ = self
+            .query_source_registry
+            .add(RegisteredQuerySource::new(query_id), name);
 
         Ok(())
     }
@@ -359,14 +353,12 @@ impl SimInit {
         if self.query_source_registry.get(&name).is_ok() {
             return Err(DuplicateQuerySourceError { name, source });
         }
-        let source = Arc::new(source);
-        let query_id = self.scheduler_registry.query_registry.add(source.clone());
+        let query_id = self.scheduler_registry.query_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self.query_source_registry.add_raw(
-            RegisteredQuerySource::from_query_source(source, query_id),
-            name.into(),
-        );
+        let _ = self
+            .query_source_registry
+            .add_raw(RegisteredQuerySource::new(query_id), name);
 
         Ok(())
     }
@@ -435,7 +427,7 @@ impl SimInit {
     }
 
     fn build(self) -> (Simulation, Endpoints) {
-        let mut simulation = Simulation::new(
+        let simulation = Simulation::new(
             self.executor,
             self.scheduler_queue,
             self.scheduler_registry,
@@ -447,7 +439,7 @@ impl SimInit {
             self.registered_models,
             self.is_halted,
         );
-        let mut endpoint_registry = Endpoints::new(
+        let endpoint_registry = Endpoints::new(
             self.event_sink_registry,
             self.event_sink_info_registry,
             self.event_source_registry,

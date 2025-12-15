@@ -13,10 +13,8 @@ use serde::de::DeserializeOwned;
 use crate::model::{Message, Model};
 use crate::ports::InputFn;
 use crate::simulation::{
-    Action, Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, QueryId,
-    SimInit,
+    Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, QueryId, SimInit,
 };
-use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
 pub(crate) use broadcaster::ReplyIterator;
@@ -139,12 +137,6 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
             fut.await.unwrap_or_throw();
         }
     }
-
-    /// Returns an action which, when processed, broadcasts an event to all
-    /// connected input ports.
-    pub fn action(&self, arg: T) -> Action {
-        Action::new(Box::pin(self.event_future(arg)))
-    }
 }
 
 impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
@@ -174,23 +166,12 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> fmt::Debug for Ev
     }
 }
 
-pub(crate) struct RegisteredEventSource<T: Serialize + DeserializeOwned + Clone + Send + 'static> {
-    inner: Arc<EventSource<T>>,
-    pub(crate) event_id: EventId<T>,
-}
+pub(crate) struct RegisteredEventSource<T: Serialize + DeserializeOwned + Clone + Send + 'static>(
+    pub(crate) EventId<T>,
+);
 impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> RegisteredEventSource<T> {
-    pub(crate) fn from_event_source(
-        event_source: Arc<EventSource<T>>,
-        event_id: EventId<T>,
-    ) -> Self {
-        Self {
-            inner: event_source,
-            event_id,
-        }
-    }
-    // FIXME probably a TEMP method
-    pub(crate) fn action(&self, arg: T) -> Action {
-        self.inner.action(arg)
+    pub(crate) fn new(event_id: EventId<T>) -> Self {
+        Self(event_id)
     }
 }
 
@@ -388,27 +369,15 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
 pub struct RegisteredQuerySource<
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Send + 'static,
-> {
-    inner: Arc<QuerySource<T, R>>,
-    pub(crate) query_id: QueryId<T, R>,
-}
+>(pub(crate) QueryId<T, R>);
 impl<T, R> RegisteredQuerySource<T, R>
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Send + 'static,
 {
-    pub(crate) fn from_query_source(
-        query_source: Arc<QuerySource<T, R>>,
-        query_id: QueryId<T, R>,
-    ) -> Self {
-        Self {
-            inner: query_source,
-            query_id,
-        }
+    pub(crate) fn new(query_id: QueryId<T, R>) -> Self {
+        Self(query_id)
     }
-    // pub(crate) fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
-    //     self.inner.query(arg)
-    // }
 }
 
 // /// A receiver for all replies collected from a single query broadcast.

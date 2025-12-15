@@ -178,7 +178,7 @@ impl QuerySourceRegistry {
                 request_type: any::type_name::<T>(),
                 reply_type: any::type_name::<R>(),
             })?
-            .query_id)
+            .0)
     }
 
     /// Returns an iterator over the names of the registered query sources.
@@ -205,17 +205,6 @@ impl fmt::Debug for QuerySourceRegistry {
 /// A type-erased `QuerySource` that operates on CBOR-encoded serialized queries
 /// and returns CBOR-encoded replies.
 pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
-    /// Returns an action which, when processed, broadcasts a query to all
-    /// connected replier ports.
-    ///
-    ///
-    /// The argument is expected to conform to the serde CBOR encoding.
-    // #[cfg(feature = "server")]
-    // fn query(
-    //     &self,
-    //     arg: &[u8],
-    // ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError>;
-
     /// Returns a type erased deserialized query argument.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
@@ -269,17 +258,6 @@ where
     R: Serialize + Send + 'static,
     F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
 {
-    // #[cfg(feature = "server")]
-    // fn query(
-    //     &self,
-    //     arg: &[u8],
-    // ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError> {
-    //     ciborium::from_reader(arg).map(|arg| {
-    //         let (action, receiver) = self.inner.query(arg);
-    //         (action, Box::new(receiver) as Box<dyn ReplyReceiverAny>)
-    //     })
-    // }
-
     #[cfg(feature = "server")]
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg: T| Box::new(arg) as Box<dyn Any>)
@@ -300,7 +278,7 @@ where
         &self.inner as &dyn Any
     }
     fn get_query_id(&self) -> QueryIdErased {
-        self.inner.query_id.into()
+        self.inner.0.into()
     }
     fn into_query_source(self: Box<Self>) -> Box<dyn Any> {
         Box::new(self.inner)

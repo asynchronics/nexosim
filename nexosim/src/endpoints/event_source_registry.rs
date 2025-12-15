@@ -152,7 +152,7 @@ impl EventSourceRegistry {
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        Ok(self.get_source::<T>(name)?.event_id)
+        Ok(self.get_source::<T>(name)?.0)
     }
 
     /// Returns an iterator over the names (keys) of the registered event
@@ -176,10 +176,11 @@ impl fmt::Debug for EventSourceRegistry {
 
 /// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
 pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
-    /// Returns an action which, when processed, broadcasts an event to all
-    /// connected input ports.
+    /// Returns a type erased deserialized event argument.
+    ///
+    /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
-    fn action(&self, serialized_arg: &[u8]) -> Result<Action, DeserializationError>;
+    fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError>;
 
     /// Returns an event which, when processed, is broadcast to all
     /// connected input ports.
@@ -187,12 +188,6 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError>;
-
-    /// Returns a type erased deserialized event argument.
-    ///
-    /// The argument is expected to conform to the serde CBOR encoding.
-    #[cfg(feature = "server")]
-    fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError>;
 
     /// Returns a cancellable event and a cancellation key; when processed, the
     /// it is broadcast to all connected input ports.
@@ -260,18 +255,12 @@ where
     F: Fn() -> MessageSchema + Send + Sync + 'static,
 {
     #[cfg(feature = "server")]
-    fn action(&self, serialized_arg: &[u8]) -> Result<Action, DeserializationError> {
-        ciborium::from_reader(serialized_arg)
-            .map(|arg| RegisteredEventSource::action(&self.inner, arg))
-    }
-
-    #[cfg(feature = "server")]
-    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(&self.inner.event_id, arg))
-    }
-    #[cfg(feature = "server")]
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg: T| Box::new(arg) as Box<dyn Any>)
+    }
+    #[cfg(feature = "server")]
+    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
+        ciborium::from_reader(serialized_arg).map(|arg| Event::new(&self.inner.0, arg))
     }
     #[cfg(feature = "server")]
     fn keyed_event(
@@ -279,12 +268,8 @@ where
         serialized_arg: &[u8],
     ) -> Result<(Event, EventKey), DeserializationError> {
         let key = EventKey::new();
-        ciborium::from_reader(serialized_arg).map(|arg| {
-            (
-                Event::new(&self.inner.event_id, arg).with_key(key.clone()),
-                key,
-            )
-        })
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| (Event::new(&self.inner.0, arg).with_key(key.clone()), key))
     }
     #[cfg(feature = "server")]
     fn periodic_event(
@@ -293,7 +278,7 @@ where
         serialized_arg: &[u8],
     ) -> Result<Event, DeserializationError> {
         ciborium::from_reader(serialized_arg)
-            .map(|arg| Event::new(&self.inner.event_id, arg).with_period(period))
+            .map(|arg| Event::new(&self.inner.0, arg).with_period(period))
     }
     #[cfg(feature = "server")]
     fn keyed_periodic_event(
@@ -305,7 +290,7 @@ where
 
         ciborium::from_reader(serialized_arg).map(|arg| {
             (
-                Event::new(&self.inner.event_id, arg)
+                Event::new(&self.inner.0, arg)
                     .with_period(period)
                     .with_key(key.clone()),
                 key,
@@ -320,7 +305,7 @@ where
         (self.schema_gen)()
     }
     fn get_event_id(&self) -> EventIdErased {
-        self.inner.event_id.into()
+        self.inner.0.into()
     }
     fn get_event_source(&self) -> &dyn Any {
         &*self.inner as &dyn Any
