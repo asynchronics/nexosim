@@ -335,11 +335,7 @@ where
         replier: Option<Box<dyn Any + Send>>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let replier = replier.map(|r| *r.downcast::<ReplyWriter<R>>().unwrap());
-        Box::pin(QuerySource::query_future(
-            self,
-            arg.downcast_ref::<T>().unwrap().clone(),
-            replier,
-        ))
+        QuerySource::query_future(self, arg.downcast_ref::<T>().unwrap().clone(), replier)
     }
 }
 

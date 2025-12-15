@@ -95,20 +95,24 @@ impl EventSourceRegistry {
     }
 
     /// Removes and returns an event source.
-    pub(crate) fn take<T>(&mut self, name: &str) -> Result<&RegisteredEventSource<T>, EndpointError>
+    pub(crate) fn take<T>(&mut self, name: &str) -> Result<RegisteredEventSource<T>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         // FIXME - this won't work at the moment for sure
         match self.0.entry(name.to_string()) {
             Entry::Occupied(entry) => {
-                if entry.get().get_event_source().is::<EventSource<T>>() {
+                if entry
+                    .get()
+                    .get_event_source()
+                    .is::<RegisteredEventSource<T>>()
+                {
                     // We now know that the downcast will succeed and can safely unwrap.
                     let source = entry
                         .remove_entry()
                         .1
                         .into_event_source()
-                        .downcast::<EventSource<T>>()
+                        .downcast::<RegisteredEventSource<T>>()
                         .unwrap();
 
                     Ok(*source)
@@ -132,7 +136,7 @@ impl EventSourceRegistry {
         name: &str,
     ) -> Result<&RegisteredEventSource<T>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.get(name)?
             .get_event_source()
@@ -146,13 +150,9 @@ impl EventSourceRegistry {
     /// Returns a typed SourceId of the requested EventSource.
     pub(crate) fn get_source_id<T>(&self, name: &str) -> Result<EventId<T>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        let source_id = self.get_source::<T>(name)?.source_id.get().expect(
-            "internal error: the event source was not registered in the scheduler register",
-        );
-
-        Ok(*source_id)
+        Ok(self.get_source::<T>(name)?.event_id)
     }
 
     /// Returns an iterator over the names (keys) of the registered event
@@ -255,25 +255,23 @@ where
         ciborium::from_reader(serialized_arg)
             .map(|arg| RegisteredEventSource::action(&self.inner, arg))
     }
-    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
-        let source_id = self.inner.source_id.get().expect(
-            "internal error: the event source was not registered in the scheduler register",
-        );
 
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(source_id, arg))
+    #[cfg(feature = "server")]
+    fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
+        ciborium::from_reader(serialized_arg).map(|arg| Event::new(&self.inner.event_id, arg))
     }
     #[cfg(feature = "server")]
     fn keyed_event(
         &self,
         serialized_arg: &[u8],
     ) -> Result<(Event, EventKey), DeserializationError> {
-        let source_id = self.inner.source_id.get().expect(
-            "internal error: the event source was not registered in the scheduler register",
-        );
         let key = EventKey::new();
-
-        ciborium::from_reader(serialized_arg)
-            .map(|arg| (Event::new(source_id, arg).with_key(key.clone()), key))
+        ciborium::from_reader(serialized_arg).map(|arg| {
+            (
+                Event::new(&self.inner.event_id, arg).with_key(key.clone()),
+                key,
+            )
+        })
     }
     #[cfg(feature = "server")]
     fn periodic_event(
@@ -281,12 +279,8 @@ where
         period: Duration,
         serialized_arg: &[u8],
     ) -> Result<Event, DeserializationError> {
-        let source_id = self.inner.source_id.get().expect(
-            "internal error: the event source was not registered in the scheduler register",
-        );
-
         ciborium::from_reader(serialized_arg)
-            .map(|arg| Event::new(source_id, arg).with_period(period))
+            .map(|arg| Event::new(&self.inner.event_id, arg).with_period(period))
     }
     #[cfg(feature = "server")]
     fn keyed_periodic_event(
@@ -294,14 +288,11 @@ where
         period: Duration,
         serialized_arg: &[u8],
     ) -> Result<(Event, EventKey), DeserializationError> {
-        let source_id = self.inner.source_id.get().expect(
-            "internal error: the event source was not registered in the scheduler register",
-        );
         let key = EventKey::new();
 
         ciborium::from_reader(serialized_arg).map(|arg| {
             (
-                Event::new(source_id, arg)
+                Event::new(&self.inner.event_id, arg)
                     .with_period(period)
                     .with_key(key.clone()),
                 key,

@@ -4,27 +4,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::channel::ChannelObserver;
 use crate::endpoints::{
     Endpoints, EventSinkInfoRegistry, EventSinkRegistry, EventSourceRegistry, QuerySourceRegistry,
 };
 use crate::executor::{Executor, SimulationContext};
-use crate::model::{Message, Model, ProtoModel, RegisteredModel};
+use crate::model::{Message, ProtoModel, RegisteredModel};
 use crate::ports::{
-    EventSinkReader, EventSource, InputFn, QuerySource, RegisteredEventSource,
-    RegisteredQuerySource,
+    EventSinkReader, EventSource, QuerySource, RegisteredEventSource, RegisteredQuerySource,
 };
-use crate::registry::EndpointRegistry;
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime,
 };
 use crate::util::sync_cell::SyncCell;
 
 use super::{
-    add_model, Address, EventId, ExecutionError, GlobalScheduler, InputSource, Mailbox, QueryId,
-    SchedulerQueue, SchedulerRegistry, Signal, Simulation, SimulationError,
+    add_model, EventId, ExecutionError, GlobalScheduler, Mailbox, QueryId, SchedulerQueue,
+    SchedulerRegistry, Signal, Simulation, SimulationError,
 };
 
 type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static;
@@ -175,7 +173,7 @@ impl SimInit {
     /// This is typically only of interest when controlling the simulation from
     /// Rust. For simulations controlled by a remote client, use
     /// [`SimInit::add_event_source`] or [`SimInit::add_event_source_raw`].
-    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
+    pub(crate) fn link_event_source<T>(&mut self, source: EventSource<T>) -> EventId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -240,7 +238,6 @@ impl SimInit {
         self
     }
 
-    
     /// Adds an event source to the endpoint registry.
     ///
     /// If the specified name is already used by another input or another event
@@ -261,22 +258,17 @@ impl SimInit {
         // TODO refactor `get_event_source` usage?
         let name: String = name.into();
         // Check for duplicates before registering in the scheduler.
-        if self.endpoint_registry.get_event_source::<T>(&name).is_ok() {
+        if self.event_source_registry.get(&name).is_ok() {
             return Err(DuplicateEventSourceError { name, source });
         }
         let source = Arc::new(source);
         let event_id = self.scheduler_registry.event_registry.add(source.clone());
-        let _ = self.endpoint_registry.add_event_source(
-            RegisteredEventSource::from_event_source(source, event_id),
-            name,
-        );
-        Ok(())
 
         // FIXME Should not fail after the check above ?
-        self.event_source_registry
-            // FIXME registeredEventSource
-            .add(source, name.into())
-            .map_err(|(name, source)| DuplicateEventSourceError { name, source })?;
+        let _ = self.event_source_registry.add(
+            RegisteredEventSource::from_event_source(source, event_id),
+            name.into(),
+        );
 
         Ok(())
     }
@@ -302,17 +294,17 @@ impl SimInit {
         // TODO refactor `get_event_source` usage?
         let name: String = name.into();
         // Check for duplicates before registering in the scheduler.
-        if self.endpoint_registry.get_event_source::<T>(&name).is_ok() {
-            return Err(DuplicateEventSourceError { name, source});
+        if self.event_source_registry.get(&name).is_ok() {
+            return Err(DuplicateEventSourceError { name, source });
         }
         let source = Arc::new(source);
         let event_id = self.scheduler_registry.event_registry.add(source.clone());
 
         // FIXME Should not fail after the check above ?
-        self.event_source_registry
-            // FIXME registeredEventSource
-            .add_raw(source, name.into())
-            .map_err(|(name, source)| DuplicateEventSourceError { name, source })?;
+        let _ = self.event_source_registry.add_raw(
+            RegisteredEventSource::from_event_source(source, event_id),
+            name.into(),
+        );
 
         Ok(())
     }
@@ -332,19 +324,18 @@ impl SimInit {
     {
         // TODO see add_event_source remarks
         let name: String = name.into();
-        if self
-            .endpoint_registry
-            .get_query_source::<T, R>(&name)
-            .is_ok()
-        {
-            return Err(());
+        if self.query_source_registry.get(&name).is_ok() {
+            return Err(DuplicateQuerySourceError { name, source });
         }
+
         let source = Arc::new(source);
         let query_id = self.scheduler_registry.query_registry.add(source.clone());
-        self.query_source_registry
-            // FIXME add registered source
-            .add(source, name.into())
-            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })?;
+
+        // FIXME Should not fail after the check above ?
+        let _ = self.query_source_registry.add(
+            RegisteredQuerySource::from_query_source(source, query_id),
+            name.into(),
+        );
 
         Ok(())
     }
@@ -365,22 +356,18 @@ impl SimInit {
     {
         // TODO see add_event_source remarks
         let name: String = name.into();
-        if self
-            .endpoint_registry
-            .get_query_source::<T, R>(&name)
-            .is_ok()
-        {
-            return Err(());
+        if self.query_source_registry.get(&name).is_ok() {
+            return Err(DuplicateQuerySourceError { name, source });
         }
         let source = Arc::new(source);
         let query_id = self.scheduler_registry.query_registry.add(source.clone());
-        // let _ = self.endpoint_registry.add_query_source_raw(
-        //     RegisteredQuerySource::from_event_source(source, query_id),
-        //     name,
-        // );
-        self.query_source_registry
-            .add_raw(source, name.into())
-            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })?;
+
+        // FIXME Should not fail after the check above ?
+        let _ = self.query_source_registry.add_raw(
+            RegisteredQuerySource::from_query_source(source, query_id),
+            name.into(),
+        );
+
         Ok(())
     }
 
@@ -580,7 +567,7 @@ impl Error for InitError {}
 /// Error returned when attempting to add an event source with an existing name.
 pub struct DuplicateEventSourceError<T>
 where
-    T: Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     /// Name of the event source.
     pub name: String,
@@ -589,7 +576,7 @@ where
 }
 impl<T> fmt::Display for DuplicateEventSourceError<T>
 where
-    T: Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -601,7 +588,7 @@ where
 }
 impl<T> fmt::Debug for DuplicateEventSourceError<T>
 where
-    T: Clone + Send + 'static,
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DuplicateEventSource")
@@ -610,9 +597,14 @@ where
             .finish()
     }
 }
-impl<T> Error for DuplicateEventSourceError<T> where T: Clone + Send + 'static {}
+impl<T> Error for DuplicateEventSourceError<T> where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static
+{
+}
 
-impl<T: Clone + Send + 'static> From<DuplicateEventSourceError<T>> for InitError {
+impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> From<DuplicateEventSourceError<T>>
+    for InitError
+{
     fn from(e: DuplicateEventSourceError<T>) -> Self {
         Self::DuplicateEventName(e.name)
     }

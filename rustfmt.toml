@@ -1,0 +1,3 @@
+edition = "2024"
+wrap_comments = true
+unstable_features = true

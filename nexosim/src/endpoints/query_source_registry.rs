@@ -1,13 +1,13 @@
 use std::any::{self, Any};
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::fmt;
 
 #[cfg(feature = "server")]
 use ciborium;
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use crate::{ports::RegisteredQuerySource, simulation::QueryId};
 
@@ -36,7 +36,7 @@ impl QuerySourceRegistry {
     pub(crate) fn add<T, R>(
         &mut self,
         source: RegisteredQuerySource<T, R>,
-        name: impl Into<String>,
+        name: String,
     ) -> Result<(), (String, RegisteredQuerySource<T, R>)>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -52,7 +52,7 @@ impl QuerySourceRegistry {
     pub(crate) fn add_raw<T, R>(
         &mut self,
         source: RegisteredQuerySource<T, R>,
-        name: impl Into<String>,
+        name: String,
     ) -> Result<(), (String, RegisteredQuerySource<T, R>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -61,7 +61,8 @@ impl QuerySourceRegistry {
         self.add_any(source, name, || (String::new(), String::new()))
     }
 
-    /// Adds a query source to the registry, possibly with an empty schema definition.
+    /// Adds a query source to the registry, possibly with an empty schema
+    /// definition.
     fn add_any<T, R, F>(
         &mut self,
         source: RegisteredQuerySource<T, R>,
@@ -100,7 +101,10 @@ impl QuerySourceRegistry {
 
     /// Returns an immutable reference to a QuerySource registered by a given
     /// name.
-    pub(crate) fn get_source<T, R>(&self, name: &str) -> Result<&RegisteredQuerySource<T, R>, EndpointError>
+    pub(crate) fn get_source<T, R>(
+        &self,
+        name: &str,
+    ) -> Result<&RegisteredQuerySource<T, R>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
@@ -118,20 +122,28 @@ impl QuerySourceRegistry {
 
     /// Returns an immutable reference to a QuerySource registered by a given
     /// name.
-    pub(crate) fn take<T, R>(&mut self, name: &str) -> Result<QuerySource<T, R>, EndpointError>
+    pub(crate) fn take<T, R>(
+        &mut self,
+        name: &str,
+    ) -> Result<RegisteredQuerySource<T, R>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
+        // FIXME won't work
         match self.0.entry(name.to_string()) {
             Entry::Occupied(entry) => {
-                if entry.get().get_query_source().is::<QuerySource<T, R>>() {
+                if entry
+                    .get()
+                    .get_query_source()
+                    .is::<RegisteredQuerySource<T, R>>()
+                {
                     // We now know that the downcast will succeed and can safely unwrap.
                     let source = entry
                         .remove_entry()
                         .1
                         .into_query_source()
-                        .downcast::<QuerySource<T, R>>()
+                        .downcast::<RegisteredQuerySource<T, R>>()
                         .unwrap();
 
                     Ok(*source)
@@ -147,24 +159,24 @@ impl QuerySourceRegistry {
                 name: name.to_string(),
             }),
         }
->>>>>>> origin/main:nexosim/src/endpoints/query_source_registry.rs
     }
 
     /// Returns a typed SourceId of the requested EventSource.
-    pub(crate) fn get_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, RegistryError>
+    pub(crate) fn get_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
         // Downcast_ref used as a runtime type-check.
         Ok(self
-            .get(name)
-            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+            .get(name)?
             .get_query_source()
             .downcast_ref::<RegisteredQuerySource<T, R>>()
-            .ok_or(RegistryError::InvalidType(std::any::type_name::<
-                &RegisteredQuerySource<T, R>,
-            >()))?
+            .ok_or(EndpointError::InvalidQuerySourceType {
+                name: name.to_string(),
+                request_type: any::type_name::<T>(),
+                reply_type: any::type_name::<R>(),
+            })?
             .query_id)
     }
 

@@ -33,8 +33,10 @@
 use std::time::Duration;
 
 use nexosim::endpoints::Endpoints;
-use nexosim::ports::{EventQueue, EventSlot, EventSource, QuerySource};
-use nexosim::simulation::{EventId, Mailbox, QueryId, SimInit, Simulation, SimulationError};
+use nexosim::ports::{EventQueue, EventSource, QuerySource};
+use nexosim::simulation::{
+    EventId, InitError, Mailbox, QueryId, SimInit, Simulation, SimulationError,
+};
 use nexosim::time::MonotonicTime;
 
 mod espresso_machine;
@@ -153,7 +155,7 @@ fn run_simulation(
     let shots_per_tank = (INIT_TANK_VOLUME / volume_per_shot) as u64; // YOLO--who cares about floating-point rounding errors?
     for _ in 0..(shots_per_tank - 1) {
         simu.process_event(&brew_cmd, ())?;
-        assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
+        assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
         simu.step()?;
         t += Controller::DEFAULT_BREW_TIME;
         assert_eq!(simu.time(), t);
@@ -165,20 +167,20 @@ fn run_simulation(
     simu.step()?;
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
-    assert_eq!(flow_rate.next(), Some(0.0));
+    assert_eq!(flow_rate.try_read(), Some(0.0));
     let mut volume_reader = simu.process_query(&volume, ())?;
     assert_eq!(volume_reader.read().unwrap().next(), Some(0.0));
 
     // Try to brew another shot while the tank is still empty.
     simu.process_event(&brew_cmd, ())?;
-    assert!(flow_rate.next().is_none());
+    assert!(flow_rate.try_read().is_none());
 
     // Change the brew time and fill up the tank.
     let brew_t = Duration::new(30, 0);
     simu.process_event(&brew_time, brew_t)?;
     simu.process_event(&fill, 1.0e-3)?;
     simu.process_event(&brew_cmd, ())?;
-    assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
+    assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
     t += brew_t;
@@ -190,7 +192,7 @@ fn run_simulation(
         .schedule_event(Duration::from_secs(15), &brew_cmd, ())
         .unwrap();
     simu.process_event(&brew_cmd, ())?;
-    assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
+    assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
     t += Duration::from_secs(15);
@@ -223,7 +225,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Brew one espresso shot with the default brew time.
     simu.process_event(&brew_cmd, ())?;
-    assert_eq!(flow_rate.next(), Some(PUMP_FLOW_RATE));
+    assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
     t += Controller::DEFAULT_BREW_TIME;

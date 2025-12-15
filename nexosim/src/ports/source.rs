@@ -3,11 +3,15 @@ mod sender;
 
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::model::{Message, Model};
 use crate::ports::InputFn;
-use crate::simulation::{Action, Address, EventId, QueryId, ReplyWriter, SimInit};
+use crate::simulation::{
+    Action, Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, QueryId,
+    ReplyWriter, SimInit,
+};
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -113,7 +117,11 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
         sim_init.link_event_source(self)
     }
 
-    pub fn add_raw(self, name: impl Into<String>, sim_init: &mut SimInit) -> Result<(), ()> {
+    pub fn add_endpoint_raw(
+        self,
+        name: impl Into<String>,
+        sim_init: &mut SimInit,
+    ) -> Result<(), DuplicateEventSourceError<T>> {
         sim_init.add_event_source_raw(self, name)
     }
 
@@ -138,7 +146,11 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
 }
 
 impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
-    pub fn add_endpoint(self, sim_init: &mut SimInit, name: impl Into<String>) -> Result<(), ()> {
+    pub fn add_endpoint(
+        self,
+        sim_init: &mut SimInit,
+        name: impl Into<String>,
+    ) -> Result<(), DuplicateEventSourceError<T>> {
         sim_init.add_event_source(self, name)
     }
 }
@@ -174,6 +186,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> RegisteredEventSo
             event_id,
         }
     }
+    // FIXME probably a TEMP method
     pub(crate) fn action(&self, arg: T) -> Action {
         self.inner.action(arg)
     }
@@ -309,22 +322,27 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
         &self,
         arg: T,
         replier: Option<ReplyWriter<R>>,
-    ) -> impl Future<Output = ()> + Send {
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
         let fut = self.broadcaster.broadcast(arg);
 
-        async move {
+        let fut = async move {
             let replies = fut.await.unwrap_or_throw();
             if let Some(replier) = replier {
                 replier.send(replies);
             }
-        }
+        };
+        Box::pin(fut)
     }
 }
 
 impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Send + 'static>
     QuerySource<T, R>
 {
-    pub fn add_raw(self, name: impl Into<String>, sim_init: &mut SimInit) -> Result<(), ()> {
+    pub fn add_endpoint_raw(
+        self,
+        name: impl Into<String>,
+        sim_init: &mut SimInit,
+    ) -> Result<(), DuplicateQuerySourceError<Self>> {
         sim_init.add_query_source_raw(self, name)
     }
 }
@@ -334,7 +352,11 @@ impl<
         R: Message + Serialize + Send + 'static,
     > QuerySource<T, R>
 {
-    pub fn add_endpoint(self, sim_init: &mut SimInit, name: impl Into<String>) -> Result<(), ()> {
+    pub fn add_endpoint(
+        self,
+        sim_init: &mut SimInit,
+        name: impl Into<String>,
+    ) -> Result<(), DuplicateQuerySourceError<Self>> {
         sim_init.add_query_source(self, name)
     }
 }
@@ -373,7 +395,7 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Send + 'static,
 {
-    pub(crate) fn from_event_source(
+    pub(crate) fn from_query_source(
         query_source: Arc<QuerySource<T, R>>,
         query_id: QueryId<T, R>,
     ) -> Self {

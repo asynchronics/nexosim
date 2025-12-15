@@ -12,13 +12,15 @@ mod event_source_registry;
 mod query_source_registry;
 
 use crate::model::{Message, MessageSchema};
-use crate::ports::{EventSinkReader, EventSource, QuerySource};
-use crate::simulation::{SchedulerSourceRegistry, SourceId};
+use crate::ports::{EventSinkReader, RegisteredEventSource, RegisteredQuerySource};
+use crate::simulation::{EventId, QueryId};
 
 pub(crate) use event_sink_info_registry::EventSinkInfoRegistry;
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
 pub(crate) use query_source_registry::QuerySourceRegistry;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 /// A directory of all sources and sinks of a simulation bench.
 #[derive(Default, Debug)]
@@ -63,21 +65,26 @@ impl Endpoints {
         )
     }
 
+    // FIXME return type
     /// Removes and returns an [`EventSource`] from the endpoint directory.
-    pub fn take_event_source<T>(&mut self, name: &str) -> Result<EventSource<T>, EndpointError>
+    pub fn take_event_source<T>(
+        &mut self,
+        name: &str,
+    ) -> Result<RegisteredEventSource<T>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.take(name)
     }
 
+    // FIXME return type
     /// Removes and returns a [`QuerySource`] from the endpoint directory.
     pub fn take_query_source<T, R>(
         &mut self,
         name: &str,
-    ) -> Result<QuerySource<T, R>, EndpointError>
+    ) -> Result<RegisteredQuerySource<T, R>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
         self.query_source_registry.take(name)
@@ -95,12 +102,12 @@ impl Endpoints {
         self.event_sink_registry.take(name)
     }
 
-    /// Returns a typed SourceId for an [`EventSource`]`.
+    /// Returns a typed EventId for an [`EventSource`]`.
     ///
     /// SourceId can be used to schedule events on the Scheduler instance.
-    pub fn get_event_source_id<T>(&self, name: &str) -> Result<SourceId<T>, EndpointError>
+    pub fn get_event_source_id<T>(&self, name: &str) -> Result<EventId<T>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry.get_source_id(name)
     }
@@ -131,14 +138,29 @@ impl Endpoints {
         self.query_source_registry.get_source_schema(name)
     }
 
+    // FIXME return type
     /// Returns an immutable reference to a QuerySource registered by a given
     /// name.
-    pub fn get_query_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, EndpointError>
+    pub fn get_query_source<T, R>(
+        &self,
+        name: &str,
+    ) -> Result<&RegisteredQuerySource<T, R>, EndpointError>
     where
-        T: Clone + Send + 'static,
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
         self.query_source_registry.get_source(name)
+    }
+
+    /// Returns a typed QueryId for an [`QuerySource`]`.
+    ///
+    /// SourceId can be used to schedule events on the Scheduler instance.
+    pub fn get_query_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, EndpointError>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.query_source_registry.get_source_id(name)
     }
 
     /// Returns an iterator over the names of all sinks in the registry.
@@ -150,15 +172,10 @@ impl Endpoints {
     pub fn get_event_sink_schema(&self, name: &str) -> Result<MessageSchema, EndpointError> {
         self.event_sink_info_registry.event_schema(name)
     }
-
-    /// Registers event sources in the scheduler's registry in order to make
-    /// them schedulable.
-    pub(crate) fn register_scheduler(&mut self, registry: &mut SchedulerSourceRegistry) {
-        self.event_source_registry.register_scheduler(registry);
-    }
 }
 
-/// An error returned when an operation on the endpoint directory is unsuccessful.
+/// An error returned when an operation on the endpoint directory is
+/// unsuccessful.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum EndpointError {

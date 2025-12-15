@@ -80,8 +80,6 @@ mod mailbox;
 mod scheduler;
 mod sim_init;
 
-pub(crate) use scheduler::GlobalScheduler;
-
 pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, ReplyReader};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
@@ -91,6 +89,8 @@ pub(crate) use events::{
     Event, EventIdErased, EventKeyReg, InputSource, QueueItem, ReplyWriter, SchedulerRegistry,
     EVENT_KEY_REG,
 };
+pub(crate) use scheduler::GlobalScheduler;
+pub(crate) use sim_init::{DuplicateEventSourceError, DuplicateQuerySourceError};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -107,14 +107,14 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{Deserialize, DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
-use crate::ports::{InputFn, QuerySource, ReplierFn};
+use crate::ports::ReplierFn;
 use crate::simulation::events::query_replier;
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
@@ -476,7 +476,7 @@ impl Simulation {
                             .scheduler_registry
                             .event_registry
                             .get(&event.event_id)
-                            .ok_or(ExecutionError::InvalidEventSourceId(event.event_id.0))?;
+                            .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
                         let fut = source.event_future(&*event.arg, event.key.clone());
                         if let Some(period) = event.period {
@@ -491,7 +491,7 @@ impl Simulation {
                             .query_registry
                             .get(&query.query_id)
                             // TODO add InvalidQuery error
-                            .ok_or(ExecutionError::InvalidEvent(query.query_id.0))?;
+                            .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
                         source.query_future(&*query.arg, query.replier)
                     }
                 };
@@ -1072,7 +1072,9 @@ pub enum ExecutionError {
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
     /// A non-existent event source identifier has been used.
-    InvalidEventSourceId(usize),
+    InvalidEventId(usize),
+    /// A non-existent query source identifier has been used.
+    InvalidQueryId(usize),
     /// Simulation serialization has failed.
     SaveError(SaveError),
     /// Simulation deserialization has failed.
@@ -1141,7 +1143,8 @@ impl fmt::Display for ExecutionError {
                     "the specified deadline ({time}) lies in the past of the current simulation time"
                 )
             }
-            Self::InvalidEventSourceId(e) => write!(f, "event source with identifier '{e}' was not found"),
+            Self::InvalidEventId(e) => write!(f, "event source with identifier '{e}' was not found"),
+            Self::InvalidQueryId(e) => write!(f, "query source with identifier '{e}' was not found"),
             Self::SaveError(o) => write!(f, "saving the simulation state has failed: {o}"),
             Self::RestoreError(o) => write!(f, "restoring the simulation state has failed: {o}"),
         }
