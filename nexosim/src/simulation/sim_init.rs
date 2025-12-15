@@ -95,48 +95,6 @@ impl SimInit {
         }
     }
 
-    /// Adds a model and its mailbox to the simulation bench.
-    ///
-    /// The `name` argument needs not be unique. The use of the dot character in
-    /// the name is possible but discouraged as it can cause confusion with the
-    /// fully qualified name of a submodel. If an empty string is provided, it
-    /// is replaced by the string `<unknown>`.
-    pub fn add_model<P>(
-        mut self,
-        model: P,
-        mailbox: Mailbox<P::Model>,
-        name: impl Into<String>,
-    ) -> Self
-    where
-        P: ProtoModel,
-    {
-        let mut name = name.into();
-        if name.is_empty() {
-            name = String::from("<unknown>");
-        };
-        self.observers
-            .push((name.clone(), Box::new(mailbox.0.observer())));
-        let scheduler = GlobalScheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_halted.clone(),
-        );
-
-        add_model(
-            model,
-            mailbox,
-            name,
-            scheduler,
-            &mut self.scheduler_registry,
-            &self.executor,
-            &self.abort_signal,
-            &mut self.registered_models,
-            self.is_resumed.clone(),
-        );
-
-        self
-    }
-
     /// Synchronizes the simulation with the provided [`Clock`].
     ///
     /// If the clock isn't explicitly set then the default [`NoClock`] is used,
@@ -156,12 +114,6 @@ impl SimInit {
         self.clock_tolerance = Some(tolerance);
 
         self
-    }
-
-    /// Returns a clock reader instance, allowing to track simulation
-    /// time (once it is initialized).
-    pub fn clock_reader(&self) -> ClockReader {
-        ClockReader::from_atomic_time_reader(&self.time.reader())
     }
 
     /// Sets a timeout for the call to [`SimInit::init`] and for any subsequent
@@ -213,6 +165,62 @@ impl SimInit {
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.scheduler_registry.event_registry.add(source)
+    }
+
+    pub(crate) fn link_query_source<T, R>(&mut self, source: QuerySource<T, R>) -> QueryId<T, R>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.scheduler_registry.query_registry.add(source)
+    }
+
+    /// Returns a clock reader instance, allowing to track simulation
+    /// time (once it is initialized).
+    pub fn clock_reader(&self) -> ClockReader {
+        ClockReader::from_atomic_time_reader(&self.time.reader())
+    }
+
+    /// Adds a model and its mailbox to the simulation bench.
+    ///
+    /// The `name` argument needs not be unique. The use of the dot character in
+    /// the name is possible but discouraged as it can cause confusion with the
+    /// fully qualified name of a submodel. If an empty string is provided, it
+    /// is replaced by the string `<unknown>`.
+    pub fn add_model<P>(
+        mut self,
+        model: P,
+        mailbox: Mailbox<P::Model>,
+        name: impl Into<String>,
+    ) -> Self
+    where
+        P: ProtoModel,
+    {
+        let mut name = name.into();
+        if name.is_empty() {
+            name = String::from("<unknown>");
+        };
+        self.observers
+            .push((name.clone(), Box::new(mailbox.0.observer())));
+        let scheduler = GlobalScheduler::new(
+            self.scheduler_queue.clone(),
+            self.time.reader(),
+            self.is_halted.clone(),
+        );
+
+        add_model(
+            model,
+            mailbox,
+            name,
+            scheduler,
+            &mut self.scheduler_registry,
+            &self.executor,
+            &self.abort_signal,
+            &mut self.registered_models,
+            self.is_resumed.clone(),
+        );
+
+        self
     }
 
     /// Adds an event source to the endpoint registry.
@@ -269,14 +277,6 @@ impl SimInit {
             name,
         );
         Ok(())
-    }
-
-    pub(crate) fn link_query_source<T, R>(&mut self, source: QuerySource<T, R>) -> QueryId<T, R>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-        R: Send + 'static,
-    {
-        self.scheduler_registry.query_registry.add(source)
     }
 
     /// Adds a query source to the endpoint registry.
