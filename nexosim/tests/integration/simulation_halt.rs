@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
 
@@ -43,7 +43,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
     let mut model = RecurringModel::new(Duration::from_millis(200));
     let mailbox = Mailbox::new();
 
-    let message = EventQueue::new();
+    let message = EventQueue::new_open();
     model.message.connect_sink(&message);
     let mut message = message.into_reader();
 
@@ -54,7 +54,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
         .set_clock(SystemClock::from_instant(t0, Instant::now()))
         .init(t0)?;
 
-    let mut scheduler = simu.scheduler();
+    let scheduler = simu.scheduler();
 
     let simulation = Arc::new(Mutex::new(simu));
     let spawned_simulation = simulation.clone();
@@ -69,7 +69,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
 
     // Assert that the step has completed at t = t0 + 2*delta, even though
     // `halt` was called before its scheduled time.
-    assert!(message.next().is_some());
+    assert!(message.try_read().is_some());
 
     match simulation_handle.join().unwrap() {
         Err(ExecutionError::Halted) => (),
@@ -80,7 +80,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
     thread::sleep(Duration::from_millis(200)); // pause until t(wall clock) = t0 + 5*delta
 
     // Halted - no new messages.
-    assert!(message.next().is_none());
+    assert!(message.try_read().is_none());
 
     // Restart the simulation.
     {
@@ -101,10 +101,10 @@ fn halt_and_resume() -> Result<(), SimulationError> {
 
     // No new messages yet, as the halt time should be invisible to the
     // scheduler.
-    assert!(message.next().is_none());
+    assert!(message.try_read().is_none());
 
     thread::sleep(Duration::from_millis(200)); // pause until t(wall clock) = t1 + 3*delta
-    assert!(message.next().is_some());
+    assert!(message.try_read().is_some());
 
     scheduler.halt();
 

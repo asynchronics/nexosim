@@ -10,11 +10,11 @@ use std::{fmt, panic, thread};
 use parking::Parker;
 use slab::Slab;
 
-use super::task::{self, CancelToken, Promise, Runnable};
 use super::NEXT_EXECUTOR_ID;
+use super::task::{self, CancelToken, Promise, Runnable};
 
 use crate::channel;
-use crate::executor::{ExecutorError, Signal, SimulationContext, SIMULATION_CONTEXT};
+use crate::executor::{ExecutorError, SIMULATION_CONTEXT, Signal, SimulationContext};
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::simulation::CURRENT_MODEL_ID;
 
@@ -170,16 +170,18 @@ impl ExecutorInner {
         let result = SIMULATION_CONTEXT.set(&self.simulation_context, || {
             ACTIVE_TASKS.set(&self.active_tasks, || {
                 EXECUTOR_CONTEXT.set(&self.context, || {
-                    panic::catch_unwind(AssertUnwindSafe(|| loop {
-                        let task = match self.context.queue.borrow_mut().pop() {
-                            Some(task) => task,
-                            None => break,
-                        };
+                    panic::catch_unwind(AssertUnwindSafe(|| {
+                        loop {
+                            let task = match self.context.queue.borrow_mut().pop() {
+                                Some(task) => task,
+                                None => break,
+                            };
 
-                        task.run();
+                            task.run();
 
-                        if self.abort_signal.is_set() {
-                            return;
+                            if self.abort_signal.is_set() {
+                                return;
+                            }
                         }
                     }))
                 })

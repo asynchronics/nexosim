@@ -6,8 +6,8 @@
 use std::cell::Cell;
 use std::marker::PhantomData;
 
-use crate::loom_exports::sync::atomic::{self, AtomicUsize, Ordering};
 use crate::loom_exports::sync::Arc;
+use crate::loom_exports::sync::atomic::{self, AtomicUsize, Ordering};
 
 /// An adapter to a `Value` type which may safely read and write a value from
 /// multiple threads without synchronization, but which only guarantees that the

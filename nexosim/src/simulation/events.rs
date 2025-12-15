@@ -1,4 +1,4 @@
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use recycle_box::{coerce_box, RecycleBox};
+use recycle_box::{RecycleBox, coerce_box};
 use serde::de::Visitor;
 use serde::ser::SerializeTuple;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::channel::Sender;
 use crate::macros::scoped_thread_local::scoped_thread_local;
@@ -61,8 +61,8 @@ impl<T> From<&SourceId<T>> for SourceIdErased {
 }
 
 /// Scheduler event source registry.
-/// Only events present in the registry can be scheduled for a future execution
-/// and put on the queue.
+///
+/// Only events present in the registry can be scheduled for future execution.
 ///
 /// Event registration has to take place before simulation is started / resumed.
 /// Therefore the `add` method should only be accessible from `SimInit` or
@@ -92,7 +92,7 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 }
 
 /// A helper trait ensuring type safety of the registered event sources.
@@ -103,8 +103,8 @@ pub(crate) trait TypedSchedulerSource<T>: SchedulerEventSource {}
 
 /// A specialized event source struct used to register models' input methods.
 ///
-/// Unlike the EventSource struct it does not allow for multiple senders and it
-/// is bound to a specific model's input only.
+/// Unlike the [`EventSource`] struct it does not allow for multiple senders and
+/// it is bound to a specific model's input only.
 pub(crate) struct InputSource<M, F, S, T>
 where
     M: Model,
@@ -243,7 +243,7 @@ where
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let inner: &dyn SchedulerEventSource = self.as_ref();
         inner.event_future(arg, event_key)
     }

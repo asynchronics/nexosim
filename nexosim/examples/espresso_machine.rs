@@ -5,7 +5,6 @@
 //! * non-trivial state machines,
 //! * cancellation of events,
 //! * model initialization,
-//! * simulation monitoring with event slot.
 //!
 //! ```text
 //!                                                   flow rate
@@ -31,15 +30,16 @@
 //!                      (-)
 //! ```
 
+use std::iter;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventSlot, Output};
+use nexosim::Message;
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
-use nexosim::Message;
 
 /// Water pump.
 #[derive(Serialize, Deserialize)]
@@ -363,8 +363,9 @@ fn main() -> Result<(), SimulationError> {
     pump.flow_rate.connect(Tank::set_flow_rate, &tank_mbox);
 
     // Model handles for simulation.
-    let mut flow_rate = EventSlot::new();
+    let flow_rate = EventQueue::new_open();
     pump.flow_rate.connect_sink(&flow_rate);
+    let mut flow_rate = flow_rate.into_reader();
     let controller_addr = controller_mbox.address();
     let tank_addr = tank_mbox.address();
 
@@ -393,23 +394,23 @@ fn main() -> Result<(), SimulationError> {
 
     // Brew one espresso shot with the default brew time.
     simu.process_event(Controller::brew_cmd, (), &controller_addr)?;
-    assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+    assert_eq!(flow_rate.try_read(), Some(pump_flow_rate));
 
     simu.step()?;
     t += Controller::DEFAULT_BREW_TIME;
     assert_eq!(simu.time(), t);
-    assert_eq!(flow_rate.next(), Some(0.0));
+    assert_eq!(flow_rate.try_read(), Some(0.0));
 
     // Drink too much coffee.
     let volume_per_shot = pump_flow_rate * Controller::DEFAULT_BREW_TIME.as_secs_f64();
     let shots_per_tank = (init_tank_volume / volume_per_shot) as u64; // YOLO--who cares about floating-point rounding errors?
     for _ in 0..(shots_per_tank - 1) {
         simu.process_event(Controller::brew_cmd, (), &controller_addr)?;
-        assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+        assert_eq!(flow_rate.try_read(), Some(pump_flow_rate));
         simu.step()?;
         t += Controller::DEFAULT_BREW_TIME;
         assert_eq!(simu.time(), t);
-        assert_eq!(flow_rate.next(), Some(0.0));
+        assert_eq!(flow_rate.try_read(), Some(0.0));
     }
 
     // Check that the tank becomes empty before the completion of the next shot.
@@ -417,35 +418,36 @@ fn main() -> Result<(), SimulationError> {
     simu.step()?;
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
-    assert_eq!(flow_rate.next(), Some(0.0));
+    let last_flow_rate = iter::from_fn(|| flow_rate.try_read()).last();
+    assert_eq!(last_flow_rate, Some(0.0));
 
     // Try to brew another shot while the tank is still empty.
     simu.process_event(Controller::brew_cmd, (), &controller_addr)?;
-    assert!(flow_rate.next().is_none());
+    assert!(flow_rate.try_read().is_none());
 
     // Change the brew time and fill up the tank.
     let brew_time = Duration::new(30, 0);
     simu.process_event(Controller::brew_time, brew_time, &controller_addr)?;
     simu.process_event(Tank::fill, 1.0e-3, tank_addr)?;
     simu.process_event(Controller::brew_cmd, (), &controller_addr)?;
-    assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+    assert_eq!(flow_rate.try_read(), Some(pump_flow_rate));
 
     simu.step()?;
     t += brew_time;
     assert_eq!(simu.time(), t);
-    assert_eq!(flow_rate.next(), Some(0.0));
+    assert_eq!(flow_rate.try_read(), Some(0.0));
 
     // Interrupt the brew after 15s by pressing again the brew button.
     scheduler
         .schedule_event(Duration::from_secs(15), &brew_source_id, ())
         .unwrap();
     simu.process_event(Controller::brew_cmd, (), &controller_addr)?;
-    assert_eq!(flow_rate.next(), Some(pump_flow_rate));
+    assert_eq!(flow_rate.try_read(), Some(pump_flow_rate));
 
     simu.step()?;
     t += Duration::from_secs(15);
     assert_eq!(simu.time(), t);
-    assert_eq!(flow_rate.next(), Some(0.0));
+    assert_eq!(flow_rate.try_read(), Some(0.0));
 
     Ok(())
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use dyn_clone::DynClone;
-use recycle_box::{coerce_box, RecycleBox};
+use recycle_box::{RecycleBox, coerce_box};
 
 use crate::channel;
 use crate::channel::SendError;

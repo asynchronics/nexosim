@@ -10,15 +10,15 @@ use prost_types::Timestamp;
 use tai_time::MonotonicTime;
 
 use super::codegen::simulation::{Error, ErrorCode};
-use crate::registry::RegistryError;
-use crate::simulation::{ExecutionError, SchedulingError, SimulationError};
+use crate::endpoints::EndpointError;
+use crate::simulation::{ExecutionError, InitError, SchedulingError, SimulationError};
 
 pub use init_service::{init_bench, restore_bench};
 
 pub(crate) use controller_service::ControllerService;
 pub(crate) use init_service::InitService;
 pub(crate) use inspector_service::InspectorService;
-pub(crate) use monitor_service::MonitorService;
+pub(crate) use monitor_service::{MonitorService, monitor_service_read_event};
 pub(crate) use scheduler_service::SchedulerService;
 
 /// Transforms an error code and a message into a Protobuf error.
@@ -29,12 +29,9 @@ fn to_error(code: ErrorCode, message: impl Into<String>) -> Error {
     }
 }
 
-/// An error returned when a simulation was not started.
-fn simulation_not_started_error() -> Error {
-    to_error(
-        ErrorCode::SimulationNotStarted,
-        "the simulation was not started",
-    )
+/// An error returned when a simulation is halted.
+fn simulation_halted_error() -> Error {
+    to_error(ErrorCode::SimulationNotStarted, "the simulation is halted")
 }
 
 /// Map an `ExecutionError` to a Protobuf error.
@@ -50,7 +47,7 @@ fn map_execution_error(error: ExecutionError) -> Error {
         ExecutionError::Halted => ErrorCode::SimulationHalted,
         ExecutionError::Terminated => ErrorCode::SimulationTerminated,
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
-        ExecutionError::InvalidEvent(_) => ErrorCode::SourceNotFound,
+        ExecutionError::InvalidEventSourceId(_) => ErrorCode::EventSourceNotFound,
         ExecutionError::SaveError(_) => ErrorCode::SaveError,
         ExecutionError::RestoreError(_) => ErrorCode::RestoreError,
     };
@@ -72,21 +69,36 @@ fn map_scheduling_error(error: SchedulingError) -> Error {
     to_error(error_code, error_message)
 }
 
+/// Map an `InitError` to a Protobuf error.
+fn map_init_error(error: InitError) -> Error {
+    let error_code = match error {
+        InitError::DuplicateEventName(_) => ErrorCode::DuplicateEventName,
+        InitError::DuplicateQueryName(_) => ErrorCode::DuplicateQueryName,
+        InitError::DuplicateSinkName(_) => ErrorCode::DuplicateSinkName,
+    };
+
+    let error_message = error.to_string();
+
+    to_error(error_code, error_message)
+}
+
 /// Map a `SimulationError` to a Protobuf error.
 fn map_simulation_error(error: SimulationError) -> Error {
     match error {
         SimulationError::ExecutionError(e) => map_execution_error(e),
         SimulationError::SchedulingError(e) => map_scheduling_error(e),
+        SimulationError::InitError(e) => map_init_error(e),
     }
 }
 
-fn map_registry_error(error: RegistryError) -> Error {
+fn map_endpoint_error(error: EndpointError) -> Error {
     let error_code = match error {
-        RegistryError::SourceNotFound(_) => ErrorCode::SourceNotFound,
-        RegistryError::SinkNotFound(_) => ErrorCode::SinkNotFound,
-        RegistryError::Unregistered => ErrorCode::Unregistered,
-        RegistryError::InvalidType(_) => ErrorCode::InvalidType,
-        RegistryError::DeserializationError(_) => ErrorCode::DeserializationError,
+        EndpointError::EventSourceNotFound { .. } => ErrorCode::EventSourceNotFound,
+        EndpointError::QuerySourceNotFound { .. } => ErrorCode::QuerySourceNotFound,
+        EndpointError::EventSinkNotFound { .. } => ErrorCode::SinkNotFound,
+        EndpointError::InvalidEventSourceType { .. } => ErrorCode::InvalidEventType,
+        EndpointError::InvalidQuerySourceType { .. } => ErrorCode::InvalidQueryType,
+        EndpointError::InvalidEventSinkType { .. } => ErrorCode::InvalidEventType,
     };
     let error_message = error.to_string();
 

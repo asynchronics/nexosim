@@ -4,7 +4,7 @@ use std::panic::{self, AssertUnwindSafe};
 use ciborium;
 use serde::de::DeserializeOwned;
 
-use crate::registry::EndpointRegistry;
+use crate::endpoints::Endpoints;
 use crate::simulation::{ExecutionError, RestoreError, SimInit, Simulation, SimulationError};
 use crate::time::MonotonicTime;
 
@@ -51,7 +51,7 @@ impl InitService {
     pub(crate) fn init(
         &mut self,
         request: InitRequest,
-    ) -> (InitReply, Option<(Simulation, EndpointRegistry, Vec<u8>)>) {
+    ) -> (InitReply, Option<(Simulation, Endpoints, Vec<u8>)>) {
         let Some(start_time) = request.time.and_then(timestamp_to_monotonic) else {
             return (
                 InitReply {
@@ -90,10 +90,7 @@ impl InitService {
     pub(crate) fn restore(
         &mut self,
         request: RestoreRequest,
-    ) -> (
-        RestoreReply,
-        Option<(Simulation, EndpointRegistry, Vec<u8>)>,
-    ) {
+    ) -> (RestoreReply, Option<(Simulation, Endpoints, Vec<u8>)>) {
         let Ok(Some(stored_cfg)) = Simulation::restore_cfg(&request.state[..]) else {
             return (
                 RestoreReply {
@@ -153,8 +150,8 @@ fn map_panic(payload: Box<dyn Any + Send>) -> Error {
 }
 
 fn map_init_error(
-    payload: Result<Result<(Simulation, EndpointRegistry), SimulationError>, DeserializationError>,
-) -> Result<(Simulation, EndpointRegistry), Error> {
+    payload: Result<Result<(Simulation, Endpoints), SimulationError>, DeserializationError>,
+) -> Result<(Simulation, Endpoints), Error> {
     payload
         .map_err(|e| {
             to_error(
@@ -171,7 +168,7 @@ pub fn init_bench<F, I>(
     mut sim_gen: F,
     cfg: I,
     start_time: MonotonicTime,
-) -> Result<(Simulation, EndpointRegistry), SimulationError>
+) -> Result<(Simulation, Endpoints), SimulationError>
 where
     F: FnMut(I) -> SimInit + Send + 'static,
     I: DeserializeOwned,
@@ -191,7 +188,7 @@ pub fn restore_bench<F, I>(
     mut sim_gen: F,
     state: &[u8],
     cfg: Option<I>,
-) -> Result<(Simulation, EndpointRegistry), SimulationError>
+) -> Result<(Simulation, Endpoints), SimulationError>
 where
     F: FnMut(I) -> SimInit + Send + 'static,
     I: DeserializeOwned,

@@ -230,7 +230,7 @@
 //! #     }
 //! # }
 //! use std::time::Duration;
-//! use nexosim::ports::EventSlot;
+//! use nexosim::ports::EventQueue;
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //!
@@ -255,8 +255,8 @@
 //! delay1.output.connect(Delay::input, &delay2_mbox);
 //!
 //! // Keep handles to the system input and output for the simulation.
-//! let mut output_slot = EventSlot::new();
-//! delay2.output.connect_sink(&output_slot);
+//! let mut output_queue = EventQueue::new_open();
+//! delay2.output.connect_sink(&output_queue);
 //! let input_address = multiplier1_mbox.address();
 //!
 //! // Pick an arbitrary simulation start time and build the simulation.
@@ -293,7 +293,7 @@
 //! custom [`Clock`](time::Clock) type or a readily-available real-time clock
 //! such as [`AutoSystemClock`](time::AutoSystemClock).
 //!
-//! Simulation outputs can be monitored using [`EventSlot`](ports::EventSlot)s,
+//! Simulation outputs can be monitored using
 //! [`EventQueue`](ports::EventQueue)s, or any implementer of the
 //! [`EventSink`](ports::EventSink) trait, connected to one or several model
 //! output ports.
@@ -335,7 +335,7 @@
 //! #     }
 //! # }
 //! # use std::time::Duration;
-//! # use nexosim::ports::EventSlot;
+//! # use nexosim::ports::{EventQueue, EventSinkReader};
 //! # use nexosim::simulation::{Mailbox, SimInit};
 //! # use nexosim::time::MonotonicTime;
 //! # use models::{Delay, Multiplier};
@@ -351,8 +351,9 @@
 //! # multiplier1.output.connect(Multiplier::input, &multiplier2_mbox);
 //! # multiplier2.output.connect(Delay::input, &delay2_mbox);
 //! # delay1.output.connect(Delay::input, &delay2_mbox);
-//! # let mut output_slot = EventSlot::new();
-//! # delay2.output.connect_sink(&output_slot);
+//! # let output_queue = EventQueue::new_open();
+//! # delay2.output.connect_sink(&output_queue);
+//! # let mut output_queue = output_queue.into_reader();
 //! # let input_address = multiplier1_mbox.address();
 //! # let t0 = MonotonicTime::EPOCH;
 //! # let mut simu = SimInit::new()
@@ -366,17 +367,17 @@
 //!
 //! // The simulation is still at t0 so nothing is expected at the output of the
 //! // second delay gate.
-//! assert!(output_slot.next().is_none());
+//! assert!(output_queue.try_read().is_none());
 //!
 //! // Advance simulation time until the next event and check the time and output.
 //! simu.step()?;
 //! assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-//! assert_eq!(output_slot.next(), Some(84.0));
+//! assert_eq!(output_queue.try_read(), Some(84.0));
 //!
 //! // Get the answer to the ultimate question of life, the universe & everything.
 //! simu.step()?;
 //! assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-//! assert_eq!(output_slot.next(), Some(42.0));
+//! assert_eq!(output_queue.try_read(), Some(42.0));
 //!
 //! # Ok::<(), nexosim::simulation::SimulationError>(())
 //! ```
@@ -443,7 +444,7 @@
 //! nexosim = { version = "0.4.0-alpha.1", features = ["server"] }
 //! ```
 //!
-//! See the [`registry`] and [`server`] modules for more information.
+//! See the [`endpoints`] and [`server`] modules for more information.
 //!
 //! Front-end usage documentation will be added upon release of the NeXosim
 //! Python client.
@@ -478,7 +479,7 @@
 //!   models just like [`Output`](ports::Output) and
 //!   [`Requestor`](ports::Requestor) ports, but for use as simulation
 //!   endpoints.
-//! * the [`registry`] and [`server`] modules make it possible to manage and
+//! * the [`endpoints`] and [`server`] modules make it possible to manage and
 //!   monitor a simulation locally or remotely from a NeXosim Python client,
 //! * the [`simulation`] module discusses **mailbox capacity** and pathological
 //!   situations that may lead to a **deadlock**,
@@ -491,12 +492,12 @@
 #![cfg_attr(docsrs, doc(auto_cfg(hide(feature = "dev-hooks"))))]
 
 pub(crate) mod channel;
+pub mod endpoints;
 pub(crate) mod executor;
 mod loom_exports;
 pub(crate) mod macros;
 pub mod model;
 pub mod ports;
-pub mod registry;
 #[cfg(feature = "server")]
 pub mod server;
 pub mod simulation;

@@ -61,7 +61,7 @@ use slab::Slab;
 use crate::channel;
 use crate::executor::task::{self, CancelToken, Promise, Runnable};
 use crate::executor::{
-    ExecutorError, Signal, SimulationContext, NEXT_EXECUTOR_ID, SIMULATION_CONTEXT,
+    ExecutorError, NEXT_EXECUTOR_ID, SIMULATION_CONTEXT, Signal, SimulationContext,
 };
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::simulation::CURRENT_MODEL_ID;

@@ -1,13 +1,13 @@
-use std::any::Any;
-use std::collections::hash_map::Entry;
+use std::any::{self, Any};
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
 
 #[cfg(feature = "server")]
 use ciborium;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::ports::QuerySource;
 
@@ -16,10 +16,12 @@ use crate::ports::ReplyReceiver;
 #[cfg(feature = "server")]
 use crate::simulation::Action;
 
-use super::{Message, MessageSchema, RegistryError};
+use super::{EndpointError, Message, MessageSchema};
 
 #[cfg(feature = "server")]
 type SerializationError = ciborium::ser::Error<std::io::Error>;
+#[cfg(feature = "server")]
+type DeserializationError = ciborium::de::Error<std::io::Error>;
 
 /// A registry that holds all sources and sinks meant to be accessed through
 /// remote procedure calls.
@@ -29,48 +31,49 @@ pub(crate) struct QuerySourceRegistry(HashMap<String, Box<dyn QuerySourceEntryAn
 impl QuerySourceRegistry {
     /// Adds a query source to the registry.
     ///
-    /// If the specified name is already in use for another query source, the
-    /// source provided as argument is returned in the error.
+    /// If the specified name is already used by another query source, the name
+    /// of the query and the query source itself are returned in the error.
     pub(crate) fn add<T, R>(
         &mut self,
         source: QuerySource<T, R>,
-        name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+        name: String,
+    ) -> Result<(), (String, QuerySource<T, R>)>
     where
         T: Message + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
-        self.insert_entry(source, name, || (T::schema(), R::schema()))
+        self.add_any(source, name, || (T::schema(), R::schema()))
     }
 
     /// Adds a query source to the registry without a schema definition.
     ///
-    /// If the specified name is already in use for another query source, the
-    /// source provided as argument is returned in the error.
+    /// If the specified name is already used by another query source, the name
+    /// of the query and the query source itself are returned in the error.
     pub(crate) fn add_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
-        name: impl Into<String>,
-    ) -> Result<(), QuerySource<T, R>>
+        name: String,
+    ) -> Result<(), (String, QuerySource<T, R>)>
     where
         T: DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
-        self.insert_entry(source, name, || (String::new(), String::new()))
+        self.add_any(source, name, || (String::new(), String::new()))
     }
 
-    fn insert_entry<T, R, F>(
+    /// Adds a query source to the registry, possibly with an empty schema definition.
+    fn add_any<T, R, F>(
         &mut self,
         source: QuerySource<T, R>,
-        name: impl Into<String>,
+        name: String,
         schema_gen: F,
-    ) -> Result<(), QuerySource<T, R>>
+    ) -> Result<(), (String, QuerySource<T, R>)>
     where
         T: DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
         F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
     {
-        match self.0.entry(name.into()) {
+        match self.0.entry(name) {
             Entry::Vacant(s) => {
                 let entry = QuerySourceEntry {
                     inner: source,
@@ -80,36 +83,75 @@ impl QuerySourceRegistry {
 
                 Ok(())
             }
-            Entry::Occupied(_) => Err(source),
+            Entry::Occupied(e) => Err((e.key().clone(), source)),
         }
     }
 
     /// Returns a reference to the specified query source if it is in
     /// the registry.
-    pub(crate) fn get(&self, name: &str) -> Option<&dyn QuerySourceEntryAny> {
-        self.0.get(name).map(|s| s.as_ref())
+    pub(crate) fn get(&self, name: &str) -> Result<&dyn QuerySourceEntryAny, EndpointError> {
+        self.0
+            .get(name)
+            .map(|s| s.as_ref())
+            .ok_or_else(|| EndpointError::QuerySourceNotFound {
+                name: name.to_string(),
+            })
     }
 
     /// Returns an immutable reference to a QuerySource registered by a given
     /// name.
-    pub(crate) fn get_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, RegistryError>
+    pub(crate) fn get_source<T, R>(&self, name: &str) -> Result<&QuerySource<T, R>, EndpointError>
     where
         T: Clone + Send + 'static,
         R: Send + 'static,
     {
         // Downcast_ref used as a runtime type-check.
-        self.get(name)
-            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
+        self.get(name)?
             .get_query_source()
             .downcast_ref::<QuerySource<T, R>>()
-            .ok_or(RegistryError::InvalidType(std::any::type_name::<
-                &QuerySource<T, R>,
-            >()))
+            .ok_or(EndpointError::InvalidQuerySourceType {
+                name: name.to_string(),
+                request_type: any::type_name::<T>(),
+                reply_type: any::type_name::<R>(),
+            })
+    }
+
+    /// Returns an immutable reference to a QuerySource registered by a given
+    /// name.
+    pub(crate) fn take<T, R>(&mut self, name: &str) -> Result<QuerySource<T, R>, EndpointError>
+    where
+        T: Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        match self.0.entry(name.to_string()) {
+            Entry::Occupied(entry) => {
+                if entry.get().get_query_source().is::<QuerySource<T, R>>() {
+                    // We now know that the downcast will succeed and can safely unwrap.
+                    let source = entry
+                        .remove_entry()
+                        .1
+                        .into_query_source()
+                        .downcast::<QuerySource<T, R>>()
+                        .unwrap();
+
+                    Ok(*source)
+                } else {
+                    Err(EndpointError::InvalidQuerySourceType {
+                        name: name.to_string(),
+                        request_type: any::type_name::<T>(),
+                        reply_type: any::type_name::<R>(),
+                    })
+                }
+            }
+            Entry::Vacant(_) => Err(EndpointError::QuerySourceNotFound {
+                name: name.to_string(),
+            }),
+        }
     }
 
     /// Returns an iterator over the names of the registered query sources.
-    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &String> {
-        self.0.keys()
+    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(|s| s.as_str())
     }
 
     /// Returns the input and output schemas of the specified query source if it
@@ -117,11 +159,8 @@ impl QuerySourceRegistry {
     pub(crate) fn get_source_schema(
         &self,
         name: &str,
-    ) -> Result<(MessageSchema, MessageSchema), RegistryError> {
-        Ok(self
-            .get(name)
-            .ok_or(RegistryError::SourceNotFound(name.to_string()))?
-            .get_schema())
+    ) -> Result<(MessageSchema, MessageSchema), EndpointError> {
+        Ok(self.get(name)?.query_schema())
     }
 }
 
@@ -140,7 +179,10 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
-    fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError>;
+    fn query(
+        &self,
+        arg: &[u8],
+    ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError>;
 
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
@@ -158,10 +200,13 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
     /// the output schema.
     /// If the query was added via `add_raw` method, it returns an empty schema
     /// strings.
-    fn get_schema(&self) -> (MessageSchema, MessageSchema);
+    fn query_schema(&self) -> (MessageSchema, MessageSchema);
 
     /// Returns QuerySource reference.
     fn get_query_source(&self) -> &dyn Any;
+
+    /// Consumes this entry and returns a boxed [`QuerySource`].
+    fn into_query_source(self: Box<Self>) -> Box<dyn Any>;
 }
 
 struct QuerySourceEntry<T, R, F>
@@ -181,31 +226,31 @@ where
     F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
 {
     #[cfg(feature = "server")]
-    fn query(&self, arg: &[u8]) -> Result<(Action, Box<dyn ReplyReceiverAny>), RegistryError> {
-        ciborium::from_reader(arg)
-            .map(|arg| {
-                let (action, receiver) = self.inner.query(arg);
-                (action, Box::new(receiver) as Box<dyn ReplyReceiverAny>)
-            })
-            .map_err(RegistryError::DeserializationError)
+    fn query(
+        &self,
+        arg: &[u8],
+    ) -> Result<(Action, Box<dyn ReplyReceiverAny>), DeserializationError> {
+        ciborium::from_reader(arg).map(|arg| {
+            let (action, receiver) = self.inner.query(arg);
+            (action, Box::new(receiver) as Box<dyn ReplyReceiverAny>)
+        })
     }
-
     #[cfg(feature = "server")]
     fn request_type_name(&self) -> &'static str {
-        std::any::type_name::<T>()
+        any::type_name::<T>()
     }
-
     #[cfg(feature = "server")]
     fn reply_type_name(&self) -> &'static str {
-        std::any::type_name::<R>()
+        any::type_name::<R>()
     }
-
-    fn get_schema(&self) -> (MessageSchema, MessageSchema) {
+    fn query_schema(&self) -> (MessageSchema, MessageSchema) {
         (self.schema_gen)()
     }
-
     fn get_query_source(&self) -> &dyn Any {
         &self.inner as &dyn Any
+    }
+    fn into_query_source(self: Box<Self>) -> Box<dyn Any> {
+        Box::new(self.inner)
     }
 }
 

@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -31,7 +31,7 @@ fn model_schedule_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new();
+    let output = EventQueue::new_open();
     model.output.connect_sink(&output);
     let mut output = output.into_reader();
     let addr = mbox.address();
@@ -45,9 +45,9 @@ fn model_schedule_event(num_threads: usize) {
     simu.process_event(TestModel::trigger, (), addr).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert!(output.next().is_some());
+    assert!(output.try_read().is_some());
     simu.step().unwrap();
-    assert!(output.next().is_none());
+    assert!(output.try_read().is_none());
 }
 
 // This test mainly checks that ModelRegistry and SchedulableId with bitmasking
@@ -88,7 +88,7 @@ fn multiple_models_scheduling(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
     let mut bench = SimInit::with_num_threads(num_threads);
 
-    let output = EventQueue::new();
+    let output = EventQueue::new_open();
 
     // Iterate in reverse, to avoid happy accidents.
     // Last added model will be scheduled first, etc.
@@ -111,7 +111,7 @@ fn multiple_models_scheduling(num_threads: usize) {
         // This should assert that the order of the SourceIds is correct.
         // If bitmasking is removed from `SchedulableId::__from_decorated` this would
         // fail.
-        assert_eq!(output.next(), Some(13 * (idx + 1)));
+        assert_eq!(output.try_read(), Some(13 * (idx + 1)));
     }
 }
 
@@ -145,7 +145,7 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new();
+    let output = EventQueue::new_open();
     model.output.connect_sink(&output);
     let mut output = output.into_reader();
     let addr = mbox.address();
@@ -159,10 +159,10 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     simu.process_event(TestModel::trigger, (), addr).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-    assert_eq!(output.next(), Some(1));
+    assert_eq!(output.try_read(), Some(1));
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-    assert!(output.next().is_none());
+    assert!(output.try_read().is_none());
 }
 
 fn model_cancel_same_time_keyed_event(num_threads: usize) {
@@ -195,7 +195,7 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new();
+    let output = EventQueue::new_open();
     model.output.connect_sink(&output);
     let mut output = output.into_reader();
     let addr = mbox.address();
@@ -209,10 +209,10 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     simu.process_event(TestModel::trigger, (), addr).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert_eq!(output.next(), Some(1));
-    assert!(output.next().is_none());
+    assert_eq!(output.try_read(), Some(1));
+    assert!(output.try_read().is_none());
     simu.step().unwrap();
-    assert!(output.next().is_none());
+    assert!(output.try_read().is_none());
 }
 
 fn model_schedule_periodic_event(num_threads: usize) {
@@ -240,7 +240,7 @@ fn model_schedule_periodic_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new();
+    let output = EventQueue::new_open();
     model.output.connect_sink(&output);
     let mut output = output.into_reader();
     let addr = mbox.address();
@@ -260,8 +260,8 @@ fn model_schedule_periodic_event(num_threads: usize) {
             simu.time(),
             t0 + Duration::from_secs(2) + k * Duration::from_secs(3)
         );
-        assert_eq!(output.next(), Some(42));
-        assert!(output.next().is_none());
+        assert_eq!(output.try_read(), Some(42));
+        assert!(output.try_read().is_none());
     }
 }
 
@@ -294,7 +294,7 @@ fn model_cancel_periodic_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new();
+    let output = EventQueue::new_open();
     model.output.connect_sink(&output);
     let mut output = output.into_reader();
     let addr = mbox.address();
@@ -309,12 +309,12 @@ fn model_cancel_periodic_event(num_threads: usize) {
 
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert!(output.next().is_some());
-    assert!(output.next().is_none());
+    assert!(output.try_read().is_some());
+    assert!(output.try_read().is_none());
 
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert!(output.next().is_none());
+    assert!(output.try_read().is_none());
 }
 
 #[test]

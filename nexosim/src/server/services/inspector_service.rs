@@ -1,117 +1,133 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::registry::{EventSinkRegistry, EventSourceRegistry, QuerySourceRegistry};
+use prost_types::Timestamp;
+
+use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRegistry};
+use crate::simulation::Scheduler;
 
 use super::super::codegen::simulation::*;
-use super::{map_registry_error, simulation_not_started_error};
+use super::{map_endpoint_error, monotonic_to_timestamp, simulation_halted_error, to_error};
 
 /// Protobuf-based simulation inspector.
 ///
-/// An `InspectorService` provides information about available endpoints and
-/// types of the messages passed.
+/// The `InspectorService` handles all requests that only involve immutable resources.
 pub(crate) enum InspectorService {
-    NotStarted,
+    Halted,
     Started {
-        event_sink_registry: Arc<Mutex<EventSinkRegistry>>,
+        scheduler: Scheduler,
+        event_sink_info_registry: EventSinkInfoRegistry,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
     },
 }
 
 impl InspectorService {
+    /// Returns the current simulation time.
+    pub(crate) fn time(&self, _request: TimeRequest) -> Result<Timestamp, Error> {
+        match self {
+            Self::Started { scheduler, .. } => {
+                if let Some(timestamp) = monotonic_to_timestamp(scheduler.time()) {
+                    Ok(timestamp)
+                } else {
+                    Err(to_error(
+                        ErrorCode::SimulationTimeOutOfRange,
+                        "the final simulation time is out of range",
+                    ))
+                }
+            }
+            Self::Halted => Err(simulation_halted_error()),
+        }
+    }
+
+    /// Requests an interruption of the simulation at the earliest opportunity.
+    pub(crate) fn halt(&self, _request: HaltRequest) -> Result<(), Error> {
+        match self {
+            Self::Started { scheduler, .. } => {
+                scheduler.halt();
+
+                Ok(())
+            }
+            Self::Halted => Err(simulation_halted_error()),
+        }
+    }
+
     /// Returns a list of names of all the registered event sources.
-    pub(crate) fn list_event_sources(&self, _: ListEventSourcesRequest) -> ListEventSourcesReply {
+    pub(crate) fn list_event_sources(
+        &self,
+        _: ListEventSourcesRequest,
+    ) -> Result<Vec<String>, Error> {
         match self {
             Self::Started {
                 event_source_registry,
                 ..
-            } => ListEventSourcesReply {
-                source_names: event_source_registry
-                    .list_sources()
-                    .map(|a| a.to_string())
-                    .collect(),
-                result: Some(list_event_sources_reply::Result::Empty(())),
-            },
-            Self::NotStarted => ListEventSourcesReply {
-                source_names: Vec::new(),
-                result: Some(list_event_sources_reply::Result::Error(
-                    simulation_not_started_error(),
-                )),
-            },
+            } => Ok(event_source_registry
+                .list_sources()
+                .map(|a| a.to_string())
+                .collect()),
+            Self::Halted => Err(simulation_halted_error()),
         }
     }
 
     /// Retrieves the input event schemas for the specified event sources.
     ///
     /// If the `source_names` field is left empty, it returns schemas for all
-    /// the registered sources. Sources added with
-    /// [`EndpointRegistry::add_event_source_raw`](crate::registry::EndpointRegistry::add_query_source_raw)
-    /// would provide an empty string as their schema.
+    /// registered sources. Sources added with
+    /// [`SimInit::add_event_source_raw`](crate::simulation::SimInit::add_event_source_raw)
+    /// return an empty string as their schema.
     pub(crate) fn get_event_source_schemas(
         &self,
         request: GetEventSourceSchemasRequest,
-    ) -> GetEventSourceSchemasReply {
-        match self {
-            Self::Started {
-                event_source_registry,
-                ..
-            } => {
-                let schemas = if request.source_names.is_empty() {
-                    // When no argument is provided return all the schemas.
-                    event_source_registry
-                        .list_sources()
-                        .map(|a| Ok((a.to_string(), event_source_registry.get_source_schema(a)?)))
-                        .collect()
-                } else {
-                    request
-                        .source_names
-                        .iter()
-                        .map(|a| Ok((a.to_string(), event_source_registry.get_source_schema(a)?)))
-                        .collect()
-                };
+    ) -> Result<HashMap<String, String>, Error> {
+        let Self::Started {
+            event_source_registry,
+            ..
+        } = self
+        else {
+            return Err(simulation_halted_error());
+        };
 
-                match schemas {
-                    Ok(schemas) => GetEventSourceSchemasReply {
-                        schemas,
-                        result: Some(get_event_source_schemas_reply::Result::Empty(())),
-                    },
-                    Err(e) => GetEventSourceSchemasReply {
-                        schemas: HashMap::new(),
-                        result: Some(get_event_source_schemas_reply::Result::Error(
-                            map_registry_error(e),
-                        )),
-                    },
-                }
-            }
-            Self::NotStarted => GetEventSourceSchemasReply {
-                schemas: HashMap::new(),
-                result: Some(get_event_source_schemas_reply::Result::Error(
-                    simulation_not_started_error(),
-                )),
-            },
-        }
+        let schemas: Result<HashMap<_, _>, _> = if request.source_names.is_empty() {
+            // When no argument is provided, return all schemas.
+            event_source_registry
+                .list_sources()
+                .map(|source_name| {
+                    Ok((
+                        source_name.to_string(),
+                        event_source_registry.get_source_schema(source_name)?,
+                    ))
+                })
+                .collect()
+        } else {
+            request
+                .source_names
+                .iter()
+                .map(|source_name| {
+                    Ok((
+                        source_name.to_string(),
+                        event_source_registry.get_source_schema(source_name)?,
+                    ))
+                })
+                .collect()
+        };
+
+        schemas.map_err(map_endpoint_error)
     }
 
     /// Returns a list of names of all the registered query sources.
-    pub(crate) fn list_query_sources(&self, _: ListQuerySourcesRequest) -> ListQuerySourcesReply {
+    pub(crate) fn list_query_sources(
+        &self,
+        _: ListQuerySourcesRequest,
+    ) -> Result<Vec<String>, Error> {
         match self {
             Self::Started {
                 query_source_registry,
                 ..
-            } => ListQuerySourcesReply {
-                source_names: query_source_registry
-                    .list_sources()
-                    .map(|a| a.to_string())
-                    .collect(),
-                result: Some(list_query_sources_reply::Result::Empty(())),
-            },
-            Self::NotStarted => ListQuerySourcesReply {
-                source_names: Vec::new(),
-                result: Some(list_query_sources_reply::Result::Error(
-                    simulation_not_started_error(),
-                )),
-            },
+            } => Ok(query_source_registry
+                .list_sources()
+                .map(|source_name| source_name.to_string())
+                .collect()),
+            Self::Halted => Err(simulation_halted_error()),
         }
     }
 
@@ -120,175 +136,128 @@ impl InspectorService {
     ///
     /// If the `source_names` field is left empty, it returns schemas for all
     /// the registered sources. Sources added with
-    /// [`EndpointRegistry::add_query_source_raw`](crate::registry::EndpointRegistry::add_query_source_raw)
+    /// [`SimInit::add_query_source_raw`](crate::simulation::SimInit::add_query_source_raw)
     /// would provide an empty string as their schema.
     pub(crate) fn get_query_source_schemas(
         &self,
         request: GetQuerySourceSchemasRequest,
-    ) -> GetQuerySourceSchemasReply {
-        match self {
-            Self::Started {
-                query_source_registry,
-                ..
-            } => {
-                let schemas = if request.source_names.is_empty() {
-                    // When no argument is provided return all the schemas.
-                    query_source_registry
-                        .list_sources()
-                        .map(|a| {
-                            let schema = query_source_registry.get_source_schema(a)?;
-                            Ok((
-                                a.to_string(),
-                                QuerySchema {
-                                    request: schema.0,
-                                    reply: schema.1,
-                                },
-                            ))
-                        })
-                        .collect()
-                } else {
-                    request
-                        .source_names
-                        .iter()
-                        .map(|a| {
-                            let schema = query_source_registry.get_source_schema(a)?;
-                            Ok((
-                                a.to_string(),
-                                QuerySchema {
-                                    request: schema.0,
-                                    reply: schema.1,
-                                },
-                            ))
-                        })
-                        .collect()
-                };
+    ) -> Result<HashMap<String, QuerySchema>, Error> {
+        let Self::Started {
+            query_source_registry,
+            ..
+        } = self
+        else {
+            return Err(simulation_halted_error());
+        };
 
-                match schemas {
-                    Ok(schemas) => GetQuerySourceSchemasReply {
-                        schemas,
-                        result: Some(get_query_source_schemas_reply::Result::Empty(())),
-                    },
-                    Err(e) => GetQuerySourceSchemasReply {
-                        schemas: HashMap::new(),
-                        result: Some(get_query_source_schemas_reply::Result::Error(
-                            map_registry_error(e),
-                        )),
-                    },
-                }
-            }
-            Self::NotStarted => GetQuerySourceSchemasReply {
-                schemas: HashMap::new(),
-                result: Some(get_query_source_schemas_reply::Result::Error(
-                    simulation_not_started_error(),
-                )),
-            },
-        }
+        let schema: Result<HashMap<_, _>, _> = if request.source_names.is_empty() {
+            // When no argument is provided return all the schemas.
+            query_source_registry
+                .list_sources()
+                .map(|source_name| {
+                    query_source_registry
+                        .get_source_schema(source_name)
+                        .map(|schema| {
+                            (
+                                source_name.to_string(),
+                                QuerySchema {
+                                    request: schema.0,
+                                    reply: schema.1,
+                                },
+                            )
+                        })
+                })
+                .collect()
+        } else {
+            request
+                .source_names
+                .iter()
+                .map(|source_name| {
+                    query_source_registry
+                        .get_source_schema(source_name)
+                        .map(|schema| {
+                            (
+                                source_name.to_string(),
+                                QuerySchema {
+                                    request: schema.0,
+                                    reply: schema.1,
+                                },
+                            )
+                        })
+                })
+                .collect()
+        };
+
+        schema.map_err(map_endpoint_error)
     }
 
     /// Returns a list of names of all the registered event sinks.
-    pub(crate) fn list_event_sinks(&self, _: ListEventSinksRequest) -> ListEventSinksReply {
+    pub(crate) fn list_event_sinks(&self, _: ListEventSinksRequest) -> Result<Vec<String>, Error> {
         match self {
             Self::Started {
-                event_sink_registry,
+                event_sink_info_registry,
                 ..
-            } => ListEventSinksReply {
-                sink_names: event_sink_registry
-                    .lock()
-                    .unwrap()
-                    .list_sinks()
-                    .map(|a| a.to_string())
-                    .collect(),
-                result: Some(list_event_sinks_reply::Result::Empty(())),
-            },
-            Self::NotStarted => ListEventSinksReply {
-                sink_names: Vec::new(),
-                result: Some(list_event_sinks_reply::Result::Error(
-                    simulation_not_started_error(),
-                )),
-            },
+            } => Ok(event_sink_info_registry
+                .list_all()
+                .map(|a| a.to_string())
+                .collect()),
+
+            Self::Halted => Err(simulation_halted_error()),
         }
     }
 
     /// Returns the schemas of the specified event sinks.
     ///
-    /// If `sink_names` field is empty, it returns schemas for all the
-    /// the registered sinks. Sinks added with
-    /// [`EndpointRegistry::add_event_sink_raw`](crate::registry::EndpointRegistry::add_event_sink_raw)
+    /// If `sink_names` field is empty, it returns schemas for all the the
+    /// registered sinks. Sinks added with
+    /// [`SimInit::add_event_sink_raw`](crate::simulation::SimInit::add_event_sink_raw)
     /// would provide an empty string as their schema.
     pub(crate) fn get_event_sink_schemas(
         &self,
         request: GetEventSinkSchemasRequest,
-    ) -> GetEventSinkSchemasReply {
-        match self {
-            Self::Started {
-                event_sink_registry,
-                ..
-            } => {
-                let event_sink_registry = event_sink_registry.lock().unwrap();
-                let schemas = if request.sink_names.is_empty() {
-                    event_sink_registry
-                        .list_sinks()
-                        .map(|a| Ok((a.to_string(), event_sink_registry.get_sink_schema(a)?)))
-                        .collect()
-                } else {
-                    request
-                        .sink_names
-                        .iter()
-                        .map(|a| Ok((a.to_string(), event_sink_registry.get_sink_schema(a)?)))
-                        .collect()
-                };
-                match schemas {
-                    Ok(schemas) => GetEventSinkSchemasReply {
-                        schemas,
-                        result: Some(get_event_sink_schemas_reply::Result::Empty(())),
-                    },
-                    Err(e) => GetEventSinkSchemasReply {
-                        schemas: HashMap::new(),
-                        result: Some(get_event_sink_schemas_reply::Result::Error(
-                            map_registry_error(e),
-                        )),
-                    },
-                }
-            }
-            Self::NotStarted => GetEventSinkSchemasReply {
-                schemas: HashMap::new(),
-                result: Some(get_event_sink_schemas_reply::Result::Error(
-                    simulation_not_started_error(),
-                )),
-            },
-        }
+    ) -> Result<HashMap<String, String>, Error> {
+        let Self::Started {
+            event_sink_info_registry,
+            ..
+        } = self
+        else {
+            return Err(simulation_halted_error());
+        };
+
+        let schemas: Result<HashMap<_, _>, _> = if request.sink_names.is_empty() {
+            event_sink_info_registry
+                .list_all()
+                .map(|sink_names| {
+                    Ok((
+                        sink_names.to_string(),
+                        event_sink_info_registry.event_schema(sink_names)?,
+                    ))
+                })
+                .collect()
+        } else {
+            request
+                .sink_names
+                .iter()
+                .map(|sink_names| {
+                    Ok((
+                        sink_names.to_string(),
+                        event_sink_info_registry.event_schema(sink_names)?,
+                    ))
+                })
+                .collect()
+        };
+
+        schemas.map_err(map_endpoint_error)
     }
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
 mod tests {
-
     use super::*;
 
     use std::collections::HashSet;
-    use std::time::Duration;
 
-    use crate::ports::{EventSinkReader, EventSource, QuerySource};
-
-    #[derive(Clone, Debug)]
-    struct DummySink<T>(T);
-    impl<T> DummySink<T> {
-        fn new(t: T) -> Self {
-            Self(t)
-        }
-    }
-    impl<T> Iterator for DummySink<T> {
-        type Item = ();
-        fn next(&mut self) -> Option<()> {
-            None
-        }
-    }
-    impl<T: Clone> EventSinkReader for DummySink<T> {
-        fn open(&mut self) {}
-        fn close(&mut self) {}
-        fn set_blocking(&mut self, _: bool) {}
-        fn set_timeout(&mut self, _: Duration) {}
-    }
+    use crate::ports::{EventSource, QuerySource};
 
     #[derive(Default)]
     struct TestParams<'a> {
@@ -304,39 +273,42 @@ mod tests {
         let mut event_source_registry = EventSourceRegistry::default();
         for source in params.event_sources {
             event_source_registry
-                .add::<()>(EventSource::new(), source)
+                .add::<()>(EventSource::new(), source.to_string())
                 .unwrap();
         }
         for source in params.raw_event_sources {
             event_source_registry
-                .add_raw::<()>(EventSource::new(), source)
+                .add_raw::<()>(EventSource::new(), source.to_string())
                 .unwrap();
         }
 
         let mut query_source_registry = QuerySourceRegistry::default();
         for source in params.query_sources {
             query_source_registry
-                .add::<(), ()>(QuerySource::new(), source)
+                .add::<(), ()>(QuerySource::new(), source.to_string())
                 .unwrap();
         }
         for source in params.raw_query_sources {
             query_source_registry
-                .add_raw::<(), ()>(QuerySource::new(), source)
+                .add_raw::<(), ()>(QuerySource::new(), source.to_string())
                 .unwrap();
         }
 
-        let mut event_sink_registry = EventSinkRegistry::default();
+        let mut event_sink_info_registry = EventSinkInfoRegistry::default();
         for sink in params.event_sinks {
-            event_sink_registry.add(DummySink::new(()), sink).unwrap();
+            event_sink_info_registry
+                .register::<()>(sink.to_string())
+                .unwrap();
         }
         for sink in params.raw_event_sinks {
-            event_sink_registry
-                .add_raw(DummySink::new(()), sink)
+            event_sink_info_registry
+                .register_raw(sink.to_string())
                 .unwrap();
         }
 
         InspectorService::Started {
-            event_sink_registry: Arc::new(Mutex::new(event_sink_registry)),
+            scheduler: Scheduler::dummy(),
+            event_sink_info_registry,
             event_source_registry: Arc::new(event_source_registry),
             query_source_registry: Arc::new(query_source_registry),
         }
@@ -354,32 +326,26 @@ mod tests {
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
             source_names: vec!["event".to_string()],
         });
-        assert_eq!(
-            event_reply.result,
-            Some(get_event_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(event_reply.schemas.len(), 1);
-        assert_eq!(event_reply.schemas.keys().next().unwrap(), "event");
+        assert!(event_reply.is_ok());
+        let event_reply = event_reply.unwrap();
+        assert_eq!(event_reply.len(), 1);
+        assert_eq!(event_reply.keys().next(), Some(&"event".to_string()));
 
         let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
             source_names: vec!["query".to_string()],
         });
-        assert_eq!(
-            query_reply.result,
-            Some(get_query_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(query_reply.schemas.len(), 1);
-        assert_eq!(query_reply.schemas.keys().next().unwrap(), "query");
+        assert!(query_reply.is_ok());
+        let query_reply = query_reply.unwrap();
+        assert_eq!(query_reply.len(), 1);
+        assert_eq!(query_reply.keys().next(), Some(&"query".to_string()));
 
         let sink_reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
             sink_names: vec!["sink".to_string()],
         });
-        assert_eq!(
-            sink_reply.result,
-            Some(get_event_sink_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(sink_reply.schemas.len(), 1);
-        assert_eq!(sink_reply.schemas.keys().next().unwrap(), "sink");
+        assert!(sink_reply.is_ok());
+        let sink_reply = sink_reply.unwrap();
+        assert_eq!(sink_reply.len(), 1);
+        assert_eq!(sink_reply.keys().next(), Some(&"sink".to_string()));
     }
 
     #[test]
@@ -394,38 +360,29 @@ mod tests {
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
             source_names: vec!["event".to_string(), "secondary".to_string()],
         });
-        assert_eq!(
-            event_reply.result,
-            Some(get_event_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(event_reply.schemas.len(), 2);
-        let event_keys = event_reply.schemas.into_keys().collect::<HashSet<String>>();
-        assert!(event_keys.contains("event"));
-        assert!(event_keys.contains("secondary"));
+        assert!(event_reply.is_ok());
+        let event_reply = event_reply.unwrap();
+        assert_eq!(event_reply.len(), 2);
+        assert!(event_reply.contains_key("event"));
+        assert!(event_reply.contains_key("secondary"));
 
         let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
             source_names: vec!["query".to_string(), "secondary".to_string()],
         });
-        assert_eq!(
-            query_reply.result,
-            Some(get_query_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(query_reply.schemas.len(), 2);
-        let query_keys = query_reply.schemas.into_keys().collect::<HashSet<String>>();
-        assert!(query_keys.contains("query"));
-        assert!(query_keys.contains("secondary"));
+        assert!(query_reply.is_ok());
+        let query_reply = query_reply.unwrap();
+        assert_eq!(query_reply.len(), 2);
+        assert!(query_reply.contains_key("query"));
+        assert!(query_reply.contains_key("secondary"));
 
         let sink_reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
             sink_names: vec!["sink".to_string(), "secondary".to_string()],
         });
-        assert_eq!(
-            sink_reply.result,
-            Some(get_event_sink_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(sink_reply.schemas.len(), 2);
-        let sink_keys = sink_reply.schemas.into_keys().collect::<HashSet<String>>();
-        assert!(sink_keys.contains("sink"));
-        assert!(sink_keys.contains("secondary"));
+        assert!(sink_reply.is_ok());
+        let sink_reply = sink_reply.unwrap();
+        assert_eq!(sink_reply.len(), 2);
+        assert!(sink_reply.contains_key("sink"));
+        assert!(sink_reply.contains_key("secondary"));
     }
 
     #[test]
@@ -441,28 +398,19 @@ mod tests {
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
             source_names: vec![],
         });
-        assert_eq!(
-            event_reply.result,
-            Some(get_event_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(event_reply.schemas.len(), 3);
+        assert!(event_reply.is_ok());
+        assert_eq!(event_reply.unwrap().len(), 3);
 
         let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
             source_names: vec![],
         });
-        assert_eq!(
-            query_reply.result,
-            Some(get_query_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(query_reply.schemas.len(), 3);
+        assert!(query_reply.is_ok());
+        assert_eq!(query_reply.unwrap().len(), 3);
 
         let sink_reply =
             service.get_event_sink_schemas(GetEventSinkSchemasRequest { sink_names: vec![] });
-        assert_eq!(
-            sink_reply.result,
-            Some(get_event_sink_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(sink_reply.schemas.len(), 3);
+        assert!(sink_reply.is_ok());
+        assert_eq!(sink_reply.unwrap().len(), 3);
     }
 
     #[test]
@@ -478,36 +426,30 @@ mod tests {
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
             source_names: vec!["raw".to_string()],
         });
-        assert_eq!(
-            event_reply.result,
-            Some(get_event_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(event_reply.schemas.len(), 1);
-        assert_eq!(event_reply.schemas.keys().next().unwrap(), "raw");
-        assert_eq!(event_reply.schemas.values().next().unwrap(), "");
+        assert!(event_reply.is_ok());
+        let event_reply = event_reply.unwrap();
+        assert_eq!(event_reply.len(), 1);
+        assert_eq!(event_reply.keys().next().unwrap(), "raw");
+        assert_eq!(event_reply.values().next().unwrap(), "");
 
         let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
             source_names: vec!["raw".to_string()],
         });
-        assert_eq!(
-            query_reply.result,
-            Some(get_query_source_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(query_reply.schemas.len(), 1);
-        assert_eq!(query_reply.schemas.keys().next().unwrap(), "raw");
-        assert_eq!(query_reply.schemas.values().next().unwrap().request, "");
-        assert_eq!(query_reply.schemas.values().next().unwrap().reply, "");
+        assert!(query_reply.is_ok());
+        let query_reply = query_reply.unwrap();
+        assert_eq!(query_reply.len(), 1);
+        assert_eq!(query_reply.keys().next().unwrap(), "raw");
+        assert_eq!(query_reply.values().next().unwrap().request, "");
+        assert_eq!(query_reply.values().next().unwrap().reply, "");
 
         let sink_reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
             sink_names: vec!["raw".to_string()],
         });
-        assert_eq!(
-            sink_reply.result,
-            Some(get_event_sink_schemas_reply::Result::Empty(()))
-        );
-        assert_eq!(sink_reply.schemas.len(), 1);
-        assert_eq!(sink_reply.schemas.keys().next().unwrap(), "raw");
-        assert_eq!(sink_reply.schemas.values().next().unwrap(), "");
+        assert!(sink_reply.is_ok());
+        let sink_reply = sink_reply.unwrap();
+        assert_eq!(sink_reply.len(), 1);
+        assert_eq!(sink_reply.keys().next().unwrap(), "raw");
+        assert_eq!(sink_reply.values().next().unwrap(), "");
     }
 
     #[test]
@@ -521,29 +463,17 @@ mod tests {
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
             source_names: vec!["main".to_string()],
         });
-        assert!(matches!(
-            event_reply.result,
-            Some(get_event_source_schemas_reply::Result::Error(_))
-        ));
-        assert!(event_reply.schemas.is_empty());
+        assert!(event_reply.is_err());
 
         let query_reply = service.get_query_source_schemas(GetQuerySourceSchemasRequest {
             source_names: vec!["main".to_string()],
         });
-        assert!(matches!(
-            query_reply.result,
-            Some(get_query_source_schemas_reply::Result::Error(_))
-        ));
-        assert!(query_reply.schemas.is_empty());
+        assert!(query_reply.is_err());
 
         let sink_reply = service.get_event_sink_schemas(GetEventSinkSchemasRequest {
             sink_names: vec!["main".to_string()],
         });
-        assert!(matches!(
-            sink_reply.result,
-            Some(get_event_sink_schemas_reply::Result::Error(_))
-        ));
-        assert!(sink_reply.schemas.is_empty());
+        assert!(sink_reply.is_err());
     }
 
     #[test]
@@ -556,7 +486,8 @@ mod tests {
         let reply = service.list_event_sources(ListEventSourcesRequest {});
         let expected: HashSet<String> =
             HashSet::from_iter(["main".to_string(), "other".to_string(), "raw".to_string()]);
-        assert_eq!(HashSet::from_iter(reply.source_names), expected);
+        assert!(reply.is_ok());
+        assert_eq!(HashSet::from_iter(reply.unwrap()), expected);
     }
 
     #[test]
@@ -569,7 +500,8 @@ mod tests {
         let reply = service.list_query_sources(ListQuerySourcesRequest {});
         let expected: HashSet<String> =
             HashSet::from_iter(["main".to_string(), "other".to_string(), "raw".to_string()]);
-        assert_eq!(HashSet::from_iter(reply.source_names), expected);
+        assert!(reply.is_ok());
+        assert_eq!(HashSet::from_iter(reply.unwrap()), expected);
     }
 
     #[test]
@@ -584,6 +516,7 @@ mod tests {
 
         let expected: HashSet<String> =
             HashSet::from_iter(["main".to_string(), "other".to_string(), "raw".to_string()]);
-        assert_eq!(HashSet::from_iter(reply.sink_names), expected);
+        assert!(reply.is_ok());
+        assert_eq!(HashSet::from_iter(reply.unwrap()), expected);
     }
 }

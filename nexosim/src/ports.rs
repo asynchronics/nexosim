@@ -246,9 +246,9 @@
 //! be used to send events or queries to such models via
 //! [`Action`](crate::simulation::Action)s.
 //!
-//! Objects implementing the [`EventSink`] trait, such as [`EventSlot`] and
-//! [`EventQueue`], are in turn similar to input ports. They can be connected to
-//! model outputs and collect events sent by such models.
+//! Objects implementing the [`EventSink`] trait, such as [`EventQueue`], are in
+//! turn similar to input ports. They can be connected to model outputs and
+//! collect events sent by such models.
 //!
 //!
 //! # Connections
@@ -285,16 +285,9 @@ mod source;
 pub use input::markers;
 pub use input::{InputFn, ReplierFn};
 pub use output::{Output, Requestor, UniRequestor};
-#[allow(deprecated)]
 pub use sink::{
-    blocking_event_queue::{BlockingEventQueue, BlockingEventQueueReader},
-    event_buffer::EventBuffer,
-    EventSinkStream,
-};
-pub use sink::{
-    event_queue::{EventQueue, EventQueueReader},
-    event_slot::EventSlot,
     EventSink, EventSinkReader, EventSinkWriter,
+    event_queue::{EventQueue, EventQueueReader},
 };
 pub use source::{EventSource, QuerySource, ReplyReceiver};
 
