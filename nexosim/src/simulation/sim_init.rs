@@ -1,11 +1,15 @@
+use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::channel::ChannelObserver;
+use crate::endpoints::{
+    Endpoints, EventSinkInfoRegistry, EventSinkRegistry, EventSourceRegistry, QuerySourceRegistry,
+};
 use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, Model, ProtoModel, RegisteredModel};
 use crate::ports::{
@@ -30,7 +34,10 @@ pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     scheduler_registry: SchedulerRegistry,
-    endpoint_registry: EndpointRegistry,
+    event_sink_registry: EventSinkRegistry,
+    event_sink_info_registry: EventSinkInfoRegistry,
+    event_source_registry: EventSourceRegistry,
+    query_source_registry: QuerySourceRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
     is_resumed: Arc<AtomicBool>,
@@ -80,7 +87,10 @@ impl SimInit {
             executor,
             scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
             scheduler_registry: SchedulerRegistry::default(),
-            endpoint_registry: EndpointRegistry::default(),
+            event_sink_registry: EventSinkRegistry::default(),
+            event_sink_info_registry: EventSinkInfoRegistry::default(),
+            event_source_registry: EventSourceRegistry::default(),
+            query_source_registry: QuerySourceRegistry::default(),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
             is_resumed: Arc::new(AtomicBool::new(false)),
@@ -134,7 +144,7 @@ impl SimInit {
     }
 
     /// Registers a callback function executed right after the simulation is
-    /// initialized and before it's run.
+    /// initialized and before it starts.
     ///
     /// Initial event scheduling or input processing is possible at this stage.
     pub fn with_post_init(
@@ -146,9 +156,9 @@ impl SimInit {
     }
 
     /// Registers a callback function executed right after the simulation is
-    /// restored from a persisted state.
+    /// restored from a persisted state and before it resumes.
     ///
-    /// If necessary real-time clock resynchronization can be performed at this
+    /// If necessary, real-time clock resynchronization can be performed at this
     /// stage. Otherwise simulation actions such as event scheduling or querying
     /// are also possible.
     pub fn with_post_restore(
@@ -159,8 +169,13 @@ impl SimInit {
         self
     }
 
-    /// Registers `EventSource<T>` as schedulable.
-    pub(crate) fn link_event_source<T>(&mut self, source: EventSource<T>) -> EventId<T>
+    /// Converts an event source to a [`SourceId`] that can later be used to
+    /// schedule events within the simulation instance being built.
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// Rust. For simulations controlled by a remote client, use
+    /// [`SimInit::add_event_source`] or [`SimInit::add_event_source_raw`].
+    pub fn link_event_source<T>(&mut self, source: EventSource<T>) -> SourceId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -175,8 +190,10 @@ impl SimInit {
         self.scheduler_registry.query_registry.add(source)
     }
 
-    /// Returns a clock reader instance, allowing to track simulation
-    /// time (once it is initialized).
+    /// Returns a simulation clock reader.
+    ///
+    /// Note that the time returned by the clock reader is meaningless before
+    /// the simulation starts.
     pub fn clock_reader(&self) -> ClockReader {
         ClockReader::from_atomic_time_reader(&self.time.reader())
     }
@@ -223,15 +240,21 @@ impl SimInit {
         self
     }
 
+    
     /// Adds an event source to the endpoint registry.
     ///
-    /// If the specified name is already in use for another event source, the
-    /// source provided as argument is returned in the error.
+    /// If the specified name is already used by another input or another event
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`].
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`SimInit::link_event_source`].
     pub(crate) fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
-    ) -> Result<(), ()>
+    ) -> Result<(), DuplicateEventSourceError<T>>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -239,28 +262,40 @@ impl SimInit {
         let name: String = name.into();
         // Check for duplicates before registering in the scheduler.
         if self.endpoint_registry.get_event_source::<T>(&name).is_ok() {
-            return Err(());
+            return Err(DuplicateEventSourceError { name, source });
         }
         let source = Arc::new(source);
         let event_id = self.scheduler_registry.event_registry.add(source.clone());
-        // Should not fail after the check above
         let _ = self.endpoint_registry.add_event_source(
             RegisteredEventSource::from_event_source(source, event_id),
             name,
         );
         Ok(())
+
+        // FIXME Should not fail after the check above ?
+        self.event_source_registry
+            // FIXME registeredEventSource
+            .add(source, name.into())
+            .map_err(|(name, source)| DuplicateEventSourceError { name, source })?;
+
+        Ok(())
     }
 
     /// Adds an event source to the endpoint registry without requiring a
-    /// `Message` implementation for its item type.
+    /// [`Message`] implementation for its item type.
     ///
-    /// If the specified name is already in use for another event source, the
-    /// source provided as argument is returned in the error.
+    /// If the specified name is already used by another input or another event
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`].
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`SimInit::link_event_source`].
     pub(crate) fn add_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
         name: impl Into<String>,
-    ) -> Result<(), ()>
+    ) -> Result<(), DuplicateEventSourceError<T>>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -268,14 +303,17 @@ impl SimInit {
         let name: String = name.into();
         // Check for duplicates before registering in the scheduler.
         if self.endpoint_registry.get_event_source::<T>(&name).is_ok() {
-            return Err(());
+            return Err(DuplicateEventSourceError { name, source});
         }
         let source = Arc::new(source);
         let event_id = self.scheduler_registry.event_registry.add(source.clone());
-        let _ = self.endpoint_registry.add_event_source_raw(
-            RegisteredEventSource::from_event_source(source, event_id),
-            name,
-        );
+
+        // FIXME Should not fail after the check above ?
+        self.event_source_registry
+            // FIXME registeredEventSource
+            .add_raw(source, name.into())
+            .map_err(|(name, source)| DuplicateEventSourceError { name, source })?;
+
         Ok(())
     }
 
@@ -287,7 +325,7 @@ impl SimInit {
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), ()>
+    ) -> Result<(), DuplicateQuerySourceError<QuerySource<T, R>>>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
@@ -303,15 +341,16 @@ impl SimInit {
         }
         let source = Arc::new(source);
         let query_id = self.scheduler_registry.query_registry.add(source.clone());
-        let _ = self.endpoint_registry.add_query_source(
-            RegisteredQuerySource::from_event_source(source, query_id),
-            name,
-        );
+        self.query_source_registry
+            // FIXME add registered source
+            .add(source, name.into())
+            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })?;
+
         Ok(())
     }
 
-    /// Adds a query source to the endpoint registry without requiring `Message`
-    /// implementations for its query and response types.
+    /// Adds a query source to the endpoint registry without requiring
+    /// [`Message`] implementations for its query and response types.
     ///
     /// If the specified name is already in use for another query source, the
     /// source provided as argument is returned in the error.
@@ -319,7 +358,7 @@ impl SimInit {
         &mut self,
         source: QuerySource<T, R>,
         name: impl Into<String>,
-    ) -> Result<(), ()>
+    ) -> Result<(), DuplicateQuerySourceError<QuerySource<T, R>>>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
@@ -335,53 +374,97 @@ impl SimInit {
         }
         let source = Arc::new(source);
         let query_id = self.scheduler_registry.query_registry.add(source.clone());
-        let _ = self.endpoint_registry.add_query_source_raw(
-            RegisteredQuerySource::from_event_source(source, query_id),
-            name,
-        );
+        // let _ = self.endpoint_registry.add_query_source_raw(
+        //     RegisteredQuerySource::from_event_source(source, query_id),
+        //     name,
+        // );
+        self.query_source_registry
+            .add_raw(source, name.into())
+            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })?;
         Ok(())
     }
 
     /// Adds an event sink to the endpoint registry.
     ///
-    /// If the specified name is already in use for another event sink, the
-    /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    /// If the specified name is already used by another event sink, the event
+    /// sink provided as argument is returned in the error.
+    pub fn add_event_sink<S, T>(
+        mut self,
+        sink: S,
+        name: impl Into<String>,
+    ) -> Result<Self, DuplicateEventSinkError<S>>
     where
-        S: EventSinkReader + Send + Sync + 'static,
+        S: EventSinkReader<T> + Send + Sync + 'static,
         S::Item: Message + Serialize,
+        T: 'static,
     {
-        self.endpoint_registry.add_event_sink(sink, name)
+        let name = name.into();
+
+        if self
+            .event_sink_info_registry
+            .register::<T>(name.clone())
+            .is_err()
+        {
+            return Err(DuplicateEventSinkError { name, sink });
+        };
+
+        self.event_sink_registry
+            .add(sink, name)
+            .map_err(|(name, sink)| DuplicateEventSinkError { name, sink })?;
+
+        Ok(self)
     }
 
     /// Adds an event sink to the endpoint registry without requiring a
-    /// `Message` implementation for its item type.
+    /// [`Message`] implementation for its item type.
     ///
-    /// If the specified name is already in use for another event sink, the
-    /// event sink provided as argument is returned in the error.
-    pub fn add_event_sink_raw<S>(&mut self, sink: S, name: impl Into<String>) -> Result<(), S>
+    /// If the specified name is already used by another event sink, the event
+    /// sink provided as argument is returned in the error.
+    pub fn add_event_sink_raw<S, T>(
+        mut self,
+        sink: S,
+        name: impl Into<String>,
+    ) -> Result<Self, DuplicateEventSinkError<S>>
     where
-        S: EventSinkReader + Send + Sync + 'static,
+        S: EventSinkReader<T> + Send + Sync + 'static,
         S::Item: Serialize,
+        T: 'static,
     {
-        self.endpoint_registry.add_event_sink_raw(sink, name)
+        let name = name.into();
+
+        if self
+            .event_sink_info_registry
+            .register_raw(name.clone())
+            .is_err()
+        {
+            return Err(DuplicateEventSinkError { name, sink });
+        };
+
+        self.event_sink_registry
+            .add(sink, name)
+            .map_err(|(name, sink)| DuplicateEventSinkError { name, sink })?;
+
+        Ok(self)
     }
 
-    fn build(self) -> (Simulation, EndpointRegistry) {
-        let (mut simulation, mut endpoint_registry) = (
-            Simulation::new(
-                self.executor,
-                self.scheduler_queue,
-                self.scheduler_registry,
-                self.time,
-                self.clock,
-                self.clock_tolerance,
-                self.timeout,
-                self.observers,
-                self.registered_models,
-                self.is_halted,
-            ),
-            self.endpoint_registry,
+    fn build(self) -> (Simulation, Endpoints) {
+        let mut simulation = Simulation::new(
+            self.executor,
+            self.scheduler_queue,
+            self.scheduler_registry,
+            self.time,
+            self.clock,
+            self.clock_tolerance,
+            self.timeout,
+            self.observers,
+            self.registered_models,
+            self.is_halted,
+        );
+        let mut endpoint_registry = Endpoints::new(
+            self.event_sink_registry,
+            self.event_sink_info_registry,
+            self.event_source_registry,
+            self.query_source_registry,
         );
 
         (simulation, endpoint_registry)
@@ -394,7 +477,7 @@ impl SimInit {
     pub fn init_with_registry(
         mut self,
         start_time: MonotonicTime,
-    ) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+    ) -> Result<(Simulation, Endpoints), SimulationError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
@@ -429,7 +512,7 @@ impl SimInit {
     pub fn restore<R: std::io::Read>(
         mut self,
         state: R,
-    ) -> Result<(Simulation, EndpointRegistry), SimulationError> {
+    ) -> Result<(Simulation, Endpoints), SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();
@@ -456,5 +539,168 @@ impl Default for SimInit {
 impl fmt::Debug for SimInit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SimInit").finish_non_exhaustive()
+    }
+}
+
+/// Error returned when the initialization of a simulation fails.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum InitError {
+    /// An attempt to add an input or event source failed because the provided
+    /// name is already in use.
+    DuplicateEventName(String),
+    /// An attempt to add a query source failed because the provided name is
+    /// already in use.
+    DuplicateQueryName(String),
+    /// An attempt to add an event sink failed because the provided name is
+    /// already in use.
+    DuplicateSinkName(String),
+}
+
+impl fmt::Display for InitError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DuplicateEventName(name) => write!(
+                fmt,
+                "cannot add input or event source under name `{name}` as this name is already in use",
+            ),
+            Self::DuplicateQueryName(name) => write!(
+                fmt,
+                "cannot add query source under name `{name}` as this name is already in use",
+            ),
+            Self::DuplicateSinkName(name) => write!(
+                fmt,
+                "cannot add event sink under name `{name}` as this name is already in use",
+            ),
+        }
+    }
+}
+impl Error for InitError {}
+
+/// Error returned when attempting to add an event source with an existing name.
+pub struct DuplicateEventSourceError<T>
+where
+    T: Clone + Send + 'static,
+{
+    /// Name of the event source.
+    pub name: String,
+    /// The event source.
+    pub source: EventSource<T>,
+}
+impl<T> fmt::Display for DuplicateEventSourceError<T>
+where
+    T: Clone + Send + 'static,
+{
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "cannot add event source under name `{}` as this name is already in use",
+            self.name
+        )
+    }
+}
+impl<T> fmt::Debug for DuplicateEventSourceError<T>
+where
+    T: Clone + Send + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DuplicateEventSource")
+            .field("name", &self.name)
+            .field("source", &"<EventSource<T>>")
+            .finish()
+    }
+}
+impl<T> Error for DuplicateEventSourceError<T> where T: Clone + Send + 'static {}
+
+impl<T: Clone + Send + 'static> From<DuplicateEventSourceError<T>> for InitError {
+    fn from(e: DuplicateEventSourceError<T>) -> Self {
+        Self::DuplicateEventName(e.name)
+    }
+}
+
+/// Error returned when attempting to add an input with an existing name.
+#[derive(Debug)]
+pub struct DuplicateInputError {
+    /// Name of the input.
+    pub name: String,
+}
+impl fmt::Display for DuplicateInputError {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "cannot add input under name `{}` as this name is already in use",
+            self.name
+        )
+    }
+}
+impl Error for DuplicateInputError {}
+
+impl From<DuplicateInputError> for InitError {
+    fn from(e: DuplicateInputError) -> Self {
+        Self::DuplicateEventName(e.name)
+    }
+}
+
+/// Error returned when attempting to add a query source with an existing name.
+pub struct DuplicateQuerySourceError<S> {
+    /// Name of the query source.
+    pub name: String,
+    /// The query source.
+    pub source: S,
+}
+impl<S> fmt::Display for DuplicateQuerySourceError<S> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "cannot add query source under name `{}` as this name is already in use",
+            self.name
+        )
+    }
+}
+impl<S> fmt::Debug for DuplicateQuerySourceError<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DuplicateQuerySource")
+            .field("name", &self.name)
+            .field("source", &"<QuerySource<T, R>>")
+            .finish()
+    }
+}
+impl<S> Error for DuplicateQuerySourceError<S> {}
+
+impl<S> From<DuplicateQuerySourceError<S>> for InitError {
+    fn from(e: DuplicateQuerySourceError<S>) -> Self {
+        Self::DuplicateQueryName(e.name)
+    }
+}
+
+/// Error returned when attempting to add an event sink with an existing name.
+pub struct DuplicateEventSinkError<S> {
+    /// Name of the event sink.
+    pub name: String,
+    /// The event sink.
+    pub sink: S,
+}
+impl<S> fmt::Display for DuplicateEventSinkError<S> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            fmt,
+            "cannot add event sink under name `{}` as this name is already in use",
+            self.name
+        )
+    }
+}
+impl<S> fmt::Debug for DuplicateEventSinkError<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DuplicateEventSource")
+            .field("name", &self.name)
+            .field("sink", &"<EventSink>")
+            .finish()
+    }
+}
+impl<S> Error for DuplicateEventSinkError<S> {}
+
+impl<S> From<DuplicateEventSinkError<S>> for InitError {
+    fn from(e: DuplicateEventSinkError<S>) -> Self {
+        Self::DuplicateSinkName(e.name)
     }
 }

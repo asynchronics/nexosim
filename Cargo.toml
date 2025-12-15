@@ -1,6 +1,6 @@
 [workspace]
 members = ["nexosim", "nexosim-macros", "nexosim-util"]
-resolver = "2"
+resolver = "3"
 
 [workspace.dependencies]
 serde = "1"

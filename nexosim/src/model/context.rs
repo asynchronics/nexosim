@@ -1,9 +1,9 @@
 use std::fmt;
 use std::marker::PhantomData;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Duration;
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::executor::{Executor, Signal};
 use crate::ports::InputFn;

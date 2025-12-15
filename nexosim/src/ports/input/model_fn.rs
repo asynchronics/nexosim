@@ -1,6 +1,6 @@
 //! Trait for model input and replier ports.
 
-use std::future::{ready, Future, Ready};
+use std::future::{Future, Ready, ready};
 
 use crate::model::{Context, Model};
 

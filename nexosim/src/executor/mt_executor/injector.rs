@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, vec};
 
 /// An unfair injector queue which stores batches of tasks in bounded-size

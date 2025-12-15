@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use nexosim::model::{Context, InitializedModel, Model};
-//! use nexosim::ports::{EventSlot, Output};
+//! use nexosim::ports::{EventQueue, EventSinkReader, Output};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
@@ -65,8 +65,9 @@
 //!
 //! // Model handles for simulation.
 //! let counter_addr = counter_mbox.address();
-//! let mut count = EventSlot::new();
+//! let count = EventQueue::new_open();
 //! counter.count.connect_sink(&count);
+//! let mut count = count.into_reader();
 //!
 //! // Start time (arbitrary since models do not depend on absolute time).
 //! let t0 = MonotonicTime::EPOCH;
@@ -81,11 +82,11 @@
 //! // ----------
 //!
 //! // The initial state.
-//! assert_eq!(count.next(), Some(INITIAL));
+//! assert_eq!(count.try_read(), Some(INITIAL));
 //!
 //! // Count one pulse.
 //! simu.process_event(Counter::pulse, (), &counter_addr).unwrap();
-//! assert_eq!(count.next(), Some(INITIAL + 1));
+//! assert_eq!(count.try_read(), Some(INITIAL + 1));
 //! ```
 //!
 //! ## Custom `Observe` trait implementation
@@ -99,7 +100,7 @@
 //! use serde::{Serialize, Deserialize};
 //!
 //! use nexosim::model::{schedulable, Context, InitializedModel, Model};
-//! use nexosim::ports::{EventSlot, Output};
+//! use nexosim::ports::{EventQueue, EventSinkReader, Output};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
@@ -200,9 +201,10 @@
 //! let proc_mbox = Mailbox::new();
 //!
 //! // Model handles for simulation.
-//! let mut mode = EventSlot::new_blocking();
-//!
+//! let mode = EventQueue::new_open();
 //! proc.mode.connect_sink(&mode);
+//! let mut mode = mode.into_reader();
+//!
 //! let proc_addr = proc_mbox.address();
 //!
 //! // Start time (arbitrary since models do not depend on absolute time).
@@ -216,19 +218,19 @@
 //! // ----------
 //! // Simulation.
 //! // ----------
-//! assert_eq!(mode.next(), Some(ModeId::Off));
+//! assert_eq!(mode.read(), Some(ModeId::Off));
 //!
 //! // Switch processor on.
 //! simu.process_event(Processor::switch_power, true, &proc_addr).unwrap();
-//! assert_eq!(mode.next(), Some(ModeId::Idle));
+//! assert_eq!(mode.read(), Some(ModeId::Idle));
 //!
 //! // Trigger processing.
 //! simu.process_event(Processor::process, 100, &proc_addr).unwrap();
-//! assert_eq!(mode.next(), Some(ModeId::Processing));
+//! assert_eq!(mode.read(), Some(ModeId::Processing));
 //!
 //! // All data processed.
 //! simu.step_until(Duration::from_millis(101)).unwrap();
-//! assert_eq!(mode.next(), Some(ModeId::Idle));
+//! assert_eq!(mode.read(), Some(ModeId::Idle));
 //! ```
 
 use std::ops::Deref;

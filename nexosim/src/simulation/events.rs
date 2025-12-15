@@ -95,8 +95,8 @@ pub(crate) struct SchedulerRegistry {
 }
 
 /// Scheduler event source registry.
-/// Only events present in the registry can be scheduled for a future execution
-/// and put on the queue.
+///
+/// Only events present in the registry can be scheduled for future execution.
 ///
 /// Event registration has to take place before simulation is started / resumed.
 /// Therefore the `add` method should only be accessible from `SimInit` or
@@ -144,7 +144,7 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 }
 
 pub(crate) trait SchedulerQuerySource: std::fmt::Debug + Send + 'static {
@@ -166,8 +166,8 @@ pub(crate) trait TypedQuerySource<T, R>: SchedulerQuerySource {}
 
 /// A specialized event source struct used to register models' input methods.
 ///
-/// Unlike the EventSource struct it does not allow for multiple senders and it
-/// is bound to a specific model's input only.
+/// Unlike the [`EventSource`] struct it does not allow for multiple senders and
+/// it is bound to a specific model's input only.
 pub(crate) struct InputSource<M, F, S, T>
 where
     M: Model,
@@ -306,7 +306,7 @@ where
         &self,
         arg: &dyn Any,
         event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let inner: &dyn SchedulerEventSource = self.as_ref();
         inner.event_future(arg, event_key)
     }

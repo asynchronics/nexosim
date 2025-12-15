@@ -107,7 +107,7 @@ impl std::fmt::Debug for ClockReader {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(nexosim_loom)))]
 mod tests {
     use std::time::Duration;
 

@@ -1,6 +1,6 @@
 use std::any::Any;
-use std::sync::atomic::{self, AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{self, AtomicUsize, Ordering};
 
 use parking::Unparker;
 
@@ -270,7 +270,7 @@ impl<'a> ShuffledStealers<'a> {
             (0, 0)
         } else {
             let next_candidate = bit::find_bit(candidates, |count| {
-                rng.gen_bounded(count as u64) as usize + 1
+                rng.rand_bounded(count as u64) as usize + 1
             });
 
             // Right-rotate the candidates so that the bit corresponding to the

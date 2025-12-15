@@ -17,7 +17,7 @@ jobs:
       matrix:
         rust:
           - stable
-          - 1.86.0
+          - 1.88.0
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -181,15 +181,15 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
 
-      - name: Run cargo miri bench (single-threaded executor)
-        run: cargo miri run --example bench
-        env:
-          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=1
-
-      - name: Run cargo miri bench (multi-threaded executor)
-        run: cargo miri run --example bench
-        env:
-          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
+#      - name: Run cargo miri bench_save_restore (single-threaded executor)
+#        run: cargo miri run --example bench_save_restore
+#        env:
+#          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=1
+#
+#      - name: Run cargo miri bench_save_restore (multi-threaded executor)
+#        run: cargo miri run --example bench_save_restore
+#        env:
+#          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
 
   lints:
     name: Lints

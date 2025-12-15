@@ -85,8 +85,7 @@ pub(crate) use scheduler::GlobalScheduler;
 pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, ReplyReader};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
-use serde::de::DeserializeOwned;
-pub use sim_init::SimInit;
+pub use sim_init::{InitError, SimInit};
 
 pub(crate) use events::{
     Event, EventIdErased, EventKeyReg, InputSource, QueueItem, ReplyWriter, SchedulerRegistry,
@@ -108,7 +107,7 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{coerce_box, RecycleBox};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, DeserializeOwned, Serialize};
 
 use scheduler::{SchedulerKey, SchedulerQueue};
 
@@ -477,7 +476,7 @@ impl Simulation {
                             .scheduler_registry
                             .event_registry
                             .get(&event.event_id)
-                            .ok_or(ExecutionError::InvalidEvent(event.event_id.0))?;
+                            .ok_or(ExecutionError::InvalidEventSourceId(event.event_id.0))?;
 
                         let fut = source.event_future(&*event.arg, event.key.clone());
                         if let Some(period) = event.period {
@@ -885,7 +884,7 @@ impl Error for SaveError {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum RestoreError {
-    /// Simulation config is not found in the restored state data.
+    /// No simulation configuration was found in the restored state data.
     ConfigMissing,
     /// Failed attempt to deserialize model's state.
     ModelDeserializationError {
@@ -1072,8 +1071,8 @@ pub enum ExecutionError {
     ///
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
-    /// Non-existent SourceId has been used.
-    InvalidEvent(usize),
+    /// A non-existent event source identifier has been used.
+    InvalidEventSourceId(usize),
     /// Simulation serialization has failed.
     SaveError(SaveError),
     /// Simulation deserialization has failed.
@@ -1142,9 +1141,9 @@ impl fmt::Display for ExecutionError {
                     "the specified deadline ({time}) lies in the past of the current simulation time"
                 )
             }
-            Self::InvalidEvent(e) => write!(f, "event not found {e:?}"),
-            Self::SaveError(o) => write!(f, "serialization has failed when processing: {o}"),
-            Self::RestoreError(o) => write!(f, "deserialization has failed when processing: {o}"),
+            Self::InvalidEventSourceId(e) => write!(f, "event source with identifier '{e}' was not found"),
+            Self::SaveError(o) => write!(f, "saving the simulation state has failed: {o}"),
+            Self::RestoreError(o) => write!(f, "restoring the simulation state has failed: {o}"),
         }
     }
 }
@@ -1171,6 +1170,8 @@ pub enum SimulationError {
     ExecutionError(ExecutionError),
     /// An attempt to schedule an item failed.
     SchedulingError(SchedulingError),
+    /// Simulation bench building failed.
+    InitError(InitError),
 }
 
 impl fmt::Display for SimulationError {
@@ -1178,6 +1179,7 @@ impl fmt::Display for SimulationError {
         match self {
             Self::ExecutionError(e) => e.fmt(f),
             Self::SchedulingError(e) => e.fmt(f),
+            Self::InitError(e) => e.fmt(f),
         }
     }
 }
@@ -1185,8 +1187,9 @@ impl fmt::Display for SimulationError {
 impl Error for SimulationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::ExecutionError(e) => e.source(),
-            Self::SchedulingError(e) => e.source(),
+            Self::ExecutionError(e) => Some(e),
+            Self::SchedulingError(e) => Some(e),
+            Self::InitError(e) => Some(e),
         }
     }
 }
@@ -1200,6 +1203,12 @@ impl From<ExecutionError> for SimulationError {
 impl From<SchedulingError> for SimulationError {
     fn from(e: SchedulingError) -> Self {
         Self::SchedulingError(e)
+    }
+}
+
+impl From<InitError> for SimulationError {
+    fn from(e: InitError) -> Self {
+        Self::InitError(e)
     }
 }
 

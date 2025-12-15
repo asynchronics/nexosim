@@ -70,8 +70,7 @@ impl<T: Clone + Send + 'static> Output<T> {
         self.broadcaster.write().unwrap().add(sender);
     }
 
-    /// Adds a connection to an event sink such as an
-    /// [`EventSlot`](crate::ports::EventSlot) or
+    /// Adds a connection to an event sink such as
     /// [`EventQueue`](crate::ports::EventQueue).
     pub fn connect_sink<S: EventSink<T>>(&mut self, sink: &S) {
         let sender = Box::new(EventSinkSender::new(sink.writer()));
@@ -99,8 +98,7 @@ impl<T: Clone + Send + 'static> Output<T> {
         self.broadcaster.write().unwrap().add(sender);
     }
 
-    /// Adds an auto-converting connection to an event sink such as an
-    /// [`EventSlot`](crate::ports::EventSlot) or
+    /// Adds an auto-converting connection to an event sink such as
     /// [`EventQueue`](crate::ports::EventQueue).
     ///
     /// Events are mapped to another type using the closure provided in
@@ -144,8 +142,7 @@ impl<T: Clone + Send + 'static> Output<T> {
         self.broadcaster.write().unwrap().add(sender);
     }
 
-    /// Adds an auto-converting connection to an event sink such as an
-    /// [`EventSlot`](crate::ports::EventSlot) or
+    /// Adds an auto-converting connection to an event sink such as
     /// [`EventQueue`](crate::ports::EventQueue).
     ///
     /// Events are mapped to another type using the closure provided in

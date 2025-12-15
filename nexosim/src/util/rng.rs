@@ -19,7 +19,7 @@ impl Rng {
     }
 
     /// Generates a pseudo-random number within the range `0..2⁶⁴`.
-    pub(crate) fn gen(&self) -> u64 {
+    pub(crate) fn rand(&self) -> u64 {
         let seed = self.seed.get().wrapping_add(0xA0761D6478BD642F);
         self.seed.set(seed);
         let t = seed as u128 * (seed ^ 0xE7037ED1A0B428DB) as u128;
@@ -31,8 +31,8 @@ impl Rng {
     /// This generator is biased as it uses the fast (but crude) multiply-shift
     /// method. The bias is negligible, however, as long as the bound is much
     /// smaller than 2⁶⁴.
-    pub(crate) fn gen_bounded(&self, upper_bound: u64) -> u64 {
-        ((self.gen() as u128 * upper_bound as u128) >> 64) as u64
+    pub(crate) fn rand_bounded(&self, upper_bound: u64) -> u64 {
+        ((self.rand() as u128 * upper_bound as u128) >> 64) as u64
     }
 }
 
@@ -53,7 +53,7 @@ mod tests {
         let mut tally = [0u64; 6];
 
         for _ in 0..DICE_ROLLS {
-            let face = rng.gen_bounded(DICE_FACES);
+            let face = rng.rand_bounded(DICE_FACES);
             tally[face as usize] += 1;
         }
 

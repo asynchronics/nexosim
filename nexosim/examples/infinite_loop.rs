@@ -20,14 +20,14 @@
 //!                               ┗━━━━━━━━━━━━━━━━━━━━━━━━┛
 //! ```
 
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 use std::thread::{self, sleep};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model, ProtoModel};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::model::{Context, InitializedModel, Model, ProtoModel, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
@@ -120,7 +120,7 @@ fn main() -> Result<(), SimulationError> {
     let listener_mbox = Mailbox::new();
 
     // Model handles for simulation.
-    let message = EventQueue::new();
+    let message = EventQueue::new_open();
     listener.message.connect_sink(&message);
     let mut message = message.into_reader();
 
@@ -133,7 +133,7 @@ fn main() -> Result<(), SimulationError> {
         .set_clock(AutoSystemClock::new())
         .init(t0)?;
 
-    let mut scheduler = simu.scheduler();
+    let scheduler = simu.scheduler();
 
     // Simulation thread.
     let simulation_handle = thread::spawn(move || {
@@ -153,9 +153,9 @@ fn main() -> Result<(), SimulationError> {
 
     // Check collected external messages.
     for i in 0..N {
-        assert_eq!(message.next().unwrap(), i.to_string());
+        assert_eq!(message.try_read().unwrap(), i.to_string());
     }
-    assert_eq!(message.next(), None);
+    assert_eq!(message.try_read(), None);
 
     // Stop the simulation.
     scheduler.halt();

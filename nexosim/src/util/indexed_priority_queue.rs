@@ -669,17 +669,17 @@ mod tests {
         for _ in 0..ITER {
             // Randomly choose one of the 4 possible operations, respecting the
             // probability weights.
-            let mut op = rng.gen_bounded(TOTAL_WEIGHT);
+            let mut op = rng.rand_bounded(TOTAL_WEIGHT);
             if op < INSERT_WEIGHT {
-                let key = rng.gen_bounded(MAX_KEY + 1);
-                let val = rng.gen();
+                let key = rng.rand_bounded(MAX_KEY + 1);
+                let val = rng.rand();
                 insert_fn(&mut queue, &mut shadow_queue, key, val);
                 continue;
             }
             op -= INSERT_WEIGHT;
             if op < INSERT_AND_MARK_WEIGHT {
-                let key = rng.gen_bounded(MAX_KEY + 1);
-                let val = rng.gen();
+                let key = rng.rand_bounded(MAX_KEY + 1);
+                let val = rng.rand();
                 insert_and_mark_fn(&mut queue, &mut shadow_queue, key, val);
                 continue;
             }

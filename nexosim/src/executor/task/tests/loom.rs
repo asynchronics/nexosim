@@ -6,10 +6,10 @@ use std::task::Waker;
 
 use ::loom::cell::UnsafeCell;
 use ::loom::model::Builder;
+use ::loom::sync::Arc;
 use ::loom::sync::atomic::AtomicBool;
 use ::loom::sync::atomic::AtomicUsize;
 use ::loom::sync::atomic::Ordering::*;
-use ::loom::sync::Arc;
 use ::loom::{lazy_static, thread};
 
 use super::promise::Stage;

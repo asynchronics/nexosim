@@ -12,7 +12,7 @@ use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
 #[cfg(all(test, not(nexosim_loom)))]
-use crate::{time::TearableAtomicTime, util::sync_cell::SyncCell};
+use crate::{time::AtomicTime, time::TearableAtomicTime, util::sync_cell::SyncCell};
 
 // Usize::MAX - 1 is used as plain usize::MAX is used e.g. to mark a missing
 // ModelId.
@@ -25,11 +25,23 @@ const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
 pub struct Scheduler(GlobalScheduler);
 
 impl Scheduler {
+    /// Creates a new scheduler.
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
     ) -> Self {
+        Self(GlobalScheduler::new(scheduler_queue, time, is_halted))
+    }
+
+    /// Creates a dummy scheduler (for testing purposes only).
+    #[cfg(all(test, not(nexosim_loom)))]
+    #[allow(dead_code)]
+    pub(crate) fn dummy() -> Self {
+        let time = AtomicTime::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
+        let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
+        let is_halted = Arc::new(AtomicBool::default());
+
         Self(GlobalScheduler::new(scheduler_queue, time, is_halted))
     }
 
@@ -195,7 +207,7 @@ impl Scheduler {
     /// returned, the `halt` flag is cleared and the simulation can be resumed
     /// at any moment with another call to one of the `Simulation::step*` or
     /// `Simulation::process*` methods.
-    pub fn halt(&mut self) {
+    pub fn halt(&self) {
         self.0.halt()
     }
 }
@@ -459,7 +471,7 @@ impl GlobalScheduler {
 
     /// Requests the simulation to return as early as possible upon the
     /// completion of the current time step.
-    pub(crate) fn halt(&mut self) {
+    pub(crate) fn halt(&self) {
         self.is_halted.store(true, Ordering::Relaxed);
     }
 }

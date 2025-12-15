@@ -1,9 +1,13 @@
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use futures_channel::mpsc;
+use futures_core::Stream;
+use futures_util::stream::StreamExt;
+use pin_project::pin_project;
 
 use super::{EventSink, EventSinkReader, EventSinkWriter};
 
@@ -15,13 +19,13 @@ use super::{EventSink, EventSinkReader, EventSinkWriter};
 /// created with the [`EventQueue::into_reader`] method.
 pub struct EventQueue<T: Send> {
     is_open: Arc<AtomicBool>,
-    sender: Sender<T>,
-    receiver: Receiver<T>,
+    sender: mpsc::UnboundedSender<T>,
+    receiver: mpsc::UnboundedReceiver<T>,
 }
 
 impl<T: Send> EventQueue<T> {
     /// Creates an open `EventQueue`.
-    pub fn new() -> Self {
+    pub fn new_open() -> Self {
         Self::new_with_state(true)
     }
 
@@ -35,34 +39,12 @@ impl<T: Send> EventQueue<T> {
         EventQueueReader {
             is_open: self.is_open,
             receiver: self.receiver,
-            timeout: Duration::ZERO,
-            is_blocking: false,
-        }
-    }
-
-    /// Returns a consumer handle in the blocking mode.
-    pub fn into_reader_blocking(self) -> EventQueueReader<T> {
-        EventQueueReader {
-            is_open: self.is_open,
-            receiver: self.receiver,
-            timeout: Duration::ZERO,
-            is_blocking: true,
-        }
-    }
-
-    /// Returns a consumer handle with a timeout in the blocking mode.
-    pub fn into_reader_with_timeout(self, timeout: Duration) -> EventQueueReader<T> {
-        EventQueueReader {
-            is_open: self.is_open,
-            receiver: self.receiver,
-            timeout,
-            is_blocking: true,
         }
     }
 
     /// Creates a new `EventQueue` in the specified state.
     fn new_with_state(is_open: bool) -> Self {
-        let (sender, receiver) = unbounded();
+        let (sender, receiver) = mpsc::unbounded();
         Self {
             is_open: Arc::new(AtomicBool::new(is_open)),
             sender,
@@ -82,57 +64,39 @@ impl<T: Send + 'static> EventSink<T> for EventQueue<T> {
     }
 }
 
-impl<T: Send> Default for EventQueue<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T: Send> fmt::Debug for EventQueue<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("EventQueue").finish_non_exhaustive()
+        f.debug_struct("EventQueue")
+            .field("is_open", &self.is_open.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
     }
 }
 
-/// A consumer handle of an `EventQueue`.
+/// Consumer handle of an `EventQueue`.
 ///
-/// Implements [`EventSinkReader`]. Calls to the iterator's `next` method may be
-/// blocking, depending on the configured mode.
-///
-/// `None` is returned when:
-///
-/// * all writer handles have been dropped (i.e. the `Simulation` object has
-///   been dropped), or
-/// * a timeout has elapsed before an event was received, or
-/// * no events are currently in the queue (non-blocking mode only).
-///
-/// Note that even if the iterator returns `None`, it may still produce more
-/// items in the future if `None` was returned (in other words, it is not a
-/// [`FusedIterator`](std::iter::FusedIterator)).
+/// Implements [`EventSinkReader`].
+#[pin_project]
 pub struct EventQueueReader<T: Send> {
     is_open: Arc<AtomicBool>,
-    receiver: Receiver<T>,
-    timeout: Duration,
-    is_blocking: bool,
+    #[pin]
+    receiver: mpsc::UnboundedReceiver<T>,
 }
 
-impl<T: Send + 'static> Iterator for EventQueueReader<T> {
+impl<T: Send> Stream for EventQueueReader<T> {
     type Item = T;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.is_blocking {
-            if self.timeout.is_zero() {
-                self.receiver.recv().ok()
-            } else {
-                self.receiver.recv_timeout(self.timeout).ok()
-            }
-        } else {
-            self.receiver.try_recv().ok()
-        }
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
+        this.receiver.poll_next(cx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.receiver.size_hint()
     }
 }
 
-impl<T: Send + 'static> EventSinkReader for EventQueueReader<T> {
+impl<T: Send + 'static> EventSinkReader<T> for EventQueueReader<T> {
     fn open(&mut self) {
         self.is_open.store(true, Ordering::Relaxed);
     }
@@ -141,36 +105,27 @@ impl<T: Send + 'static> EventSinkReader for EventQueueReader<T> {
         self.is_open.store(false, Ordering::Relaxed);
     }
 
-    fn set_blocking(&mut self, blocking: bool) {
-        self.is_blocking = blocking;
+    fn try_read(&mut self) -> Option<T> {
+        self.receiver.try_next().ok().and_then(|event| event)
     }
 
-    fn set_timeout(&mut self, timeout: Duration) {
-        self.timeout = timeout;
-    }
-}
-
-impl<T: Send> Clone for EventQueueReader<T> {
-    fn clone(&self) -> Self {
-        Self {
-            is_open: self.is_open.clone(),
-            receiver: self.receiver.clone(),
-            timeout: self.timeout,
-            is_blocking: self.is_blocking,
-        }
+    fn read(&mut self) -> Option<T> {
+        pollster::block_on(self.receiver.next())
     }
 }
 
 impl<T: Send> fmt::Debug for EventQueueReader<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("EventQueueReader").finish_non_exhaustive()
+        f.debug_struct("EventQueueReader")
+            .field("is_open", &self.is_open.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
     }
 }
 
 /// A producer handle of an `EventQueue`.
 pub struct EventQueueWriter<T: Send> {
     is_open: Arc<AtomicBool>,
-    sender: Sender<T>,
+    sender: mpsc::UnboundedSender<T>,
 }
 
 impl<T: Send + 'static> EventSinkWriter<T> for EventQueueWriter<T> {
@@ -180,7 +135,7 @@ impl<T: Send + 'static> EventSinkWriter<T> for EventQueueWriter<T> {
             return;
         }
         // Ignore sending failure.
-        let _ = self.sender.send(event);
+        let _ = self.sender.unbounded_send(event);
     }
 }
 

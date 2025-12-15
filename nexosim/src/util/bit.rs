@@ -174,10 +174,10 @@ mod tests {
         for _ in 0..SAMPLES {
             // Generate a random usize from one or more random u64 ...for the
             // day we get 128+ bit platforms :-)
-            let mut r = rng.gen() as usize;
+            let mut r = rng.rand() as usize;
             let mut shift = 64;
             while shift < usize::BITS {
-                r |= (rng.gen() as usize) << shift;
+                r |= (rng.rand() as usize) << shift;
                 shift += 64;
             }
             check(r);

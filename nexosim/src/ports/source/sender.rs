@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures_channel::oneshot;
-use recycle_box::{coerce_box, RecycleBox};
+use recycle_box::{RecycleBox, coerce_box};
 
 use crate::channel;
 use crate::channel::SendError;

@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use thread_guard::ThreadGuard;
 
 use nexosim::model::{schedulable, Context, Model};
-use nexosim::ports::{EventQueue, Output};
+use nexosim::ports::{EventQueue, EventSinkReader, Output};
 use nexosim::simulation::{
     AutoEventKey, EventKey, ExecutionError, Mailbox, SimInit, SimulationError,
 };
@@ -225,7 +225,7 @@ fn main() -> Result<(), SimulationError> {
     // Model handles for simulation.
     let detector_addr = detector_mbox.address();
     let counter_addr = counter_mbox.address();
-    let observer = EventQueue::new();
+    let observer = EventQueue::new_open();
     counter
         .mode
         .map_connect_sink(|m| Event::Mode(*m), &observer);
@@ -233,7 +233,7 @@ fn main() -> Result<(), SimulationError> {
         .count
         .map_connect_sink(|c| Event::Count(*c), &observer);
 
-    let mut observer = observer.into_reader_blocking();
+    let mut observer = observer.into_reader();
 
     // Start time (arbitrary since models do not depend on absolute time).
     let t0 = MonotonicTime::EPOCH;
@@ -253,7 +253,7 @@ fn main() -> Result<(), SimulationError> {
     let scheduler = simu.scheduler();
 
     // Simulation thread.
-    let mut sim_scheduler = scheduler.clone();
+    let sim_scheduler = scheduler.clone();
     let simulation_handle = ThreadGuard::with_actions(
         thread::spawn(move || {
             // ---------- Simulation.  ----------
@@ -273,7 +273,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Wait until counter mode is `On`.
     loop {
-        let event = observer.next();
+        let event = observer.read();
         match event {
             Some(Event::Mode(Mode::On)) => {
                 break;
@@ -288,7 +288,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Wait until `N` detections.
     loop {
-        let event = observer.next();
+        let event = observer.read();
         match event {
             Some(Event::Count(c)) if c >= N => {
                 break;
