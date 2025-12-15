@@ -5,9 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::simulation::events::{
-    query_replier, Event, EventId, EventKey, Query, QueryId, QueueItem, ReplyReader,
-};
+use crate::ports::{ReplyReader, query_replier};
+use crate::simulation::events::{Event, EventId, EventKey, Query, QueryId, QueueItem};
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
@@ -462,8 +461,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        let (tx, rx) = query_replier();
-        let query = Query::new(query_id, arg, tx);
+        let (query, rx) = Query::new(query_id, arg);
         scheduler_queue.insert((time, origin_id), QueueItem::Query(query));
 
         Ok(rx)

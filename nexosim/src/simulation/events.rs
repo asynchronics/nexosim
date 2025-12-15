@@ -1,4 +1,4 @@
-use std::any::{type_name, Any};
+use std::any::{Any, type_name};
 use std::collections::HashMap;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
@@ -9,16 +9,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_channel::oneshot;
-use recycle_box::{coerce_box, RecycleBox};
+use recycle_box::{RecycleBox, coerce_box};
 use serde::de::Visitor;
 use serde::ser::SerializeTuple;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::channel::Sender;
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::Model;
-use crate::ports::{EventSource, InputFn, QuerySource, ReplyIterator};
+use crate::ports::{EventSource, InputFn, QuerySource, ReplyReader, ReplyWriter, query_replier};
 use crate::simulation::{Address, RestoreError, SaveError};
 use crate::util::serialization::serialization_config;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
@@ -499,13 +498,17 @@ impl Query {
     pub(crate) fn new<T: Send + 'static, R: Send + 'static>(
         query_id: &QueryId<T, R>,
         arg: T,
-        replier: ReplyWriter<R>,
-    ) -> Self {
-        Self {
-            query_id: query_id.into(),
-            arg: Box::new(arg),
-            replier: Some(Box::new(replier)),
-        }
+    ) -> (Self, ReplyReader<R>) {
+        let (tx, rx) = query_replier();
+
+        (
+            Self {
+                query_id: query_id.into(),
+                arg: Box::new(arg),
+                replier: Some(Box::new(tx)),
+            },
+            rx,
+        )
     }
     pub(crate) fn to_serializable(
         &self,
@@ -540,43 +543,6 @@ impl Query {
             replier: None,
         })
     }
-}
-
-// TODO placeholder
-#[derive(Debug)]
-pub struct ReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);
-impl<R: Send + 'static> ReplyReader<R> {
-    pub fn try_read(&mut self) -> Option<impl Iterator<Item = R>> {
-        self.0.try_recv().ok()?
-    }
-
-    pub fn read(self) -> Option<impl Iterator<Item = R>> {
-        pollster::block_on(self)
-    }
-}
-
-impl<R: Send + 'static> Future for ReplyReader<R> {
-    type Output = Option<ReplyIterator<R>>;
-
-    fn poll(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        Pin::new(&mut self.get_mut().0).poll(cx).map(Result::ok)
-    }
-}
-
-pub(crate) struct ReplyWriter<R>(oneshot::Sender<ReplyIterator<R>>);
-impl<R: Send + 'static> ReplyWriter<R> {
-    pub(crate) fn send(self, reply: ReplyIterator<R>) {
-        // TODO handle error
-        let _ = self.0.send(reply);
-    }
-}
-
-pub(crate) fn query_replier<R: Send + 'static>() -> (ReplyWriter<R>, ReplyReader<R>) {
-    let (tx, rx) = oneshot::channel();
-    (ReplyWriter(tx), ReplyReader(rx))
 }
 
 #[derive(Serialize, Deserialize)]

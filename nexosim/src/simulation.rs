@@ -80,14 +80,14 @@ mod mailbox;
 mod scheduler;
 mod sim_init;
 
-pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId, ReplyReader};
+pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{InitError, SimInit};
 
 pub(crate) use events::{
-    Event, EventIdErased, EventKeyReg, InputSource, QueueItem, ReplyWriter, SchedulerRegistry,
-    EVENT_KEY_REG,
+    EVENT_KEY_REG, Event, EventIdErased, EventKeyReg, InputSource, QueryIdErased, QueueItem,
+    SchedulerRegistry,
 };
 pub(crate) use scheduler::GlobalScheduler;
 pub(crate) use sim_init::{DuplicateEventSourceError, DuplicateQuerySourceError};
@@ -106,16 +106,17 @@ use std::time::Duration;
 use std::{panic, task};
 
 use pin_project::pin_project;
-use recycle_box::{coerce_box, RecycleBox};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use recycle_box::{RecycleBox, coerce_box};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
+#[cfg(feature = "server")]
+use crate::endpoints::ReplyWriterAny;
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
-use crate::ports::ReplierFn;
-use crate::simulation::events::query_replier;
+use crate::ports::{ReplierFn, ReplyReader, query_replier};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -295,6 +296,26 @@ impl Simulation {
         self.process_future(fut)
     }
 
+    /// Processes an event immediately, blocking until completion.
+    ///
+    /// Simulation time remains unchanged.
+    #[cfg(feature = "server")]
+    pub(crate) fn process_event_erased(
+        &mut self,
+        event_id: &EventIdErased,
+        arg: Box<dyn Any>,
+    ) -> Result<(), ExecutionError> {
+        let source = self
+            .scheduler_registry
+            .event_registry
+            .get(event_id)
+            .unwrap();
+
+        let fut = source.event_future(arg.as_ref(), None);
+
+        self.process_future(fut)
+    }
+
     /// Processes a query immediately, blocking until completion.
     ///
     /// Simulation time remains unchanged. If the mailbox targeted by the query
@@ -322,6 +343,30 @@ impl Simulation {
         Ok(rx)
     }
 
+    /// Processes a query immediately, blocking until completion.
+    ///
+    /// Simulation time remains unchanged. If the mailbox targeted by the query
+    /// was not found in the simulation, an [`ExecutionError::BadQuery`] is
+    /// returned.
+    #[cfg(feature = "server")]
+    pub fn process_query_erased(
+        &mut self,
+        query_id: &QueryIdErased,
+        arg: Box<dyn Any>,
+        reply_writer: Box<dyn ReplyWriterAny>,
+    ) -> Result<(), ExecutionError> {
+        let source = self
+            .scheduler_registry
+            .query_registry
+            .get(query_id)
+            .unwrap();
+
+        let fut = source.query_future(arg.as_ref(), Some(reply_writer as Box<dyn Any + Send>));
+        self.process_future(fut)?;
+        Ok(())
+    }
+
+    // TODO used for serialization / deserialization only - find a way to remove it
     pub(crate) fn process_replier_fn<M, F, T, R, S>(
         &mut self,
         func: F,

@@ -6,11 +6,15 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use futures_channel::oneshot;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 use crate::model::{Message, Model};
 use crate::ports::InputFn;
 use crate::simulation::{
     Action, Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, QueryId,
-    ReplyWriter, SimInit,
+    SimInit,
 };
 use crate::util::slot;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
@@ -21,8 +25,6 @@ use sender::{
     FilterMapInputSender, FilterMapReplierSender, InputSender, MapInputSender, MapReplierSender,
     ReplierSender,
 };
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 
 use super::ReplierFn;
 
@@ -307,16 +309,16 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
 
     /// Returns an action which, when processed, broadcasts a query to all
     /// connected replier ports.
-    pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
-        let (writer, reader) = slot::slot();
-        let fut = self.broadcaster.broadcast(arg);
-        let fut = async move {
-            let replies = fut.await.unwrap_or_throw();
-            let _ = writer.write(replies);
-        };
+    // pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
+    //     let (writer, reader) = slot::slot();
+    //     let fut = self.broadcaster.broadcast(arg);
+    //     let fut = async move {
+    //         let replies = fut.await.unwrap_or_throw();
+    //         let _ = writer.write(replies);
+    //     };
 
-        (Action::new(Box::pin(fut)), ReplyReceiver::<R>(reader))
-    }
+    //     (Action::new(Box::pin(fut)), ReplyReceiver::<R>(reader))
+    // }
 
     pub(crate) fn query_future(
         &self,
@@ -348,9 +350,9 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Se
 }
 
 impl<
-        T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
-        R: Message + Serialize + Send + 'static,
-    > QuerySource<T, R>
+    T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Message + Serialize + Send + 'static,
+> QuerySource<T, R>
 {
     pub fn add_endpoint(
         self,
@@ -404,26 +406,62 @@ where
             query_id,
         }
     }
-    pub(crate) fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
-        self.inner.query(arg)
+    // pub(crate) fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
+    //     self.inner.query(arg)
+    // }
+}
+
+// /// A receiver for all replies collected from a single query broadcast.
+// pub struct ReplyReceiver<R>(slot::SlotReader<ReplyIterator<R>>);
+
+// impl<R> ReplyReceiver<R> {
+//     /// Returns all replies to a query.
+//     ///
+//     /// Returns `None` if the replies are not yet available or if they were
+//     /// already taken in a previous call to `take`.
+//     pub fn take(&mut self) -> Option<impl Iterator<Item = R>> {
+//         self.0.try_read().ok()
+//     }
+// }
+
+// impl<R> fmt::Debug for ReplyReceiver<R> {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "Replies")
+//     }
+// }
+
+#[derive(Debug)]
+pub struct ReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);
+impl<R: Send + 'static> ReplyReader<R> {
+    pub fn try_read(&mut self) -> Option<impl Iterator<Item = R>> {
+        self.0.try_recv().ok()?
+    }
+
+    pub fn read(self) -> Option<impl Iterator<Item = R>> {
+        pollster::block_on(self)
     }
 }
 
-/// A receiver for all replies collected from a single query broadcast.
-pub struct ReplyReceiver<R>(slot::SlotReader<ReplyIterator<R>>);
+impl<R: Send + 'static> Future for ReplyReader<R> {
+    type Output = Option<ReplyIterator<R>>;
 
-impl<R> ReplyReceiver<R> {
-    /// Returns all replies to a query.
-    ///
-    /// Returns `None` if the replies are not yet available or if they were
-    /// already taken in a previous call to `take`.
-    pub fn take(&mut self) -> Option<impl Iterator<Item = R>> {
-        self.0.try_read().ok()
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        Pin::new(&mut self.get_mut().0).poll(cx).map(Result::ok)
     }
 }
 
-impl<R> fmt::Debug for ReplyReceiver<R> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Replies")
+pub(crate) struct ReplyWriter<R>(oneshot::Sender<ReplyIterator<R>>);
+impl<R: Send + 'static> ReplyWriter<R> {
+    pub(crate) fn send(self, reply: ReplyIterator<R>) {
+        // TODO handle error
+        let _ = self.0.send(reply);
     }
+}
+
+pub(crate) fn query_replier<R: Send + 'static>() -> (ReplyWriter<R>, ReplyReader<R>) {
+    let (tx, rx) = oneshot::channel();
+    (ReplyWriter(tx), ReplyReader(rx))
 }

@@ -289,7 +289,7 @@ pub use sink::{
     EventSink, EventSinkReader, EventSinkWriter,
     event_queue::{EventQueue, EventQueueReader},
 };
-pub use source::{EventSource, QuerySource, ReplyReceiver};
+pub use source::{EventSource, QuerySource, ReplyReader};
 
 pub(crate) use output::PORT_REG;
-pub(crate) use source::{RegisteredEventSource, RegisteredQuerySource, ReplyIterator};
+pub(crate) use source::{RegisteredEventSource, RegisteredQuerySource, ReplyWriter, query_replier};

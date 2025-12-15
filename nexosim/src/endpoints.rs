@@ -18,9 +18,9 @@ use crate::simulation::{EventId, QueryId};
 pub(crate) use event_sink_info_registry::EventSinkInfoRegistry;
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
-pub(crate) use query_source_registry::QuerySourceRegistry;
-use serde::de::DeserializeOwned;
+pub(crate) use query_source_registry::{QuerySourceRegistry, ReplyReaderAny, ReplyWriterAny};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// A directory of all sources and sinks of a simulation bench.
 #[derive(Default, Debug)]

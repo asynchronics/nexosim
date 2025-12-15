@@ -1,6 +1,6 @@
 use std::any::{self, Any};
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt;
 use std::sync::Arc;
 #[cfg(feature = "server")]
@@ -9,10 +9,10 @@ use std::time::Duration;
 #[cfg(feature = "server")]
 use ciborium;
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::ports::RegisteredEventSource;
-use crate::simulation::EventId;
+use crate::simulation::{EventId, EventIdErased};
 
 #[cfg(feature = "server")]
 use crate::simulation::{Action, Event, EventKey};
@@ -188,13 +188,19 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
     #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError>;
 
+    /// Returns a type erased deserialized event argument.
+    ///
+    /// The argument is expected to conform to the serde CBOR encoding.
+    #[cfg(feature = "server")]
+    fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError>;
+
     /// Returns a cancellable event and a cancellation key; when processed, the
     /// it is broadcast to all connected input ports.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
     fn keyed_event(&self, serialized_arg: &[u8])
-        -> Result<(Event, EventKey), DeserializationError>;
+    -> Result<(Event, EventKey), DeserializationError>;
 
     /// Returns a periodically recurring event which, when processed,
     /// broadcast to all connected input ports.
@@ -229,6 +235,9 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
     /// schema string.
     fn event_schema(&self) -> MessageSchema;
 
+    /// Returns ErasedEventId reference.
+    fn get_event_id(&self) -> EventIdErased;
+
     /// Returns EventSource reference.
     fn get_event_source(&self) -> &dyn Any;
 
@@ -259,6 +268,10 @@ where
     #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg| Event::new(&self.inner.event_id, arg))
+    }
+    #[cfg(feature = "server")]
+    fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError> {
+        ciborium::from_reader(serialized_arg).map(|arg: T| Box::new(arg) as Box<dyn Any>)
     }
     #[cfg(feature = "server")]
     fn keyed_event(
@@ -305,6 +318,9 @@ where
     }
     fn event_schema(&self) -> MessageSchema {
         (self.schema_gen)()
+    }
+    fn get_event_id(&self) -> EventIdErased {
+        self.inner.event_id.into()
     }
     fn get_event_source(&self) -> &dyn Any {
         &*self.inner as &dyn Any
