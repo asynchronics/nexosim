@@ -11,11 +11,10 @@ use ciborium;
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::ports::RegisteredEventSource;
 use crate::simulation::{EventId, EventIdErased};
 
 #[cfg(feature = "server")]
-use crate::simulation::{Action, Event, EventKey};
+use crate::simulation::{Event, EventKey};
 
 use super::{EndpointError, Message, MessageSchema};
 
@@ -32,40 +31,28 @@ impl EventSourceRegistry {
     ///
     /// If the specified name is already used by another event source, the name
     /// of the source and the event source itself are returned in the error.
-    pub(crate) fn add<T>(
-        &mut self,
-        source: RegisteredEventSource<T>,
-        name: String,
-    ) -> Result<(), (String, RegisteredEventSource<T>)>
+    pub(crate) fn add<T>(&mut self, event_id: EventId<T>, name: String) -> Result<(), ()>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.add_any(source, name, T::schema)
+        self.add_any(event_id, name, T::schema)
     }
 
     /// Adds an event source without a schema definition to the registry.
     ///
     /// If the specified name is already used by another event source, the name
     /// of the source and the event source itself are returned in the error.
-    pub(crate) fn add_raw<T>(
-        &mut self,
-        source: RegisteredEventSource<T>,
-        name: String,
-    ) -> Result<(), (String, RegisteredEventSource<T>)>
+    pub(crate) fn add_raw<T>(&mut self, event_id: EventId<T>, name: String) -> Result<(), ()>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.add_any(source, name, String::new)
+        self.add_any(event_id, name, String::new)
     }
 
+    // FIXME error type
     /// Adds an event source to the registry, possibly with an empty schema
     /// definition.
-    fn add_any<T, F>(
-        &mut self,
-        source: RegisteredEventSource<T>,
-        name: String,
-        schema_gen: F,
-    ) -> Result<(), (String, RegisteredEventSource<T>)>
+    fn add_any<T, F>(&mut self, event_id: EventId<T>, name: String, schema_gen: F) -> Result<(), ()>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         F: Fn() -> MessageSchema + Send + Sync + 'static,
@@ -73,13 +60,13 @@ impl EventSourceRegistry {
         match self.0.entry(name.clone()) {
             Entry::Vacant(s) => {
                 let entry = EventSourceEntry {
-                    inner: Arc::new(source),
+                    inner: event_id,
                     schema_gen,
                 };
                 s.insert(Box::new(entry));
                 Ok(())
             }
-            Entry::Occupied(e) => Err((e.key().clone(), source)),
+            Entry::Occupied(_) => Err(()),
         }
     }
 
@@ -94,65 +81,13 @@ impl EventSourceRegistry {
             })
     }
 
-    /// Removes and returns an event source.
-    pub(crate) fn take<T>(&mut self, name: &str) -> Result<RegisteredEventSource<T>, EndpointError>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    {
-        // FIXME - this won't work at the moment for sure
-        match self.0.entry(name.to_string()) {
-            Entry::Occupied(entry) => {
-                if entry
-                    .get()
-                    .get_event_source()
-                    .is::<RegisteredEventSource<T>>()
-                {
-                    // We now know that the downcast will succeed and can safely unwrap.
-                    let source = entry
-                        .remove_entry()
-                        .1
-                        .into_event_source()
-                        .downcast::<RegisteredEventSource<T>>()
-                        .unwrap();
-
-                    Ok(*source)
-                } else {
-                    Err(EndpointError::InvalidEventSourceType {
-                        name: name.to_string(),
-                        event_type: any::type_name::<T>(),
-                    })
-                }
-            }
-            Entry::Vacant(_) => Err(EndpointError::EventSourceNotFound {
-                name: name.to_string(),
-            }),
-        }
-    }
-
-    /// Returns an immutable reference to an event source if it is in the
-    /// registry.
-    pub(crate) fn get_source<T>(
-        &self,
-        name: &str,
-    ) -> Result<&RegisteredEventSource<T>, EndpointError>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    {
-        self.get(name)?
-            .get_event_source()
-            .downcast_ref::<RegisteredEventSource<T>>()
-            .ok_or(EndpointError::InvalidEventSourceType {
-                name: name.to_string(),
-                event_type: any::type_name::<T>(),
-            })
-    }
-
     /// Returns a typed SourceId of the requested EventSource.
     pub(crate) fn get_source_id<T>(&self, name: &str) -> Result<EventId<T>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        Ok(self.get_source::<T>(name)?.0)
+        let event_id = self.get(name)?.get_event_id();
+        Ok(EventId(event_id.0, std::marker::PhantomData))
     }
 
     /// Returns an iterator over the names (keys) of the registered event
@@ -232,12 +167,6 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
 
     /// Returns ErasedEventId reference.
     fn get_event_id(&self) -> EventIdErased;
-
-    /// Returns EventSource reference.
-    fn get_event_source(&self) -> &dyn Any;
-
-    /// Consumes this entry and returns a boxed [`EventSource`].
-    fn into_event_source(self: Box<Self>) -> Box<dyn Any>;
 }
 
 struct EventSourceEntry<T, F>
@@ -245,7 +174,7 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
     F: Fn() -> MessageSchema,
 {
-    inner: Arc<RegisteredEventSource<T>>,
+    inner: EventId<T>,
     schema_gen: F,
 }
 
@@ -260,7 +189,7 @@ where
     }
     #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError> {
-        ciborium::from_reader(serialized_arg).map(|arg| Event::new(&self.inner.0, arg))
+        ciborium::from_reader(serialized_arg).map(|arg| Event::new(&self.inner, arg))
     }
     #[cfg(feature = "server")]
     fn keyed_event(
@@ -269,7 +198,7 @@ where
     ) -> Result<(Event, EventKey), DeserializationError> {
         let key = EventKey::new();
         ciborium::from_reader(serialized_arg)
-            .map(|arg| (Event::new(&self.inner.0, arg).with_key(key.clone()), key))
+            .map(|arg| (Event::new(&self.inner, arg).with_key(key.clone()), key))
     }
     #[cfg(feature = "server")]
     fn periodic_event(
@@ -278,7 +207,7 @@ where
         serialized_arg: &[u8],
     ) -> Result<Event, DeserializationError> {
         ciborium::from_reader(serialized_arg)
-            .map(|arg| Event::new(&self.inner.0, arg).with_period(period))
+            .map(|arg| Event::new(&self.inner, arg).with_period(period))
     }
     #[cfg(feature = "server")]
     fn keyed_periodic_event(
@@ -290,7 +219,7 @@ where
 
         ciborium::from_reader(serialized_arg).map(|arg| {
             (
-                Event::new(&self.inner.0, arg)
+                Event::new(&self.inner, arg)
                     .with_period(period)
                     .with_key(key.clone()),
                 key,
@@ -305,13 +234,6 @@ where
         (self.schema_gen)()
     }
     fn get_event_id(&self) -> EventIdErased {
-        self.inner.0.into()
-    }
-    fn get_event_source(&self) -> &dyn Any {
-        &*self.inner as &dyn Any
-    }
-    // FIXME: this is broken for now due to the `Arc`.
-    fn into_event_source(self: Box<Self>) -> Box<dyn Any> {
-        Box::new(self.inner)
+        self.inner.into()
     }
 }

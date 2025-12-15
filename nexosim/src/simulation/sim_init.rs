@@ -12,9 +12,7 @@ use crate::endpoints::{
 };
 use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, ProtoModel, RegisteredModel};
-use crate::ports::{
-    EventSinkReader, EventSource, QuerySource, RegisteredEventSource, RegisteredQuerySource,
-};
+use crate::ports::{EventSinkReader, EventSource, QuerySource};
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime,
 };
@@ -264,9 +262,7 @@ impl SimInit {
         let event_id = self.scheduler_registry.event_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self
-            .event_source_registry
-            .add(RegisteredEventSource::new(event_id), name);
+        self.event_source_registry.add(event_id, name).unwrap();
 
         Ok(())
     }
@@ -298,9 +294,7 @@ impl SimInit {
         let event_id = self.scheduler_registry.event_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self
-            .event_source_registry
-            .add_raw(RegisteredEventSource::new(event_id), name);
+        self.event_source_registry.add_raw(event_id, name).unwrap();
 
         Ok(())
     }
@@ -327,9 +321,7 @@ impl SimInit {
         let query_id = self.scheduler_registry.query_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self
-            .query_source_registry
-            .add(RegisteredQuerySource::new(query_id), name);
+        self.query_source_registry.add(query_id, name).unwrap();
 
         Ok(())
     }
@@ -356,9 +348,7 @@ impl SimInit {
         let query_id = self.scheduler_registry.query_registry.add(source);
 
         // FIXME Should not fail after the check above ?
-        let _ = self
-            .query_source_registry
-            .add_raw(RegisteredQuerySource::new(query_id), name);
+        self.query_source_registry.add_raw(query_id, name).unwrap();
 
         Ok(())
     }

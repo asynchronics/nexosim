@@ -12,13 +12,15 @@ mod event_source_registry;
 mod query_source_registry;
 
 use crate::model::{Message, MessageSchema};
-use crate::ports::{EventSinkReader, RegisteredEventSource, RegisteredQuerySource};
+use crate::ports::EventSinkReader;
 use crate::simulation::{EventId, QueryId};
 
 pub(crate) use event_sink_info_registry::EventSinkInfoRegistry;
 pub(crate) use event_sink_registry::EventSinkRegistry;
 pub(crate) use event_source_registry::EventSourceRegistry;
-pub(crate) use query_source_registry::{QuerySourceRegistry, ReplyReaderAny, ReplyWriterAny};
+pub(crate) use query_source_registry::QuerySourceRegistry;
+#[cfg(feature = "server")]
+pub(crate) use query_source_registry::ReplyWriterAny;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -63,31 +65,6 @@ impl Endpoints {
             self.event_source_registry,
             self.query_source_registry,
         )
-    }
-
-    // FIXME return type
-    /// Removes and returns an [`EventSource`] from the endpoint directory.
-    pub fn take_event_source<T>(
-        &mut self,
-        name: &str,
-    ) -> Result<RegisteredEventSource<T>, EndpointError>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    {
-        self.event_source_registry.take(name)
-    }
-
-    // FIXME return type
-    /// Removes and returns a [`QuerySource`] from the endpoint directory.
-    pub fn take_query_source<T, R>(
-        &mut self,
-        name: &str,
-    ) -> Result<RegisteredQuerySource<T, R>, EndpointError>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-        R: Send + 'static,
-    {
-        self.query_source_registry.take(name)
     }
 
     /// Extracts and returns a boxed [`EventSinkReader`] trait object from the
@@ -136,20 +113,6 @@ impl Endpoints {
         name: &str,
     ) -> Result<(MessageSchema, MessageSchema), EndpointError> {
         self.query_source_registry.get_source_schema(name)
-    }
-
-    // FIXME return type
-    /// Returns an immutable reference to a QuerySource registered by a given
-    /// name.
-    pub fn get_query_source<T, R>(
-        &self,
-        name: &str,
-    ) -> Result<&RegisteredQuerySource<T, R>, EndpointError>
-    where
-        T: Serialize + DeserializeOwned + Clone + Send + 'static,
-        R: Send + 'static,
-    {
-        self.query_source_registry.get_source(name)
     }
 
     /// Returns a typed QueryId for an [`QuerySource`]`.

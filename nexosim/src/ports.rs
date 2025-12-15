@@ -292,4 +292,4 @@ pub use sink::{
 pub use source::{EventSource, QuerySource, ReplyReader};
 
 pub(crate) use output::PORT_REG;
-pub(crate) use source::{RegisteredEventSource, RegisteredQuerySource, ReplyWriter, query_replier};
+pub(crate) use source::{ReplyWriter, query_replier};

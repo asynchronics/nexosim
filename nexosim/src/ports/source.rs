@@ -4,7 +4,6 @@ mod sender;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use futures_channel::oneshot;
 use serde::Serialize;
@@ -163,15 +162,6 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> fmt::Debug for Ev
             "Event source ({} connected ports)",
             self.broadcaster.len()
         )
-    }
-}
-
-pub(crate) struct RegisteredEventSource<T: Serialize + DeserializeOwned + Clone + Send + 'static>(
-    pub(crate) EventId<T>,
-);
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> RegisteredEventSource<T> {
-    pub(crate) fn new(event_id: EventId<T>) -> Self {
-        Self(event_id)
     }
 }
 
@@ -365,39 +355,6 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
         )
     }
 }
-
-pub struct RegisteredQuerySource<
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    R: Send + 'static,
->(pub(crate) QueryId<T, R>);
-impl<T, R> RegisteredQuerySource<T, R>
-where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
-    R: Send + 'static,
-{
-    pub(crate) fn new(query_id: QueryId<T, R>) -> Self {
-        Self(query_id)
-    }
-}
-
-// /// A receiver for all replies collected from a single query broadcast.
-// pub struct ReplyReceiver<R>(slot::SlotReader<ReplyIterator<R>>);
-
-// impl<R> ReplyReceiver<R> {
-//     /// Returns all replies to a query.
-//     ///
-//     /// Returns `None` if the replies are not yet available or if they were
-//     /// already taken in a previous call to `take`.
-//     pub fn take(&mut self) -> Option<impl Iterator<Item = R>> {
-//         self.0.try_read().ok()
-//     }
-// }
-
-// impl<R> fmt::Debug for ReplyReceiver<R> {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         write!(f, "Replies")
-//     }
-// }
 
 #[derive(Debug)]
 pub struct ReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);

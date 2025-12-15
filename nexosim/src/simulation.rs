@@ -80,7 +80,7 @@ mod mailbox;
 mod scheduler;
 mod sim_init;
 
-pub use events::{Action, AutoEventKey, EventId, EventKey, QueryId};
+pub use events::{AutoEventKey, EventId, EventKey, QueryId};
 pub use mailbox::{Address, Mailbox};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{InitError, SimInit};
