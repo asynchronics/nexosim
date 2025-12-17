@@ -147,6 +147,7 @@ impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSo
         sim_init.add_event_source(self, name)
     }
 }
+
 impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> Default for EventSource<T> {
     fn default() -> Self {
         Self {
@@ -277,19 +278,6 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
     pub fn register(self, sim_init: &mut SimInit) -> QueryId<T, R> {
         sim_init.link_query_source(self)
     }
-
-    /// Returns an action which, when processed, broadcasts a query to all
-    /// connected replier ports.
-    // pub fn query(&self, arg: T) -> (Action, ReplyReceiver<R>) {
-    //     let (writer, reader) = slot::slot();
-    //     let fut = self.broadcaster.broadcast(arg);
-    //     let fut = async move {
-    //         let replies = fut.await.unwrap_or_throw();
-    //         let _ = writer.write(replies);
-    //     };
-
-    //     (Action::new(Box::pin(fut)), ReplyReceiver::<R>(reader))
-    // }
 
     pub(crate) fn query_future(
         &self,

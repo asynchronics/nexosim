@@ -71,6 +71,9 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
         .connect(Controller::water_sense, &controller_mbox);
     pump.flow_rate.connect(Tank::set_flow_rate, &tank_mbox);
 
+    // Bench assembly.
+    let mut bench = SimInit::new();
+
     // Sinks.
 
     // Controller.
@@ -85,34 +88,23 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
     let water_sense = EventQueue::new_open();
     tank.water_sense.connect_sink(&water_sense);
 
-    // Bench assembly.
-    let mut bench = SimInit::new();
-
     // Controller.
     EventSource::new()
         .connect(Controller::brew_time, &controller_mbox)
-        .add_endpoint(&mut bench, "brew_time")
-        // FIXME
-        .unwrap();
+        .add_endpoint(&mut bench, "brew_time")?;
 
     EventSource::new()
         .connect(Controller::brew_cmd, &controller_mbox)
-        .add_endpoint(&mut bench, "brew_cmd")
-        // FIXME
-        .unwrap();
+        .add_endpoint(&mut bench, "brew_cmd")?;
 
     // Tank.
     EventSource::new()
         .connect(Tank::fill, &tank_mbox)
-        .add_endpoint(&mut bench, "fill")
-        // FIXME
-        .unwrap();
+        .add_endpoint(&mut bench, "fill")?;
 
     QuerySource::new()
         .connect(Tank::volume, &tank_mbox)
-        .add_endpoint(&mut bench, "volume")
-        // FIXME
-        .unwrap();
+        .add_endpoint(&mut bench, "volume")?;
 
     bench = bench
         .add_model(controller, controller_mbox, "controller")

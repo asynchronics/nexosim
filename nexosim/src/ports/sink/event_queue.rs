@@ -8,6 +8,10 @@ use futures_channel::mpsc;
 use futures_core::Stream;
 use futures_util::stream::StreamExt;
 use pin_project::pin_project;
+use serde::Serialize;
+
+use crate::model::Message;
+use crate::simulation::{DuplicateEventSinkError, SimInit};
 
 use super::{EventSink, EventSinkReader, EventSinkWriter};
 

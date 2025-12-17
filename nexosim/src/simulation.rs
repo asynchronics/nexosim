@@ -90,7 +90,9 @@ pub(crate) use events::{
     SchedulerRegistry,
 };
 pub(crate) use scheduler::GlobalScheduler;
-pub(crate) use sim_init::{DuplicateEventSourceError, DuplicateQuerySourceError};
+pub(crate) use sim_init::{
+    DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError,
+};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
