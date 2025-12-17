@@ -109,16 +109,17 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{RecycleBox, coerce_box};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
 #[cfg(feature = "server")]
-use crate::endpoints::ReplyWriterAny;
+use crate::endpoints::{EventSourceEntryAny, QuerySourceEntryAny, ReplyReaderAny};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
-use crate::ports::{ReplierFn, ReplyReader, query_replier};
+use crate::ports::{ReplierFn, query_replier};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -291,7 +292,7 @@ impl Simulation {
             .scheduler_registry
             .event_registry
             .get(&(*event_id).into())
-            .unwrap();
+            .ok_or(ExecutionError::InvalidEventId(event_id.0))?;
 
         let fut = source.event_future(&arg, None);
 
@@ -304,14 +305,16 @@ impl Simulation {
     #[cfg(feature = "server")]
     pub(crate) fn process_event_erased(
         &mut self,
-        event_id: &EventIdErased,
+        event_source: &dyn EventSourceEntryAny,
         arg: Box<dyn Any>,
     ) -> Result<(), ExecutionError> {
         let source = self
             .scheduler_registry
             .event_registry
-            .get(event_id)
-            .unwrap();
+            .get(&event_source.get_event_id())
+            .ok_or(ExecutionError::InvalidEventId(
+                event_source.get_event_id().0,
+            ))?;
 
         let fut = source.event_future(arg.as_ref(), None);
 
@@ -327,22 +330,25 @@ impl Simulation {
         &mut self,
         query_id: &QueryId<T, R>,
         arg: T,
-    ) -> Result<ReplyReader<R>, ExecutionError>
+    ) -> Result<R, ExecutionError>
     where
         T: Send + Clone + 'static,
         R: Send + 'static,
     {
         let (tx, rx) = query_replier();
+
         let source = self
             .scheduler_registry
             .query_registry
             .get(&(*query_id).into())
-            .unwrap();
+            .ok_or(ExecutionError::InvalidQueryId(query_id.0))?;
 
         let fut = source.query_future(&arg, Some(Box::new(tx)));
-
         self.process_future(fut)?;
-        Ok(rx)
+
+        // If the future resolves successfully it should be
+        // guaranteed that the reply is present.
+        Ok(rx.read().unwrap().next().unwrap())
     }
 
     /// Processes a query immediately, blocking until completion.
@@ -351,21 +357,24 @@ impl Simulation {
     /// was not found in the simulation, an [`ExecutionError::BadQuery`] is
     /// returned.
     #[cfg(feature = "server")]
-    pub fn process_query_erased(
+    pub(crate) fn process_query_erased(
         &mut self,
-        query_id: &QueryIdErased,
+        query_source: &dyn QuerySourceEntryAny,
         arg: Box<dyn Any>,
-        reply_writer: Box<dyn ReplyWriterAny>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<Box<dyn ReplyReaderAny>, ExecutionError> {
         let source = self
             .scheduler_registry
             .query_registry
-            .get(query_id)
-            .unwrap();
+            .get(&query_source.get_query_id())
+            .ok_or(ExecutionError::InvalidQueryId(
+                query_source.get_query_id().0,
+            ))?;
 
-        let fut = source.query_future(arg.as_ref(), Some(reply_writer as Box<dyn Any + Send>));
+        let (tx, rx) = query_source.replier();
+
+        let fut = source.query_future(arg.as_ref(), Some(tx));
         self.process_future(fut)?;
-        Ok(())
+        Ok(rx)
     }
 
     // TODO used for serialization / deserialization only - find a way to remove it

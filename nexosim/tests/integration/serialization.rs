@@ -334,7 +334,7 @@ fn model_init_restore() {
     let mut simu = bench.init(t0).unwrap();
     // Verify `init` called.
     let model_state = simu.process_query(&query_id, ()).unwrap();
-    assert_eq!(model_state.read().unwrap().next(), Some(11));
+    assert_eq!(model_state, 11);
 
     // // Store state with an initialized model.
     let mut state = Vec::new();
@@ -345,8 +345,8 @@ fn model_init_restore() {
     let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that `restore` has been called instead of `init` this time
-    let mut model_state = simu.process_query(&query_id, ()).unwrap();
-    assert_eq!(model_state.try_read().unwrap().next(), Some(11 * 13));
+    let model_state = simu.process_query(&query_id, ()).unwrap();
+    assert_eq!(model_state, 11 * 13);
 }
 
 #[test]
@@ -553,8 +553,7 @@ fn model_relative_order() {
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
-    let resp = simu.process_query(&query_id, ()).unwrap();
-    assert_eq!(Some(11 * 13 * 7 + 19), resp.read().unwrap().next());
+    assert_eq!(11 * 13 * 7 + 19, simu.process_query(&query_id, ()).unwrap());
 
     // Test add -> mul order.
 
@@ -581,6 +580,8 @@ fn model_relative_order() {
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
-    let resp = simu.process_query(&query_id, ()).unwrap();
-    assert_eq!(Some((11 * 13 + 19) * 7,), resp.read().unwrap().next());
+    assert_eq!(
+        (11 * 13 + 19) * 7,
+        simu.process_query(&query_id, ()).unwrap()
+    );
 }

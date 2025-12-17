@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
 use nexosim::ports::{EventQueue, EventSource, Output, QuerySource};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -57,6 +57,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     simu.step()?;
     assert_eq!(reader.read().unwrap().next(), Some(1));
+
+    let resp = simu.process_query(&query_id, ()).unwrap();
+    assert_eq!(resp, 1);
 
     Ok(())
 }

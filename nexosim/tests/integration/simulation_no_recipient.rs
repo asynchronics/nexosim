@@ -135,7 +135,7 @@ fn no_replier_from_query(num_threads: usize) {
     let result = simu.process_query(&query_id, ());
 
     match result {
-        Err(ExecutionError::BadQuery) => (),
+        Err(ExecutionError::NoRecipient { .. }) => (),
         _ => panic!("missing recipient not detected"),
     }
 }

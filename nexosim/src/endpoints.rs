@@ -6,6 +6,9 @@
 
 use std::fmt::Debug;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 mod event_sink_info_registry;
 mod event_sink_registry;
 mod event_source_registry;
@@ -17,12 +20,12 @@ use crate::simulation::{EventId, QueryId};
 
 pub(crate) use event_sink_info_registry::EventSinkInfoRegistry;
 pub(crate) use event_sink_registry::EventSinkRegistry;
+#[cfg(feature = "server")]
+pub(crate) use event_source_registry::EventSourceEntryAny;
 pub(crate) use event_source_registry::EventSourceRegistry;
 pub(crate) use query_source_registry::QuerySourceRegistry;
 #[cfg(feature = "server")]
-pub(crate) use query_source_registry::ReplyWriterAny;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
+pub(crate) use query_source_registry::{QuerySourceEntryAny, ReplyReaderAny};
 
 /// A directory of all sources and sinks of a simulation bench.
 #[derive(Default, Debug)]

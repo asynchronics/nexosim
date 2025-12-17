@@ -130,7 +130,6 @@ impl ControllerService {
             .get(source_name)
             .map_err(map_endpoint_error)?;
 
-        let event_id = source.get_event_id();
         let arg = source.deserialize_arg(event).map_err(|e| {
             to_error(
                 ErrorCode::InvalidMessage,
@@ -143,7 +142,7 @@ impl ControllerService {
         })?;
 
         simulation
-            .process_event_erased(&event_id, arg)
+            .process_event_erased(source, arg)
             .map_err(map_execution_error)
     }
 
@@ -171,7 +170,6 @@ impl ControllerService {
             .get(source_name)
             .map_err(map_endpoint_error)?;
 
-        let query_id = source.get_query_id();
         let arg = source.deserialize_arg(request).map_err(|e| {
             to_error(
                 ErrorCode::InvalidMessage,
@@ -182,10 +180,9 @@ impl ControllerService {
                 ),
             )
         })?;
-        let (tx, mut rx) = source.replier();
 
-        simulation
-            .process_query_erased(&query_id, arg, tx)
+        let mut rx = simulation
+            .process_query_erased(source, arg)
             .map_err(map_execution_error)?;
 
         let replies = rx.take_collect().ok_or_else(|| to_error(
