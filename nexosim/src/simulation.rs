@@ -75,24 +75,22 @@
 //! Deadlocks are reported as [`ExecutionError::Deadlock`] errors, which
 //! identify all involved models and the count of unprocessed messages (events
 //! or requests) in their mailboxes.
-mod events;
 mod mailbox;
+mod queue_items;
 mod scheduler;
 mod sim_init;
 
-pub use events::{AutoEventKey, EventId, EventKey, QueryId};
 pub use mailbox::{Address, Mailbox};
+pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{InitError, SimInit};
 
-pub(crate) use events::{
+pub(crate) use queue_items::{
     EVENT_KEY_REG, Event, EventIdErased, EventKeyReg, InputSource, QueryIdErased, QueueItem,
     SchedulerRegistry,
 };
 pub(crate) use scheduler::GlobalScheduler;
-pub(crate) use sim_init::{
-    DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError,
-};
+pub(crate) use sim_init::{DuplicateEventSourceError, DuplicateQuerySourceError};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;

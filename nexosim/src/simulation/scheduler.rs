@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::ports::{ReplyReader, query_replier};
-use crate::simulation::events::{Event, EventId, EventKey, Query, QueryId, QueueItem};
+use crate::ports::ReplyReader;
+use crate::simulation::queue_items::{Event, EventId, EventKey, Query, QueryId, QueueItem};
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 

@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSource, Output, QuerySource};
+use nexosim::model::Model;
+use nexosim::ports::{EventSource, QuerySource};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 

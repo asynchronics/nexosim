@@ -2,7 +2,6 @@ use std::any::{self, Any};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
-use std::sync::Arc;
 #[cfg(feature = "server")]
 use std::time::Duration;
 
