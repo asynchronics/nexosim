@@ -132,14 +132,11 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
 /// managed from a remote client.
 fn run_simulation(
     mut simu: Simulation,
-    mut registry: Endpoints,
+    registry: Endpoints,
     mut t: MonotonicTime,
     flow_rate: &mut Box<dyn EventSinkReader<f64>>,
 ) -> Result<(), SimulationError> {
     let scheduler = simu.scheduler();
-
-    // Sinks used in simulation.
-    // let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
 
     // Sources used in simulation.
     let brew_cmd: EventId<()> = registry.get_event_source_id("brew_cmd").unwrap();
@@ -168,7 +165,10 @@ fn run_simulation(
     simu.step()?;
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
-    assert_eq!(flow_rate.try_read(), Some(0.0));
+    assert_eq!(
+        std::iter::from_fn(|| flow_rate.try_read()).last(),
+        Some(0.0)
+    );
     let volume_reader = simu.process_query(&volume, ())?;
     assert_eq!(volume_reader.read().unwrap().next(), Some(0.0));
 
@@ -242,6 +242,10 @@ fn main() -> Result<(), SimulationError> {
     // state.
     run_simulation(simu, registry, t, &mut flow_rate)?;
 
-    let (simu, registry) = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?.restore(&state[..])?;
+    let (simu, mut registry) =
+        build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?.restore(&state[..])?;
+    // Extract the sink again as the previous bench instance is dropped.
+    let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
+
     run_simulation(simu, registry, saved_time, &mut flow_rate)
 }
