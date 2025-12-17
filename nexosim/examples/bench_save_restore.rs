@@ -137,8 +137,7 @@ fn run_simulation(
     let volume: QueryId<(), f64> = registry.get_query_source_id("volume").unwrap();
 
     // Check volume.
-    let volume_reader = simu.process_query(&volume, ())?;
-    assert_eq!(volume_reader.read().unwrap().next(), Some(0.0013875));
+    assert_eq!(simu.process_query(&volume, ()).unwrap(), 0.0013875);
 
     // Drink too much coffee.
     let volume_per_shot = PUMP_FLOW_RATE * Controller::DEFAULT_BREW_TIME.as_secs_f64();
@@ -161,8 +160,7 @@ fn run_simulation(
         std::iter::from_fn(|| flow_rate.try_read()).last(),
         Some(0.0)
     );
-    let volume_reader = simu.process_query(&volume, ())?;
-    assert_eq!(volume_reader.read().unwrap().next(), Some(0.0));
+    assert_eq!(simu.process_query(&volume, ()).unwrap(), 0.0);
 
     // Try to brew another shot while the tank is still empty.
     simu.process_event(&brew_cmd, ())?;
