@@ -112,10 +112,26 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
         self
     }
 
+    /// Converts an event source to an [`EventId`] that can later be used to
+    /// schedule and process events within the simulation instance being built.
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// Rust. For simulations controlled by a remote client, use
+    /// [`EventSource::add_endpoint`] or [`EventSource::add_endpoint_raw`].
     pub fn register(self, sim_init: &mut SimInit) -> EventId<T> {
         sim_init.link_event_source(self)
     }
 
+    /// Adds an event source to the endpoint registry without requiring a
+    /// [`Message`] implementation for its item type.
+    ///
+    /// If the specified name is already used by another input or another event
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`](sim_init::InitError).
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`EventSource::register`].
     pub fn add_endpoint_raw(
         self,
         name: impl Into<String>,
@@ -139,6 +155,15 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
 }
 
 impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
+    /// Adds an event source to the endpoint registry.
+    ///
+    /// If the specified name is already used by another input or another event
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`](sim_init::InitError).
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`EventSource::register`].
     pub fn add_endpoint(
         self,
         sim_init: &mut SimInit,
@@ -275,6 +300,12 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
         self
     }
 
+    /// Converts a query source to a [`QueryId`] that can later be used to
+    /// schedule and process events within the simulation instance being built.
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// Rust. For simulations controlled by a remote client, use
+    /// [`QuerySource::add_endpoint`] or [`QuerySource::add_endpoint_raw`].
     pub fn register(self, sim_init: &mut SimInit) -> QueryId<T, R> {
         sim_init.link_query_source(self)
     }
@@ -299,6 +330,16 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
 impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Send + 'static>
     QuerySource<T, R>
 {
+    /// Adds a query source to the endpoint registry without requiring a
+    /// [`Message`] implementation for its item type.
+    ///
+    /// If the specified name is already used by another query
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`](sim_init::InitError).
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`QuerySource::register`].
     pub fn add_endpoint_raw(
         self,
         name: impl Into<String>,
@@ -313,6 +354,15 @@ impl<
     R: Message + Serialize + Send + 'static,
 > QuerySource<T, R>
 {
+    /// Adds a query source to the endpoint registry.
+    ///
+    /// If the specified name is already used by another query
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`](sim_init::InitError).
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`QuerySource::register`].
     pub fn add_endpoint(
         self,
         sim_init: &mut SimInit,
@@ -344,13 +394,19 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
     }
 }
 
+/// A typed consumer handle to a query reply channel.
 #[derive(Debug)]
 pub struct ReplyReader<R>(oneshot::Receiver<ReplyIterator<R>>);
 impl<R: Send + 'static> ReplyReader<R> {
+    /// A non blocking read attempt. If successful, returns an iterator over
+    /// query replies.
     pub fn try_read(&mut self) -> Option<impl Iterator<Item = R>> {
         self.0.try_recv().ok()?
     }
 
+    /// A blocking read. If successful, returns an iterator over query replies.
+    /// Will return immediately with a `None` value if the channel has already
+    /// been read.
     pub fn read(self) -> Option<impl Iterator<Item = R>> {
         pollster::block_on(self)
     }

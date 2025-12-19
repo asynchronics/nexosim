@@ -1,4 +1,6 @@
-use std::any::{self, Any};
+#[cfg(feature = "server")]
+use std::any;
+use std::any::Any;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -220,7 +222,7 @@ pub(crate) trait ReplyWriterAny: Any + Send {}
 impl<R: Send + 'static> ReplyWriterAny for ReplyWriter<R> {}
 
 #[cfg(feature = "server")]
-/// A type-erased `ReplyReceiver` that returns CBOR-encoded replies.
+/// A type-erased `ReplyReader` that returns CBOR-encoded replies.
 pub(crate) trait ReplyReaderAny {
     /// Take the replies, if any, encode them and collect them in a vector.
     fn take_collect(&mut self) -> Option<Result<Vec<Vec<u8>>, SerializationError>>;

@@ -165,12 +165,8 @@ impl SimInit {
         self
     }
 
-    /// Converts an event source to a [`SourceId`] that can later be used to
-    /// schedule events within the simulation instance being built.
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// Rust. For simulations controlled by a remote client, use
-    /// [`SimInit::add_event_source`] or [`SimInit::add_event_source_raw`].
+    /// Converts an event source to an [`EventId`] that can later be used to
+    /// schedule and process events within the simulation instance being built.
     pub(crate) fn link_event_source<T>(&mut self, source: EventSource<T>) -> EventId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -178,6 +174,8 @@ impl SimInit {
         self.scheduler_registry.add_event_source(source)
     }
 
+    /// Converts a query source to a [`QueryId`] that can later be used to
+    /// schedule events within the simulation instance being built.
     pub(crate) fn link_query_source<T, R>(&mut self, source: QuerySource<T, R>) -> QueryId<T, R>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -241,10 +239,6 @@ impl SimInit {
     /// If the specified name is already used by another input or another event
     /// source, the source provided as argument is returned in the error. The
     /// error is convertible to an [`InitError`].
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// a remote client. For simulations controlled from Rust, use
-    /// [`SimInit::link_event_source`].
     pub(crate) fn add_event_source<T>(
         &mut self,
         source: EventSource<T>,
@@ -264,10 +258,6 @@ impl SimInit {
     /// If the specified name is already used by another input or another event
     /// source, the source provided as argument is returned in the error. The
     /// error is convertible to an [`InitError`].
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// a remote client. For simulations controlled from Rust, use
-    /// [`SimInit::link_event_source`].
     pub(crate) fn add_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
@@ -283,8 +273,9 @@ impl SimInit {
 
     /// Adds a query source to the endpoint registry.
     ///
-    /// If the specified name is already in use for another query source, the
-    /// source provided as argument is returned in the error.
+    /// If the specified name is already used by another query
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`].
     pub(crate) fn add_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -302,8 +293,9 @@ impl SimInit {
     /// Adds a query source to the endpoint registry without requiring
     /// [`Message`] implementations for its query and response types.
     ///
-    /// If the specified name is already in use for another query source, the
-    /// source provided as argument is returned in the error.
+    /// If the specified name is already used by another query
+    /// source, the source provided as argument is returned in the error. The
+    /// error is convertible to an [`InitError`].
     pub(crate) fn add_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,

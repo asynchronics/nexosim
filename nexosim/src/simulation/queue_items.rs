@@ -30,8 +30,8 @@ pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 // This value has to be lower than the `SchedulableId::Mask`.
 const MAX_SOURCE_ID: usize = 1 << (usize::BITS - 1) as usize;
 
-/// A unique, type-safe id for schedulable event sources.
-/// `SourceId` is stable between bench runs, provided that the bench layout does
+/// A unique, type-safe event source id.
+/// `EventId` is stable between bench runs, provided that the bench layout does
 /// not change.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EventId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
@@ -60,6 +60,9 @@ impl<T> From<&EventId<T>> for EventIdErased {
     }
 }
 
+/// A unique, type-safe query source id.
+/// `QueryId` is stable between bench runs, provided that the bench layout does
+/// not change.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueryId<T, R>(pub(crate) usize, pub(crate) PhantomData<fn(T, R)>);
 
@@ -481,7 +484,7 @@ impl Event {
         self.key.as_ref().map(|k| k.is_cancelled()).unwrap_or(false)
     }
 
-    pub(crate) fn to_serializable(
+    fn to_serializable(
         &self,
         registry: &SchedulerEventRegistry,
     ) -> Result<SerializableEvent, ExecutionError> {
@@ -499,7 +502,7 @@ impl Event {
         })
     }
 
-    pub(crate) fn from_serializable(
+    fn from_serializable(
         mut event: SerializableEvent,
         registry: &SchedulerEventRegistry,
     ) -> Result<Self, ExecutionError> {
@@ -540,7 +543,7 @@ impl Query {
             rx,
         )
     }
-    pub(crate) fn to_serializable(
+    fn to_serializable(
         &self,
         registry: &SchedulerQueryRegistry,
     ) -> Result<SerializableQuery, ExecutionError> {
@@ -556,7 +559,7 @@ impl Query {
         })
     }
 
-    pub(crate) fn from_serializable(
+    fn from_serializable(
         query: SerializableQuery,
         registry: &SchedulerQueryRegistry,
     ) -> Result<Self, ExecutionError> {

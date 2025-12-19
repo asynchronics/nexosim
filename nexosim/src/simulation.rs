@@ -85,8 +85,10 @@ pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{InitError, SimInit};
 
+#[cfg(feature = "server")]
+pub(crate) use queue_items::Event;
 pub(crate) use queue_items::{
-    EVENT_KEY_REG, Event, EventIdErased, EventKeyReg, InputSource, QueryIdErased, QueueItem,
+    EVENT_KEY_REG, EventIdErased, EventKeyReg, InputSource, QueryIdErased, QueueItem,
     SchedulerRegistry,
 };
 pub(crate) use scheduler::GlobalScheduler;

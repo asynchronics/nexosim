@@ -174,6 +174,13 @@ impl Scheduler {
         )
     }
 
+    /// Schedules a query by its id at a future time.
+    ///
+    /// An error is returned if the specified time is not in the future of the
+    /// current simulation time.
+    ///
+    /// Queries scheduled for the same time and targeting the same model are
+    /// guaranteed to be processed according to the scheduling order.
     pub fn schedule_query<T, R>(
         &self,
         deadline: impl Deadline,
@@ -441,6 +448,7 @@ impl GlobalScheduler {
         Ok(event_key)
     }
 
+    /// Schedules a query identified by its id and origin at a future time.
     pub(crate) fn schedule_query_from<T, R>(
         &self,
         deadline: impl Deadline,

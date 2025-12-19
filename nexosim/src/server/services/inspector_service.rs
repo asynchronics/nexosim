@@ -259,7 +259,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::ports::{EventSource, QuerySource};
-    use crate::simulation::{EventId, QueryId, SchedulerRegistry};
+    use crate::simulation::SchedulerRegistry;
 
     #[derive(Default)]
     struct TestParams<'a> {
