@@ -127,7 +127,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     ///
     /// If the specified name is already used by another input or another event
     /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](sim_init::InitError).
+    /// error is convertible to an [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
@@ -159,7 +159,7 @@ impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSo
     ///
     /// If the specified name is already used by another input or another event
     /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](sim_init::InitError).
+    /// error is convertible to an [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
@@ -335,7 +335,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Se
     ///
     /// If the specified name is already used by another query
     /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](sim_init::InitError).
+    /// error is convertible to an [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
@@ -358,7 +358,7 @@ impl<
     ///
     /// If the specified name is already used by another query
     /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](sim_init::InitError).
+    /// error is convertible to an [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use

@@ -243,8 +243,7 @@
 //!
 //! [`EventSource`] and [`QuerySource`] objects are similar to [`Output`] and
 //! [`Requestor`] ports, respectively. They can be connected to models and can
-//! be used to send events or queries to such models via
-//! [`Action`](crate::simulation::Action)s.
+//! be used to send and schedule events or queries to such models.
 //!
 //! Objects implementing the [`EventSink`] trait, such as [`EventQueue`], are in
 //! turn similar to input ports. They can be connected to model outputs and

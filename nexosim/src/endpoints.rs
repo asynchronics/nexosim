@@ -82,7 +82,8 @@ impl Endpoints {
         self.event_sink_registry.take(name)
     }
 
-    /// Returns a typed EventId for an [`EventSource`]`.
+    /// Returns a typed EventId for an
+    /// [`EventSource`](crate::ports::EventSource)`.
     ///
     /// SourceId can be used to schedule events on the Scheduler instance.
     pub fn get_event_source_id<T>(&self, name: &str) -> Result<EventId<T>, EndpointError>
@@ -118,7 +119,8 @@ impl Endpoints {
         self.query_source_registry.get_source_schema(name)
     }
 
-    /// Returns a typed QueryId for an [`QuerySource`]`.
+    /// Returns a typed QueryId for an
+    /// [`QuerySource`](crate::ports::QuerySource)`.
     ///
     /// SourceId can be used to schedule events on the Scheduler instance.
     pub fn get_query_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, EndpointError>

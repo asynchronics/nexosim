@@ -397,7 +397,8 @@ impl SimInit {
     }
 
     /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`] method on all model initializers.
+    /// executing the [`Model::init`](crate::model::Model::init) method on all
+    /// model initializers.
     ///
     /// The simulation object and endpoints registry are returned upon success.
     pub fn init_with_registry(
@@ -424,7 +425,8 @@ impl SimInit {
     }
 
     /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`] method on all model initializers.
+    /// executing the [`Model::init`](crate::model::Model::init) method on all
+    /// model initializers.
     ///
     /// The simulation object is returned upon success.
     pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
@@ -432,7 +434,8 @@ impl SimInit {
     }
 
     /// Restores a simulation from a previously persisted state, executing the
-    /// [`Model::restore`] method on all registered models.
+    /// [`Model::restore`](crate::model::Model::restore) method on all
+    /// registered models.
     ///
     /// The simulation object is returned upon success.
     pub fn restore<R: std::io::Read>(
