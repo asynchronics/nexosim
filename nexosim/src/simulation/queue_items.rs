@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::channel::Sender;
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::Model;
-use crate::ports::{EventSource, InputFn};
+use crate::ports::{EventSource, InputFn, QuerySource, ReplyReader, ReplyWriter, query_replier};
 use crate::simulation::{Address, RestoreError, SaveError};
 use crate::util::serialization::serialization_config;
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
@@ -30,33 +30,99 @@ pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 // This value has to be lower than the `SchedulableId::Mask`.
 const MAX_SOURCE_ID: usize = 1 << (usize::BITS - 1) as usize;
 
-/// A unique, type-safe id for schedulable event sources.
-/// `SourceId` is stable between bench runs, provided that the bench layout does
+/// A unique, type-safe event source id.
+/// `EventId` is stable between bench runs, provided that the bench layout does
 /// not change.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SourceId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
+pub struct EventId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
 
 // Manual clone and copy impl. to not enforce bounds on T.
-impl<T> Clone for SourceId<T> {
+impl<T> Clone for EventId<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<T> Copy for SourceId<T> {}
+impl<T> Copy for EventId<T> {}
 
-/// Type erased `SourceId` variant.
+/// Type erased `EventId` variant.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) struct SourceIdErased(pub(crate) usize);
+pub(crate) struct EventIdErased(pub(crate) usize);
 
-impl<T> From<SourceId<T>> for SourceIdErased {
-    fn from(value: SourceId<T>) -> Self {
+impl<T> From<EventId<T>> for EventIdErased {
+    fn from(value: EventId<T>) -> Self {
         Self(value.0)
     }
 }
 
-impl<T> From<&SourceId<T>> for SourceIdErased {
-    fn from(value: &SourceId<T>) -> Self {
+impl<T> From<&EventId<T>> for EventIdErased {
+    fn from(value: &EventId<T>) -> Self {
         Self(value.0)
+    }
+}
+
+/// A unique, type-safe query source id.
+/// `QueryId` is stable between bench runs, provided that the bench layout does
+/// not change.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryId<T, R>(pub(crate) usize, pub(crate) PhantomData<fn(T, R)>);
+
+// Manual clone and copy impl. to not enforce bounds on T.
+impl<T, R> Clone for QueryId<T, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T, R> Copy for QueryId<T, R> {}
+
+/// Type erased `QueryId` variant.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct QueryIdErased(pub(crate) usize);
+
+impl<T, R> From<QueryId<T, R>> for QueryIdErased {
+    fn from(value: QueryId<T, R>) -> Self {
+        Self(value.0)
+    }
+}
+
+impl<T, R> From<&QueryId<T, R>> for QueryIdErased {
+    fn from(value: &QueryId<T, R>) -> Self {
+        Self(value.0)
+    }
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct SchedulerRegistry {
+    event_registry: SchedulerEventRegistry,
+    query_registry: SchedulerQueryRegistry,
+}
+impl SchedulerRegistry {
+    pub(crate) fn add_event_source<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        self.event_registry.add(source)
+    }
+    pub(crate) fn get_event_source(
+        &self,
+        event_id: &EventIdErased,
+    ) -> Option<&dyn SchedulerEventSource> {
+        self.event_registry.get(event_id)
+    }
+    pub(crate) fn add_query_source<T, R>(
+        &mut self,
+        source: impl TypedQuerySource<T, R>,
+    ) -> QueryId<T, R>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.query_registry.add(source)
+    }
+    pub(crate) fn get_query_source(
+        &self,
+        query_id: &QueryIdErased,
+    ) -> Option<&dyn SchedulerQuerySource> {
+        self.query_registry.get(query_id)
     }
 }
 
@@ -68,19 +134,37 @@ impl<T> From<&SourceId<T>> for SourceIdErased {
 /// Therefore the `add` method should only be accessible from `SimInit` or
 /// `BuildContext` instances.
 #[derive(Default, Debug)]
-pub(crate) struct SchedulerSourceRegistry(Vec<Box<dyn SchedulerEventSource>>);
-impl SchedulerSourceRegistry {
-    pub(crate) fn add<T>(&mut self, source: impl TypedSchedulerSource<T>) -> SourceId<T>
+pub(crate) struct SchedulerEventRegistry(Vec<Box<dyn SchedulerEventSource>>);
+impl SchedulerEventRegistry {
+    fn add<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         assert!(self.0.len() < MAX_SOURCE_ID);
-        let source_id = SourceId(self.0.len(), PhantomData);
+        let event_id = EventId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
-        source_id
+        event_id
     }
-    pub(crate) fn get(&self, source_id: &SourceIdErased) -> Option<&dyn SchedulerEventSource> {
-        self.0.get(source_id.0).map(|s| s.as_ref())
+    fn get(&self, event_id: &EventIdErased) -> Option<&dyn SchedulerEventSource> {
+        self.0.get(event_id.0).map(|s| s.as_ref())
+    }
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct SchedulerQueryRegistry(Vec<Box<dyn SchedulerQuerySource>>);
+impl SchedulerQueryRegistry {
+    fn add<T, R>(&mut self, source: impl TypedQuerySource<T, R>) -> QueryId<T, R>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        assert!(self.0.len() < MAX_SOURCE_ID);
+        let query_id = QueryId(self.0.len(), PhantomData);
+        self.0.push(Box::new(source));
+        query_id
+    }
+    fn get(&self, query_id: &QueryIdErased) -> Option<&dyn SchedulerQuerySource> {
+        self.0.get(query_id.0).map(|s| s.as_ref())
     }
 }
 
@@ -95,11 +179,22 @@ pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 }
 
+pub(crate) trait SchedulerQuerySource: std::fmt::Debug + Send + 'static {
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
+    fn query_future(
+        &self,
+        arg: &dyn Any,
+        replier: Option<Box<dyn Any + Send>>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+}
+
 /// A helper trait ensuring type safety of the registered event sources.
 ///
 /// It is necessary for the registered sources to implement this trait in order
 /// to provide a type safe registration interface.
-pub(crate) trait TypedSchedulerSource<T>: SchedulerEventSource {}
+pub(crate) trait TypedEventSource<T>: SchedulerEventSource {}
+pub(crate) trait TypedQuerySource<T, R>: SchedulerQuerySource {}
 
 /// A specialized event source struct used to register models' input methods.
 ///
@@ -146,7 +241,7 @@ where
     }
 }
 
-impl<M, F, S, T> TypedSchedulerSource<T> for InputSource<M, F, S, T>
+impl<M, F, S, T> TypedEventSource<T> for InputSource<M, F, S, T>
 where
     M: Model,
     F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
@@ -162,10 +257,10 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        serialize_event_arg::<T>(arg)
+        serialize_arg::<T>(arg)
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        deserialize_event_arg::<T>(arg)
+        deserialize_arg::<T>(arg)
     }
     fn event_future(
         &self,
@@ -198,7 +293,7 @@ where
     }
 }
 
-impl<T> TypedSchedulerSource<T> for EventSource<T> where
+impl<T> TypedEventSource<T> for EventSource<T> where
     T: Serialize + DeserializeOwned + Clone + Send + 'static
 {
 }
@@ -208,10 +303,10 @@ where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        serialize_event_arg::<T>(arg)
+        serialize_arg::<T>(arg)
     }
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        deserialize_event_arg::<T>(arg)
+        deserialize_arg::<T>(arg)
     }
     fn event_future(
         &self,
@@ -225,7 +320,7 @@ where
     }
 }
 
-impl<T> TypedSchedulerSource<T> for Arc<EventSource<T>> where
+impl<T> TypedEventSource<T> for Arc<EventSource<T>> where
     T: Serialize + DeserializeOwned + Clone + Send + 'static
 {
 }
@@ -249,19 +344,126 @@ where
     }
 }
 
+impl<T, R> TypedQuerySource<T, R> for QuerySource<T, R>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Send + 'static,
+{
+}
+impl<T, R> SchedulerQuerySource for QuerySource<T, R>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        serialize_arg::<T>(arg)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        deserialize_arg::<T>(arg)
+    }
+    fn query_future(
+        &self,
+        arg: &dyn Any,
+        replier: Option<Box<dyn Any + Send>>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let replier = replier.map(|r| *r.downcast::<ReplyWriter<R>>().unwrap());
+        QuerySource::query_future(self, arg.downcast_ref::<T>().unwrap().clone(), replier)
+    }
+}
+
+impl<T, R> TypedQuerySource<T, R> for Arc<QuerySource<T, R>>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Send + 'static,
+{
+}
+impl<T, R> SchedulerQuerySource for Arc<QuerySource<T, R>>
+where
+    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    R: Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        serialize_arg::<T>(arg)
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        deserialize_arg::<T>(arg)
+    }
+    fn query_future(
+        &self,
+        arg: &dyn Any,
+        replier: Option<Box<dyn Any + Send>>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let inner: &dyn SchedulerQuerySource = self.as_ref();
+        inner.query_future(arg, replier)
+    }
+}
+
+pub(crate) enum QueueItem {
+    Event(Event),
+    Query(Query),
+}
+impl QueueItem {
+    pub(crate) fn serialize(
+        &self,
+        registry: &SchedulerRegistry,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let serializable = match self {
+            QueueItem::Event(event) => {
+                SerializableQueueItem::Event(event.to_serializable(&registry.event_registry)?)
+            }
+            QueueItem::Query(query) => {
+                SerializableQueueItem::Query(query.to_serializable(&registry.query_registry)?)
+            }
+        };
+
+        bincode::serde::encode_to_vec(serializable, serialization_config()).map_err(|e| {
+            match self {
+                QueueItem::Event(event) => SaveError::EventSerializationError {
+                    event_id: event.event_id.0,
+                    cause: Box::new(e),
+                },
+                QueueItem::Query(query) => SaveError::QuerySerializationError {
+                    query_id: query.query_id.0,
+                    cause: Box::new(e),
+                },
+            }
+            .into()
+        })
+    }
+
+    pub(crate) fn deserialize(
+        data: &[u8],
+        registry: &SchedulerRegistry,
+    ) -> Result<Self, ExecutionError> {
+        let item: SerializableQueueItem =
+            bincode::serde::decode_from_slice(data, serialization_config())
+                .map_err(|e| RestoreError::QueueItemDeserializationError { cause: Box::new(e) })?
+                .0;
+
+        Ok(match item {
+            SerializableQueueItem::Event(event) => {
+                QueueItem::Event(Event::from_serializable(event, &registry.event_registry)?)
+            }
+            SerializableQueueItem::Query(query) => {
+                QueueItem::Query(Query::from_serializable(query, &registry.query_registry)?)
+            }
+        })
+    }
+}
+
 /// A possibly periodic, possibly cancellable event that can be scheduled on
 /// the event queue.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub(crate) struct Event {
-    pub source_id: SourceIdErased,
+    pub event_id: EventIdErased,
     pub arg: Box<dyn Any + Send>,
     pub period: Option<Duration>,
     pub key: Option<EventKey>,
 }
 impl Event {
-    pub(crate) fn new<T: Send + 'static>(source_id: &SourceId<T>, arg: T) -> Self {
+    pub(crate) fn new<T: Send + 'static>(event_id: &EventId<T>, arg: T) -> Self {
         Self {
-            source_id: source_id.into(),
+            event_id: event_id.into(),
             arg: Box::new(arg),
             period: None,
             key: None,
@@ -282,53 +484,37 @@ impl Event {
         self.key.as_ref().map(|k| k.is_cancelled()).unwrap_or(false)
     }
 
-    pub(crate) fn serialize(
+    fn to_serializable(
         &self,
-        registry: &SchedulerSourceRegistry,
-    ) -> Result<Vec<u8>, ExecutionError> {
+        registry: &SchedulerEventRegistry,
+    ) -> Result<SerializableEvent, ExecutionError> {
         let source = registry
-            .get(&self.source_id)
+            .get(&self.event_id)
             .ok_or(SaveError::EventNotFound {
-                source_id: self.source_id.0,
+                event_id: self.event_id.0,
             })?;
         let arg = source.serialize_arg(&*self.arg)?;
-
-        bincode::serde::encode_to_vec(
-            SerializableEvent {
-                source_id: self.source_id,
-                arg,
-                period: self.period,
-                key: self.key.clone(),
-            },
-            serialization_config(),
-        )
-        .map_err(|e| {
-            SaveError::EventSerializationError {
-                source_id: self.source_id.0,
-                cause: Box::new(e),
-            }
-            .into()
+        Ok(SerializableEvent {
+            event_id: self.event_id,
+            arg,
+            period: self.period,
+            key: self.key.clone(),
         })
     }
 
-    pub(crate) fn deserialize(
-        data: &[u8],
-        registry: &SchedulerSourceRegistry,
+    fn from_serializable(
+        mut event: SerializableEvent,
+        registry: &SchedulerEventRegistry,
     ) -> Result<Self, ExecutionError> {
-        let mut event: SerializableEvent =
-            bincode::serde::decode_from_slice(data, serialization_config())
-                .map_err(|e| RestoreError::EventDeserializationError { cause: Box::new(e) })?
-                .0;
-
         let source = registry
-            .get(&event.source_id)
+            .get(&event.event_id)
             .ok_or(RestoreError::EventNotFound {
-                source_id: event.source_id.0,
+                event_id: event.event_id.0,
             })?;
         let arg = source.deserialize_arg(&event.arg)?;
 
         Ok(Self {
-            source_id: event.source_id,
+            event_id: event.event_id,
             arg,
             period: event.period,
             key: event.key.take(),
@@ -336,18 +522,85 @@ impl Event {
     }
 }
 
+pub(crate) struct Query {
+    pub query_id: QueryIdErased,
+    pub arg: Box<dyn Any + Send>,
+    pub replier: Option<Box<dyn Any + Send>>,
+}
+impl Query {
+    pub(crate) fn new<T: Send + 'static, R: Send + 'static>(
+        query_id: &QueryId<T, R>,
+        arg: T,
+    ) -> (Self, ReplyReader<R>) {
+        let (tx, rx) = query_replier();
+
+        (
+            Self {
+                query_id: query_id.into(),
+                arg: Box::new(arg),
+                replier: Some(Box::new(tx)),
+            },
+            rx,
+        )
+    }
+    fn to_serializable(
+        &self,
+        registry: &SchedulerQueryRegistry,
+    ) -> Result<SerializableQuery, ExecutionError> {
+        let source = registry
+            .get(&self.query_id)
+            .ok_or(SaveError::QueryNotFound {
+                query_id: self.query_id.0,
+            })?;
+        let arg = source.serialize_arg(&*self.arg)?;
+        Ok(SerializableQuery {
+            query_id: self.query_id,
+            arg,
+        })
+    }
+
+    fn from_serializable(
+        query: SerializableQuery,
+        registry: &SchedulerQueryRegistry,
+    ) -> Result<Self, ExecutionError> {
+        let source = registry
+            .get(&query.query_id)
+            .ok_or(RestoreError::QueryNotFound {
+                query_id: query.query_id.0,
+            })?;
+        let arg = source.deserialize_arg(&query.arg)?;
+
+        Ok(Self {
+            query_id: query.query_id,
+            arg,
+            replier: None,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+enum SerializableQueueItem {
+    Event(SerializableEvent),
+    Query(SerializableQuery),
+}
+
 /// Local helper struct organizing event data for serialization.
 #[derive(Serialize, Deserialize)]
 struct SerializableEvent {
-    source_id: SourceIdErased,
+    event_id: EventIdErased,
     arg: Vec<u8>,
     period: Option<Duration>,
     key: Option<EventKey>,
 }
 
-fn serialize_event_arg<T: Serialize + Send + 'static>(
-    arg: &dyn Any,
-) -> Result<Vec<u8>, ExecutionError> {
+/// Local helper struct organizing event data for serialization.
+#[derive(Serialize, Deserialize)]
+struct SerializableQuery {
+    query_id: QueryIdErased,
+    arg: Vec<u8>,
+}
+
+fn serialize_arg<T: Serialize + Send + 'static>(arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
     let value = arg
         .downcast_ref::<T>()
         .ok_or(SaveError::ArgumentTypeMismatch {
@@ -361,7 +614,7 @@ fn serialize_event_arg<T: Serialize + Send + 'static>(
         .into()
     })
 }
-fn deserialize_event_arg<T: DeserializeOwned + Send + 'static>(
+fn deserialize_arg<T: DeserializeOwned + Send + 'static>(
     arg: &[u8],
 ) -> Result<Box<dyn Any + Send>, ExecutionError> {
     Ok(Box::new(
@@ -517,30 +770,6 @@ impl<'de> Deserialize<'de> for EventKey {
         }
 
         deserializer.deserialize_tuple_struct("EventKey", 2, KeyVisitor)
-    }
-}
-
-/// A one-shot action that can be processed immediately.
-///
-/// `Actions` can be created from an [`EventSource`]
-/// or [`QuerySource`](crate::ports::QuerySource). They can be used to process
-/// events and requests immediately with
-/// [`Simulation::process_action`](crate::simulation::Simulation::process_action).
-pub struct Action {
-    future: Pin<Box<dyn Future<Output = ()> + Send>>,
-}
-impl Action {
-    pub(crate) fn new(future: Pin<Box<dyn Future<Output = ()> + Send>>) -> Self {
-        Self { future }
-    }
-    pub(crate) fn consume(self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        self.future
-    }
-}
-
-impl std::fmt::Debug for Action {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Action").finish_non_exhaustive()
     }
 }
 

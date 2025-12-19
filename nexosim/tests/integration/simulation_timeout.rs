@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{BuildContext, Model, ProtoModel};
-use nexosim::ports::Output;
+use nexosim::ports::{EventSource, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -63,13 +63,19 @@ fn timeout_untriggered(num_threads: usize) {
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
+    let mut simu = SimInit::with_num_threads(num_threads);
+
+    let event_id = EventSource::new()
+        .connect(TestModel::input, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
         .init(t0)
         .unwrap();
 
-    assert!(simu.process_event(TestModel::input, (), addr).is_ok());
+    assert!(simu.process_event(&event_id, ()).is_ok());
 }
 
 fn timeout_triggered(num_threads: usize) {
@@ -85,14 +91,20 @@ fn timeout_triggered(num_threads: usize) {
     model.output.connect(TestModel::input, addr.clone());
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
+    let mut simu = SimInit::with_num_threads(num_threads);
+
+    let event_id = EventSource::new()
+        .connect(TestModel::input, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
         .init(t0)
         .unwrap();
 
     assert!(matches!(
-        simu.process_event(TestModel::input, (), addr),
+        simu.process_event(&event_id, ()),
         Err(ExecutionError::Timeout)
     ));
 

@@ -30,8 +30,8 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thread_guard::ThreadGuard;
 
-use nexosim::model::{schedulable, Context, Model};
-use nexosim::ports::{EventQueue, EventSinkReader, Output};
+use nexosim::model::{Context, Model, schedulable};
+use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
 use nexosim::simulation::{
     AutoEventKey, EventKey, ExecutionError, Mailbox, SimInit, SimulationError,
 };
@@ -245,8 +245,12 @@ fn main() -> Result<(), SimulationError> {
         .add_model(ticker, ticker_mbox, "ticker")
         .set_clock(AutoSystemClock::new());
 
-    let power_in_id = bench.link_input(Counter::power_in, counter_addr);
-    let switch_on_id = bench.link_input(Detector::switch_on, detector_addr);
+    let power_in_id = EventSource::new()
+        .connect(Counter::power_in, counter_addr)
+        .register(&mut bench);
+    let switch_on_id = EventSource::new()
+        .connect(Detector::switch_on, detector_addr)
+        .register(&mut bench);
 
     let mut simu = bench.init(t0)?;
 

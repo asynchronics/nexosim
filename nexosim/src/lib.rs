@@ -335,7 +335,7 @@
 //! #     }
 //! # }
 //! # use std::time::Duration;
-//! # use nexosim::ports::{EventQueue, EventSinkReader};
+//! # use nexosim::ports::{EventQueue, EventSinkReader, EventSource};
 //! # use nexosim::simulation::{Mailbox, SimInit};
 //! # use nexosim::time::MonotonicTime;
 //! # use models::{Delay, Multiplier};
@@ -356,14 +356,21 @@
 //! # let mut output_queue = output_queue.into_reader();
 //! # let input_address = multiplier1_mbox.address();
 //! # let t0 = MonotonicTime::EPOCH;
-//! # let mut simu = SimInit::new()
+//! #
+//! # let mut simu = SimInit::new();
+//! #
+//! # let input_id = EventSource::new()
+//! #     .connect(Multiplier::input, &input_address)
+//! #     .register(&mut simu);
+//! #
+//! # let mut simu = simu
 //! #     .add_model(multiplier1, multiplier1_mbox, "multiplier1")
 //! #     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //! #     .add_model(delay1, delay1_mbox, "delay1")
 //! #     .add_model(delay2, delay2_mbox, "delay2")
 //! #     .init(t0)?;
 //! // Send a value to the first multiplier.
-//! simu.process_event(Multiplier::input, 21.0, &input_address)?;
+//! simu.process_event(&input_id, 21.0)?;
 //!
 //! // The simulation is still at t0 so nothing is expected at the output of the
 //! // second delay gate.

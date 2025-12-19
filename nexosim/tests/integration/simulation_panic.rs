@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
-use nexosim::ports::Output;
+use nexosim::ports::{EventSource, Output};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -48,11 +48,15 @@ fn model_panic(num_threads: usize) {
     model0.countdown_out.connect(TestModel::countdown_in, addr);
     siminit = siminit.add_model(model0, mbox0, 0.to_string());
 
+    let event_id = EventSource::new()
+        .connect(TestModel::countdown_in, &addr0)
+        .register(&mut siminit);
+
     // Run the simulation.
     let t0 = MonotonicTime::EPOCH;
     let mut simu = siminit.init(t0).unwrap();
 
-    match simu.process_event(TestModel::countdown_in, INIT_COUNTDOWN, addr0) {
+    match simu.process_event(&event_id, INIT_COUNTDOWN) {
         Err(ExecutionError::Panic { model, payload }) => {
             let msg = payload.downcast_ref::<&str>().unwrap();
             let panicking_model_id = INIT_COUNTDOWN % MODEL_COUNT;

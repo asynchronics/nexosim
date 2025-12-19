@@ -47,7 +47,8 @@ fn map_execution_error(error: ExecutionError) -> Error {
         ExecutionError::Halted => ErrorCode::SimulationHalted,
         ExecutionError::Terminated => ErrorCode::SimulationTerminated,
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
-        ExecutionError::InvalidEventSourceId(_) => ErrorCode::EventSourceNotFound,
+        ExecutionError::InvalidEventId(_) => ErrorCode::EventSourceNotFound,
+        ExecutionError::InvalidQueryId(_) => ErrorCode::QuerySourceNotFound,
         ExecutionError::SaveError(_) => ErrorCode::SaveError,
         ExecutionError::RestoreError(_) => ErrorCode::RestoreError,
     };

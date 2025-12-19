@@ -29,7 +29,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{BuildContext, Model, ProtoModel};
-use nexosim::ports::{EventQueue, EventSinkReader, Output};
+use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -139,7 +139,9 @@ fn main() -> Result<(), SimulationError> {
     // Assembly and initialization.
     let mut bench = SimInit::new().add_model(assembly, assembly_mbox, "assembly");
 
-    let pulse_rate_source_id = bench.link_input(MotorAssembly::pulse_rate, &assembly_addr);
+    let pulse_rate_event_id = EventSource::new()
+        .connect(MotorAssembly::pulse_rate, &assembly_addr)
+        .register(&mut bench);
 
     let mut simu = bench.init(t0)?;
 
@@ -157,7 +159,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(Duration::from_secs(2), &pulse_rate_source_id, 10.0)
+        .schedule_event(Duration::from_secs(2), &pulse_rate_event_id, 10.0)
         .unwrap();
 
     // Advance simulation time to two next events.

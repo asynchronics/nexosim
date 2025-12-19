@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{schedulable, Context, InitializedModel, Model};
-use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, Output};
+use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, EventSource, Output};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 use nexosim_util::observable::{Observable, Observe};
@@ -190,7 +190,16 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH;
 
     // Assembly and initialization.
-    let mut simu = SimInit::new().add_model(proc, proc_mbox, "proc").init(t0)?;
+    let mut simu = SimInit::new().add_model(proc, proc_mbox, "proc");
+
+    let switch_power_event_id = EventSource::new()
+        .connect(Processor::switch_power, &proc_addr)
+        .register(&mut simu);
+    let process_event_id = EventSource::new()
+        .connect(Processor::process, &proc_addr)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0)?;
 
     // ----------
     // Simulation.
@@ -208,7 +217,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Switch processor on.
-    simu.process_event(Processor::switch_power, true, &proc_addr)?;
+    simu.process_event(&switch_power_event_id, true)?;
     expect(
         &mut mode,
         Some(ModeId::Idle),
@@ -220,7 +229,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Trigger processing.
-    simu.process_event(Processor::process, 100, &proc_addr)?;
+    simu.process_event(&process_event_id, 100)?;
     expect(
         &mut mode,
         Some(ModeId::Processing),
@@ -244,7 +253,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Trigger long processing.
-    simu.process_event(Processor::process, 100, &proc_addr)?;
+    simu.process_event(&process_event_id, 100)?;
     expect(
         &mut mode,
         Some(ModeId::Processing),
@@ -256,7 +265,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Trigger short processing, it cancels the previous one.
-    simu.process_event(Processor::process, 10, &proc_addr)?;
+    simu.process_event(&process_event_id, 10)?;
     expect(
         &mut mode,
         Some(ModeId::Processing),

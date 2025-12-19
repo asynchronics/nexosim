@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
-use nexosim::ports::{Output, Requestor};
+use nexosim::ports::{EventSource, Output, QuerySource, Requestor};
 use nexosim::simulation::{DeadlockInfo, ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -44,12 +44,15 @@ fn deadlock_on_mailbox_overflow(num_threads: usize) {
         .connect(TestModel::activate_output, addr.clone());
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, MODEL_NAME)
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads).add_model(model, mbox, MODEL_NAME);
 
-    match simu.process_event(TestModel::activate_output, (), addr) {
+    let event_id = EventSource::new()
+        .connect(TestModel::activate_output, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0).unwrap();
+
+    match simu.process_event(&event_id, ()) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
             // We expect only 1 deadlocked model.
             assert_eq!(deadlock_info.len(), 1);
@@ -79,12 +82,15 @@ fn deadlock_on_query_loopback(num_threads: usize) {
         .connect(TestModel::activate_requestor, addr.clone());
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, MODEL_NAME)
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads).add_model(model, mbox, MODEL_NAME);
 
-    match simu.process_query(TestModel::activate_requestor, (), addr) {
+    let query_id = QuerySource::new()
+        .connect(TestModel::activate_requestor, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0).unwrap();
+
+    match simu.process_query(&query_id, ()) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
             // We expect only 1 deadlocked model.
             assert_eq!(deadlock_info.len(), 1);
@@ -124,11 +130,15 @@ fn deadlock_on_transitive_query_loopback(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model1, mbox1, MODEL1_NAME)
-        .add_model(model2, mbox2, MODEL2_NAME)
-        .init(t0)
-        .unwrap();
+        .add_model(model2, mbox2, MODEL2_NAME);
 
-    match simu.process_query(TestModel::activate_requestor, (), addr1) {
+    let query_id = QuerySource::new()
+        .connect(TestModel::activate_requestor, &addr1)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0).unwrap();
+
+    match simu.process_query(&query_id, ()) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
             // We expect only 1 deadlocked model.
             assert_eq!(deadlock_info.len(), 1);
@@ -181,11 +191,15 @@ fn deadlock_on_multiple_query_loopback(num_threads: usize) {
     let mut simu = SimInit::with_num_threads(num_threads)
         .add_model(model0, mbox0, MODEL0_NAME)
         .add_model(model1, mbox1, MODEL1_NAME)
-        .add_model(model2, mbox2, MODEL2_NAME)
-        .init(t0)
-        .unwrap();
+        .add_model(model2, mbox2, MODEL2_NAME);
 
-    match simu.process_query(TestModel::activate_requestor, (), addr0) {
+    let query_id = QuerySource::new()
+        .connect(TestModel::activate_requestor, &addr0)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0).unwrap();
+
+    match simu.process_query(&query_id, ()) {
         Err(ExecutionError::Deadlock(deadlock_info)) => {
             // We expect 2 deadlocked models.
             assert_eq!(deadlock_info.len(), 2);

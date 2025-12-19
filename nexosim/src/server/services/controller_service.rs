@@ -130,7 +130,7 @@ impl ControllerService {
             .get(source_name)
             .map_err(map_endpoint_error)?;
 
-        let action = source.action(event).map_err(|e| {
+        let arg = source.deserialize_arg(event).map_err(|e| {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
@@ -142,7 +142,7 @@ impl ControllerService {
         })?;
 
         simulation
-            .process_action(action)
+            .process_event_erased(source, arg)
             .map_err(map_execution_error)
     }
 
@@ -170,7 +170,7 @@ impl ControllerService {
             .get(source_name)
             .map_err(map_endpoint_error)?;
 
-        let (action, mut receiver) = source.query(request).map_err(|e| {
+        let arg = source.deserialize_arg(request).map_err(|e| {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
@@ -181,11 +181,11 @@ impl ControllerService {
             )
         })?;
 
-        simulation
-            .process_action(action)
+        let mut rx = simulation
+            .process_query_erased(source, arg)
             .map_err(map_execution_error)?;
 
-        let replies = receiver.take_collect().ok_or_else(|| to_error(
+        let replies = rx.take_collect().ok_or_else(|| to_error(
             ErrorCode::SimulationBadQuery,
             "a reply to the query was expected but none was available; maybe the target model was not added to the simulation?".to_string(),
         ))?;

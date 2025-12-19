@@ -29,7 +29,7 @@
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
-use nexosim::ports::{EventQueue, EventSinkReader, Output, Requestor};
+use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output, Requestor};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -149,8 +149,13 @@ fn main() -> Result<(), SimulationError> {
         .add_model(psu, psu_mbox, "psu")
         .add_model(load1, load1_mbox, "load1")
         .add_model(load2, load2_mbox, "load2")
-        .add_model(load3, load3_mbox, "load3")
-        .init(t0)?;
+        .add_model(load3, load3_mbox, "load3");
+
+    let voltage_setting_event_id = EventSource::new()
+        .connect(PowerSupply::voltage_setting, &psu_addr)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0)?;
 
     // ----------
     // Simulation.
@@ -164,7 +169,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Vary the supply voltage, check the load and power supply consumptions.
     for voltage in [10.0, 15.0, 20.0] {
-        simu.process_event(PowerSupply::voltage_setting, voltage, &psu_addr)?;
+        simu.process_event(&voltage_setting_event_id, voltage)?;
 
         let v_square = voltage * voltage;
         assert!(same_power(load1_power.try_read().unwrap(), v_square / r1));
