@@ -175,7 +175,7 @@ impl SimInit {
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.scheduler_registry.event_registry.add(source)
+        self.scheduler_registry.add_event_source(source)
     }
 
     pub(crate) fn link_query_source<T, R>(&mut self, source: QuerySource<T, R>) -> QueryId<T, R>
@@ -183,7 +183,7 @@ impl SimInit {
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
-        self.scheduler_registry.query_registry.add(source)
+        self.scheduler_registry.add_query_source(source)
     }
 
     /// Returns a simulation clock reader.
@@ -253,18 +253,9 @@ impl SimInit {
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        // TODO refactor `get_event_source` usage?
-        let name: String = name.into();
-        // Check for duplicates before registering in the scheduler.
-        if self.event_source_registry.get(&name).is_ok() {
-            return Err(DuplicateEventSourceError { name, source });
-        }
-        let event_id = self.scheduler_registry.event_registry.add(source);
-
-        // FIXME Should not fail after the check above ?
-        self.event_source_registry.add(event_id, name).unwrap();
-
-        Ok(())
+        self.event_source_registry
+            .add(source, name.into(), &mut self.scheduler_registry)
+            .map_err(|(name, source)| DuplicateEventSourceError { name, source })
     }
 
     /// Adds an event source to the endpoint registry without requiring a
@@ -285,18 +276,9 @@ impl SimInit {
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        // TODO refactor `get_event_source` usage?
-        let name: String = name.into();
-        // Check for duplicates before registering in the scheduler.
-        if self.event_source_registry.get(&name).is_ok() {
-            return Err(DuplicateEventSourceError { name, source });
-        }
-        let event_id = self.scheduler_registry.event_registry.add(source);
-
-        // FIXME Should not fail after the check above ?
-        self.event_source_registry.add_raw(event_id, name).unwrap();
-
-        Ok(())
+        self.event_source_registry
+            .add_raw(source, name.into(), &mut self.scheduler_registry)
+            .map_err(|(name, source)| DuplicateEventSourceError { name, source })
     }
 
     /// Adds a query source to the endpoint registry.
@@ -312,18 +294,9 @@ impl SimInit {
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
-        // TODO see add_event_source remarks
-        let name: String = name.into();
-        if self.query_source_registry.get(&name).is_ok() {
-            return Err(DuplicateQuerySourceError { name, source });
-        }
-
-        let query_id = self.scheduler_registry.query_registry.add(source);
-
-        // FIXME Should not fail after the check above ?
-        self.query_source_registry.add(query_id, name).unwrap();
-
-        Ok(())
+        self.query_source_registry
+            .add(source, name.into(), &mut self.scheduler_registry)
+            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })
     }
 
     /// Adds a query source to the endpoint registry without requiring
@@ -340,17 +313,9 @@ impl SimInit {
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
-        // TODO see add_event_source remarks
-        let name: String = name.into();
-        if self.query_source_registry.get(&name).is_ok() {
-            return Err(DuplicateQuerySourceError { name, source });
-        }
-        let query_id = self.scheduler_registry.query_registry.add(source);
-
-        // FIXME Should not fail after the check above ?
-        self.query_source_registry.add_raw(query_id, name).unwrap();
-
-        Ok(())
+        self.query_source_registry
+            .add_raw(source, name.into(), &mut self.scheduler_registry)
+            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })
     }
 
     /// Adds an event sink to the endpoint registry.

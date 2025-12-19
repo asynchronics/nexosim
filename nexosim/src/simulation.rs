@@ -288,8 +288,7 @@ impl Simulation {
     {
         let source = self
             .scheduler_registry
-            .event_registry
-            .get(&(*event_id).into())
+            .get_event_source(&(*event_id).into())
             .ok_or(ExecutionError::InvalidEventId(event_id.0))?;
 
         let fut = source.event_future(&arg, None);
@@ -308,8 +307,7 @@ impl Simulation {
     ) -> Result<(), ExecutionError> {
         let source = self
             .scheduler_registry
-            .event_registry
-            .get(&event_source.get_event_id())
+            .get_event_source(&event_source.get_event_id())
             .ok_or(ExecutionError::InvalidEventId(
                 event_source.get_event_id().0,
             ))?;
@@ -337,8 +335,7 @@ impl Simulation {
 
         let source = self
             .scheduler_registry
-            .query_registry
-            .get(&(*query_id).into())
+            .get_query_source(&(*query_id).into())
             .ok_or(ExecutionError::InvalidQueryId(query_id.0))?;
 
         let fut = source.query_future(&arg, Some(Box::new(tx)));
@@ -362,8 +359,7 @@ impl Simulation {
     ) -> Result<Box<dyn ReplyReaderAny>, ExecutionError> {
         let source = self
             .scheduler_registry
-            .query_registry
-            .get(&query_source.get_query_id())
+            .get_query_source(&query_source.get_query_id())
             .ok_or(ExecutionError::InvalidQueryId(
                 query_source.get_query_id().0,
             ))?;
@@ -528,8 +524,7 @@ impl Simulation {
                     QueueItem::Event(event) => {
                         let source = self
                             .scheduler_registry
-                            .event_registry
-                            .get(&event.event_id)
+                            .get_event_source(&event.event_id)
                             .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
                         let fut = source.event_future(&*event.arg, event.key.clone());
@@ -542,9 +537,7 @@ impl Simulation {
                     QueueItem::Query(query) => {
                         let source = self
                             .scheduler_registry
-                            .query_registry
-                            .get(&query.query_id)
-                            // TODO add InvalidQuery error
+                            .get_query_source(&query.query_id)
                             .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
                         source.query_future(&*query.arg, query.replier)
                     }

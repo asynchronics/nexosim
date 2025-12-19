@@ -10,7 +10,8 @@ use ciborium;
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::simulation::{EventId, EventIdErased};
+use crate::ports::EventSource;
+use crate::simulation::{EventId, EventIdErased, SchedulerRegistry};
 
 #[cfg(feature = "server")]
 use crate::simulation::{Event, EventKey};
@@ -30,34 +31,51 @@ impl EventSourceRegistry {
     ///
     /// If the specified name is already used by another event source, the name
     /// of the source and the event source itself are returned in the error.
-    pub(crate) fn add<T>(&mut self, event_id: EventId<T>, name: String) -> Result<(), ()>
+    pub(crate) fn add<T>(
+        &mut self,
+        source: EventSource<T>,
+        name: String,
+        registry: &mut SchedulerRegistry,
+    ) -> Result<(), (String, EventSource<T>)>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.add_any(event_id, name, T::schema)
+        self.add_any(source, name, T::schema, registry)
     }
 
     /// Adds an event source without a schema definition to the registry.
     ///
     /// If the specified name is already used by another event source, the name
     /// of the source and the event source itself are returned in the error.
-    pub(crate) fn add_raw<T>(&mut self, event_id: EventId<T>, name: String) -> Result<(), ()>
+    pub(crate) fn add_raw<T>(
+        &mut self,
+        source: EventSource<T>,
+        name: String,
+        registry: &mut SchedulerRegistry,
+    ) -> Result<(), (String, EventSource<T>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.add_any(event_id, name, String::new)
+        self.add_any(source, name, String::new, registry)
     }
 
     // FIXME error type
     /// Adds an event source to the registry, possibly with an empty schema
     /// definition.
-    fn add_any<T, F>(&mut self, event_id: EventId<T>, name: String, schema_gen: F) -> Result<(), ()>
+    fn add_any<T, F>(
+        &mut self,
+        source: EventSource<T>,
+        name: String,
+        schema_gen: F,
+        registry: &mut SchedulerRegistry,
+    ) -> Result<(), (String, EventSource<T>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         F: Fn() -> MessageSchema + Send + Sync + 'static,
     {
-        match self.0.entry(name.clone()) {
+        match self.0.entry(name) {
             Entry::Vacant(s) => {
+                let event_id = registry.add_event_source(source);
                 let entry = EventSourceEntry {
                     inner: event_id,
                     schema_gen,
@@ -65,7 +83,7 @@ impl EventSourceRegistry {
                 s.insert(Box::new(entry));
                 Ok(())
             }
-            Entry::Occupied(_) => Err(()),
+            Entry::Occupied(e) => Err((e.key().clone(), source)),
         }
     }
 

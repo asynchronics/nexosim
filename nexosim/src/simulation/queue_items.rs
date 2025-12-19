@@ -89,8 +89,38 @@ impl<T, R> From<&QueryId<T, R>> for QueryIdErased {
 
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerRegistry {
-    pub(crate) event_registry: SchedulerEventRegistry,
-    pub(crate) query_registry: SchedulerQueryRegistry,
+    event_registry: SchedulerEventRegistry,
+    query_registry: SchedulerQueryRegistry,
+}
+impl SchedulerRegistry {
+    pub(crate) fn add_event_source<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    {
+        self.event_registry.add(source)
+    }
+    pub(crate) fn get_event_source(
+        &self,
+        event_id: &EventIdErased,
+    ) -> Option<&dyn SchedulerEventSource> {
+        self.event_registry.get(event_id)
+    }
+    pub(crate) fn add_query_source<T, R>(
+        &mut self,
+        source: impl TypedQuerySource<T, R>,
+    ) -> QueryId<T, R>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: Send + 'static,
+    {
+        self.query_registry.add(source)
+    }
+    pub(crate) fn get_query_source(
+        &self,
+        query_id: &QueryIdErased,
+    ) -> Option<&dyn SchedulerQuerySource> {
+        self.query_registry.get(query_id)
+    }
 }
 
 /// Scheduler event source registry.
@@ -103,7 +133,7 @@ pub(crate) struct SchedulerRegistry {
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerEventRegistry(Vec<Box<dyn SchedulerEventSource>>);
 impl SchedulerEventRegistry {
-    pub(crate) fn add<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
+    fn add<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
@@ -112,15 +142,15 @@ impl SchedulerEventRegistry {
         self.0.push(Box::new(source));
         event_id
     }
-    pub(crate) fn get(&self, source_id: &EventIdErased) -> Option<&dyn SchedulerEventSource> {
-        self.0.get(source_id.0).map(|s| s.as_ref())
+    fn get(&self, event_id: &EventIdErased) -> Option<&dyn SchedulerEventSource> {
+        self.0.get(event_id.0).map(|s| s.as_ref())
     }
 }
 
 #[derive(Default, Debug)]
 pub(crate) struct SchedulerQueryRegistry(Vec<Box<dyn SchedulerQuerySource>>);
 impl SchedulerQueryRegistry {
-    pub(crate) fn add<T, R>(&mut self, source: impl TypedQuerySource<T, R>) -> QueryId<T, R>
+    fn add<T, R>(&mut self, source: impl TypedQuerySource<T, R>) -> QueryId<T, R>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
@@ -130,8 +160,8 @@ impl SchedulerQueryRegistry {
         self.0.push(Box::new(source));
         query_id
     }
-    pub(crate) fn get(&self, source_id: &QueryIdErased) -> Option<&dyn SchedulerQuerySource> {
-        self.0.get(source_id.0).map(|s| s.as_ref())
+    fn get(&self, query_id: &QueryIdErased) -> Option<&dyn SchedulerQuerySource> {
+        self.0.get(query_id.0).map(|s| s.as_ref())
     }
 }
 

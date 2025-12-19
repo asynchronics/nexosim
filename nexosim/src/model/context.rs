@@ -525,7 +525,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        let id = self.scheduler_registry.event_registry.add(source);
+        let id = self.scheduler_registry.add_event_source(source);
         SchedulableId(id.0, PhantomData, PhantomData)
     }
 

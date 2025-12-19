@@ -258,7 +258,8 @@ mod tests {
 
     use std::collections::HashSet;
 
-    use crate::simulation::{EventId, QueryId};
+    use crate::ports::{EventSource, QuerySource};
+    use crate::simulation::{EventId, QueryId, SchedulerRegistry};
 
     #[derive(Default)]
     struct TestParams<'a> {
@@ -271,27 +272,44 @@ mod tests {
     }
 
     fn get_service(params: TestParams) -> InspectorService {
+        let mut scheduler_registry = SchedulerRegistry::default();
         let mut event_source_registry = EventSourceRegistry::default();
         for source in params.event_sources {
             event_source_registry
-                .add::<()>(EventId(0, std::marker::PhantomData), source.to_string())
+                .add::<()>(
+                    EventSource::new(),
+                    source.to_string(),
+                    &mut scheduler_registry,
+                )
                 .unwrap();
         }
         for source in params.raw_event_sources {
             event_source_registry
-                .add_raw::<()>(EventId(1, std::marker::PhantomData), source.to_string())
+                .add_raw::<()>(
+                    EventSource::new(),
+                    source.to_string(),
+                    &mut scheduler_registry,
+                )
                 .unwrap();
         }
 
         let mut query_source_registry = QuerySourceRegistry::default();
         for source in params.query_sources {
             query_source_registry
-                .add::<(), ()>(QueryId(0, std::marker::PhantomData), source.to_string())
+                .add::<(), ()>(
+                    QuerySource::new(),
+                    source.to_string(),
+                    &mut scheduler_registry,
+                )
                 .unwrap();
         }
         for source in params.raw_query_sources {
             query_source_registry
-                .add_raw::<(), ()>(QueryId(1, std::marker::PhantomData), source.to_string())
+                .add_raw::<(), ()>(
+                    QuerySource::new(),
+                    source.to_string(),
+                    &mut scheduler_registry,
+                )
                 .unwrap();
         }
 

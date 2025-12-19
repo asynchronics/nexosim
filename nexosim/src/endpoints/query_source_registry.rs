@@ -9,8 +9,8 @@ use ciborium;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::simulation::QueryId;
-use crate::simulation::QueryIdErased;
+use crate::ports::QuerySource;
+use crate::simulation::{QueryId, QueryIdErased, SchedulerRegistry};
 
 #[cfg(feature = "server")]
 use crate::ports::{ReplyReader, ReplyWriter};
@@ -32,24 +32,34 @@ impl QuerySourceRegistry {
     ///
     /// If the specified name is already used by another query source, the name
     /// of the query and the query source itself are returned in the error.
-    pub(crate) fn add<T, R>(&mut self, query_id: QueryId<T, R>, name: String) -> Result<(), ()>
+    pub(crate) fn add<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: String,
+        registry: &mut SchedulerRegistry,
+    ) -> Result<(), (String, QuerySource<T, R>)>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
-        self.add_any(query_id, name, || (T::schema(), R::schema()))
+        self.add_any(source, name, || (T::schema(), R::schema()), registry)
     }
 
     /// Adds a query source to the registry without a schema definition.
     ///
     /// If the specified name is already used by another query source, the name
     /// of the query and the query source itself are returned in the error.
-    pub(crate) fn add_raw<T, R>(&mut self, query_id: QueryId<T, R>, name: String) -> Result<(), ()>
+    pub(crate) fn add_raw<T, R>(
+        &mut self,
+        source: QuerySource<T, R>,
+        name: String,
+        registry: &mut SchedulerRegistry,
+    ) -> Result<(), (String, QuerySource<T, R>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
-        self.add_any(query_id, name, || (String::new(), String::new()))
+        self.add_any(source, name, || (String::new(), String::new()), registry)
     }
 
     // FIXME error type
@@ -57,10 +67,11 @@ impl QuerySourceRegistry {
     /// definition.
     fn add_any<T, R, F>(
         &mut self,
-        query_id: QueryId<T, R>,
+        source: QuerySource<T, R>,
         name: String,
         schema_gen: F,
-    ) -> Result<(), ()>
+        registry: &mut SchedulerRegistry,
+    ) -> Result<(), (String, QuerySource<T, R>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
@@ -68,6 +79,7 @@ impl QuerySourceRegistry {
     {
         match self.0.entry(name) {
             Entry::Vacant(s) => {
+                let query_id = registry.add_query_source(source);
                 let entry = QuerySourceEntry {
                     inner: query_id,
                     schema_gen,
@@ -76,7 +88,7 @@ impl QuerySourceRegistry {
 
                 Ok(())
             }
-            Entry::Occupied(_) => Err(()),
+            Entry::Occupied(e) => Err((e.key().clone(), source)),
         }
     }
 
