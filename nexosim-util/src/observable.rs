@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use nexosim::model::{Context, InitializedModel, Model};
-//! use nexosim::ports::{EventQueue, EventSinkReader, Output};
+//! use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
@@ -73,7 +73,13 @@
 //! let t0 = MonotonicTime::EPOCH;
 //!
 //! // Assembly and initialization.
-//! let mut simu = SimInit::new()
+//! let mut simu = SimInit::new();
+//!
+//! let pulse_id = EventSource::new()
+//!     .connect(Counter::pulse, &counter_addr)
+//!     .register(&mut simu);
+//!
+//! let mut simu = simu
 //!     .add_model(counter, counter_mbox, "counter")
 //!     .init(t0).unwrap();
 //!
@@ -85,7 +91,7 @@
 //! assert_eq!(count.try_read(), Some(INITIAL));
 //!
 //! // Count one pulse.
-//! simu.process_event(Counter::pulse, (), &counter_addr).unwrap();
+//! simu.process_event(&pulse_id, ()).unwrap();
 //! assert_eq!(count.try_read(), Some(INITIAL + 1));
 //! ```
 //!
@@ -100,7 +106,7 @@
 //! use serde::{Serialize, Deserialize};
 //!
 //! use nexosim::model::{schedulable, Context, InitializedModel, Model};
-//! use nexosim::ports::{EventQueue, EventSinkReader, Output};
+//! use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
@@ -211,7 +217,17 @@
 //! let t0 = MonotonicTime::EPOCH;
 //!
 //! // Assembly and initialization.
-//! let mut simu = SimInit::new()
+//! let mut simu = SimInit::new();
+//!
+//! let switch_power_id = EventSource::new()
+//!     .connect(Processor::switch_power, &proc_addr)
+//!     .register(&mut simu);
+//!
+//! let process_id = EventSource::new()
+//!     .connect(Processor::process, &proc_addr)
+//!     .register(&mut simu);
+//!
+//! let mut simu = simu
 //!     .add_model(proc, proc_mbox, "proc")
 //!     .init(t0).unwrap();
 //!
@@ -221,11 +237,11 @@
 //! assert_eq!(mode.read(), Some(ModeId::Off));
 //!
 //! // Switch processor on.
-//! simu.process_event(Processor::switch_power, true, &proc_addr).unwrap();
+//! simu.process_event(&switch_power_id, true).unwrap();
 //! assert_eq!(mode.read(), Some(ModeId::Idle));
 //!
 //! // Trigger processing.
-//! simu.process_event(Processor::process, 100, &proc_addr).unwrap();
+//! simu.process_event(&process_id, 100).unwrap();
 //! assert_eq!(mode.read(), Some(ModeId::Processing));
 //!
 //! // All data processed.
