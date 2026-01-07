@@ -381,8 +381,7 @@ enum SenderFutureState<R> {
 }
 
 /// An iterator over the replies to a broadcasted request.
-pub(crate) struct ReplyIterator<R>(vec::IntoIter<SenderFutureState<R>>);
-
+pub struct ReplyIterator<R>(vec::IntoIter<SenderFutureState<R>>);
 impl<R> Iterator for ReplyIterator<R> {
     type Item = R;
 
@@ -395,6 +394,12 @@ impl<R> Iterator for ReplyIterator<R> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
+    }
+}
+
+impl<R> std::fmt::Debug for ReplyIterator<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReplyIterator").finish_non_exhaustive()
     }
 }
 

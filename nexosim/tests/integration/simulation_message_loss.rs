@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
-use nexosim::ports::{Output, Requestor};
+use nexosim::ports::{EventSource, Output, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -40,12 +40,15 @@ fn event_loss(num_threads: usize) {
         .connect(TestModel::activate_output_twice, &bad_mbox);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads);
 
-    match simu.process_event(TestModel::activate_output_twice, (), addr) {
+    let event_id = EventSource::new()
+        .connect(TestModel::activate_output_twice, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+
+    match simu.process_event(&event_id, ()) {
         Err(ExecutionError::MessageLoss(msg_count)) => {
             assert_eq!(msg_count, 2);
         }
@@ -65,12 +68,15 @@ fn request_loss(num_threads: usize) {
         .connect(TestModel::activate_requestor_twice, &bad_mbox);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads).add_model(model, mbox, "");
 
-    match simu.process_event(TestModel::activate_requestor_twice, (), addr) {
+    let event_id = EventSource::new()
+        .connect(TestModel::activate_requestor_twice, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.init(t0).unwrap();
+
+    match simu.process_event(&event_id, ()) {
         Err(ExecutionError::MessageLoss(msg_count)) => {
             assert_eq!(msg_count, 1);
         }

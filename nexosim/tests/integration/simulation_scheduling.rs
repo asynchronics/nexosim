@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 #[cfg(not(miri))]
 use nexosim::model::Context;
 use nexosim::model::Model;
-use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, Output};
-use nexosim::simulation::{Mailbox, Scheduler, SimInit, Simulation, SourceId};
+use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, EventSource, Output};
+use nexosim::simulation::{EventId, Mailbox, Scheduler, SimInit, Simulation};
 use nexosim::time::MonotonicTime;
 
 const MT_NUM_THREADS: usize = 4;
@@ -46,7 +46,7 @@ where
 fn passthrough_bench<T>(
     num_threads: usize,
     t0: MonotonicTime,
-) -> (Simulation, Scheduler, SourceId<T>, EventQueueReader<T>)
+) -> (Simulation, Scheduler, EventId<T>, EventQueueReader<T>)
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
@@ -60,12 +60,14 @@ where
 
     let mut bench = SimInit::with_num_threads(num_threads).add_model(model, mbox, "");
 
-    let source_id = bench.link_input(PassThroughModel::input, &addr);
+    let event_id = EventSource::new()
+        .connect(PassThroughModel::input, &addr)
+        .register(&mut bench);
 
     let simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
 
-    (simu, scheduler, source_id, out_stream.into_reader())
+    (simu, scheduler, event_id, out_stream.into_reader())
 }
 
 fn schedule_events(num_threads: usize) {
@@ -296,7 +298,7 @@ fn timestamp_bench(
 ) -> (
     Simulation,
     Scheduler,
-    SourceId<()>,
+    EventId<()>,
     EventQueueReader<(Instant, SystemTime)>,
 ) {
     // Bench assembly.
@@ -311,12 +313,14 @@ fn timestamp_bench(
         .add_model(model, mbox, "")
         .set_clock(clock);
 
-    let source_id = bench.link_input(TimestampModel::trigger, &addr);
+    let event_id = EventSource::new()
+        .connect(TimestampModel::trigger, &addr)
+        .register(&mut bench);
 
     let simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
 
-    (simu, scheduler, source_id, stamp_stream.into_reader())
+    (simu, scheduler, event_id, stamp_stream.into_reader())
 }
 
 #[cfg(not(miri))]

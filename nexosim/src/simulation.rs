@@ -75,21 +75,24 @@
 //! Deadlocks are reported as [`ExecutionError::Deadlock`] errors, which
 //! identify all involved models and the count of unprocessed messages (events
 //! or requests) in their mailboxes.
-mod events;
 mod mailbox;
+mod queue_items;
 mod scheduler;
 mod sim_init;
 
-pub(crate) use scheduler::GlobalScheduler;
-
-pub use events::{Action, AutoEventKey, EventKey, SourceId};
 pub use mailbox::{Address, Mailbox};
+pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{InitError, SimInit};
 
-pub(crate) use events::{
-    EVENT_KEY_REG, Event, EventKeyReg, InputSource, SchedulerSourceRegistry, SourceIdErased,
+#[cfg(feature = "server")]
+pub(crate) use queue_items::Event;
+pub(crate) use queue_items::{
+    EVENT_KEY_REG, EventIdErased, EventKeyReg, InputSource, QueryIdErased, QueueItem,
+    SchedulerRegistry,
 };
+pub(crate) use scheduler::GlobalScheduler;
+pub(crate) use sim_init::{DuplicateEventSourceError, DuplicateQuerySourceError};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -106,14 +109,17 @@ use std::{panic, task};
 
 use pin_project::pin_project;
 use recycle_box::{RecycleBox, coerce_box};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use scheduler::{SchedulerKey, SchedulerQueue};
 
 use crate::channel::{ChannelObserver, SendError};
+#[cfg(feature = "server")]
+use crate::endpoints::{EventSourceEntryAny, QuerySourceEntryAny, ReplyReaderAny};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
-use crate::ports::{InputFn, ReplierFn};
+use crate::ports::{ReplierFn, query_replier};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -161,7 +167,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-    scheduler_registry: SchedulerSourceRegistry,
+    scheduler_registry: SchedulerRegistry,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -178,7 +184,7 @@ impl Simulation {
     pub(crate) fn new(
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
-        scheduler_registry: SchedulerSourceRegistry,
+        scheduler_registry: SchedulerRegistry,
         time: AtomicTime,
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
@@ -266,7 +272,7 @@ impl Simulation {
     }
 
     /// Processes a future immediately, blocking until completion.
-    pub(crate) fn process_future(
+    fn process_future(
         &mut self,
         fut: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ExecutionError> {
@@ -275,44 +281,40 @@ impl Simulation {
         self.run()
     }
 
-    /// Processes an action immediately, blocking until completion.
+    /// Processes an event immediately, blocking until completion.
     ///
     /// Simulation time remains unchanged.
-    pub fn process_action(&mut self, action: Action) -> Result<(), ExecutionError> {
-        self.process_future(action.consume())
+    pub fn process_event<T>(&mut self, event_id: &EventId<T>, arg: T) -> Result<(), ExecutionError>
+    where
+        T: Serialize + DeserializeOwned + Send + Clone + 'static,
+    {
+        let source = self
+            .scheduler_registry
+            .get_event_source(&(*event_id).into())
+            .ok_or(ExecutionError::InvalidEventId(event_id.0))?;
+
+        let fut = source.event_future(&arg, None);
+
+        self.process_future(fut)
     }
 
     /// Processes an event immediately, blocking until completion.
     ///
     /// Simulation time remains unchanged.
-    pub fn process_event<M, F, T, S>(
+    #[cfg(feature = "server")]
+    pub(crate) fn process_event_erased(
         &mut self,
-        func: F,
-        arg: T,
-        address: impl Into<Address<M>>,
-    ) -> Result<(), ExecutionError>
-    where
-        M: Model,
-        F: for<'a> InputFn<'a, M, T, S>,
-        T: Send + Clone + 'static,
-    {
-        let sender = address.into().0;
-        let fut = async move {
-            // Ignore send errors.
-            let _ = sender
-                .send(
-                    move |model: &mut M,
-                          scheduler,
-                          env,
-                          recycle_box: RecycleBox<()>|
-                          -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                        let fut = func.call(model, arg, scheduler, env);
+        event_source: &dyn EventSourceEntryAny,
+        arg: Box<dyn Any>,
+    ) -> Result<(), ExecutionError> {
+        let source = self
+            .scheduler_registry
+            .get_event_source(&event_source.get_event_id())
+            .ok_or(ExecutionError::InvalidEventId(
+                event_source.get_event_id().0,
+            ))?;
 
-                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
-                    },
-                )
-                .await;
-        };
+        let fut = source.event_future(arg.as_ref(), None);
 
         self.process_future(fut)
     }
@@ -322,7 +324,57 @@ impl Simulation {
     /// Simulation time remains unchanged. If the mailbox targeted by the query
     /// was not found in the simulation, an [`ExecutionError::BadQuery`] is
     /// returned.
-    pub fn process_query<M, F, T, R, S>(
+    pub fn process_query<T, R>(
+        &mut self,
+        query_id: &QueryId<T, R>,
+        arg: T,
+    ) -> Result<R, ExecutionError>
+    where
+        T: Send + Clone + 'static,
+        R: Send + 'static,
+    {
+        let (tx, rx) = query_replier();
+
+        let source = self
+            .scheduler_registry
+            .get_query_source(&(*query_id).into())
+            .ok_or(ExecutionError::InvalidQueryId(query_id.0))?;
+
+        let fut = source.query_future(&arg, Some(Box::new(tx)));
+        self.process_future(fut)?;
+
+        // If the future resolves successfully it should be
+        // guaranteed that the reply is present.
+        Ok(rx.read().unwrap().next().unwrap())
+    }
+
+    /// Processes a query immediately, blocking until completion.
+    ///
+    /// Simulation time remains unchanged. If the mailbox targeted by the query
+    /// was not found in the simulation, an [`ExecutionError::BadQuery`] is
+    /// returned.
+    #[cfg(feature = "server")]
+    pub(crate) fn process_query_erased(
+        &mut self,
+        query_source: &dyn QuerySourceEntryAny,
+        arg: Box<dyn Any>,
+    ) -> Result<Box<dyn ReplyReaderAny>, ExecutionError> {
+        let source = self
+            .scheduler_registry
+            .get_query_source(&query_source.get_query_id())
+            .ok_or(ExecutionError::InvalidQueryId(
+                query_source.get_query_id().0,
+            ))?;
+
+        let (tx, rx) = query_source.replier();
+
+        let fut = source.query_future(arg.as_ref(), Some(tx));
+        self.process_future(fut)?;
+        Ok(rx)
+    }
+
+    // TODO used for serialization / deserialization only - find a way to remove it
+    pub(crate) fn process_replier_fn<M, F, T, R, S>(
         &mut self,
         func: F,
         arg: T,
@@ -436,8 +488,12 @@ impl Simulation {
         let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
             loop {
                 match scheduler_queue.peek() {
-                    Some((&key, event)) if key.0 <= upper_time_bound => {
-                        if !event.is_cancelled() {
+                    Some((&key, item)) if key.0 <= upper_time_bound => {
+                        let is_cancelled = match item {
+                            QueueItem::Event(event) => event.is_cancelled(),
+                            QueueItem::Query(_) => false,
+                        };
+                        if !is_cancelled {
                             break Some(key);
                         }
                         // Discard cancelled actions.
@@ -464,16 +520,30 @@ impl Simulation {
             // might be not worth it.
             let mut action_seq = SeqFuture::new();
             loop {
-                let ((time, channel_id), event) = scheduler_queue.pull().unwrap();
-                let source = self
-                    .scheduler_registry
-                    .get(&event.source_id)
-                    .ok_or(ExecutionError::InvalidEventSourceId(event.source_id.0))?;
-                let fut = source.event_future(&*event.arg, event.key.clone());
+                let ((time, channel_id), item) = scheduler_queue.pull().unwrap();
 
-                if let Some(period) = event.period {
-                    scheduler_queue.insert((time + period, channel_id), event);
-                }
+                let fut = match item {
+                    QueueItem::Event(event) => {
+                        let source = self
+                            .scheduler_registry
+                            .get_event_source(&event.event_id)
+                            .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
+
+                        let fut = source.event_future(&*event.arg, event.key.clone());
+                        if let Some(period) = event.period {
+                            scheduler_queue
+                                .insert((time + period, channel_id), QueueItem::Event(event));
+                        }
+                        fut
+                    }
+                    QueueItem::Query(query) => {
+                        let source = self
+                            .scheduler_registry
+                            .get_query_source(&query.query_id)
+                            .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
+                        source.query_future(&*query.arg, query.replier)
+                    }
+                };
 
                 action_seq.push(fut);
                 next_key = peek_next_key(&mut scheduler_queue);
@@ -631,7 +701,7 @@ impl Simulation {
         for entry in deserialized {
             scheduler_queue.insert(
                 entry.0,
-                Event::deserialize(&entry.1, &self.scheduler_registry)?,
+                QueueItem::deserialize(&entry.1, &self.scheduler_registry)?,
             );
         }
         Ok(())
@@ -763,7 +833,14 @@ pub enum SaveError {
     /// Failed attempt to serialize an event.
     EventSerializationError {
         /// Event's sourceId.
-        source_id: usize,
+        event_id: usize,
+        /// Underlying serialization error.
+        cause: Box<dyn Error + Send>,
+    },
+    /// Failed attempt to serialize an event.
+    QuerySerializationError {
+        /// Query's sourceId.
+        query_id: usize,
         /// Underlying serialization error.
         cause: Box<dyn Error + Send>,
     },
@@ -780,7 +857,12 @@ pub enum SaveError {
     /// Failed attempt to save an event with an unknown id.
     EventNotFound {
         /// Event's sourceId.
-        source_id: usize,
+        event_id: usize,
+    },
+    /// Failed attempt to save a query with an unknown id.
+    QueryNotFound {
+        /// Query's sourceId.
+        query_id: usize,
     },
     /// Argument data downcasting to a concrete type has failed.
     ArgumentTypeMismatch {
@@ -802,8 +884,11 @@ impl fmt::Display for SaveError {
             Self::ModelSerializationError {
                 name, type_name, ..
             } => write!(f, "cannot serialize model {name}: {type_name}"),
-            Self::EventSerializationError { source_id, .. } => {
-                write!(f, "cannot serialize event {source_id}")
+            Self::EventSerializationError { event_id, .. } => {
+                write!(f, "cannot serialize event {event_id}")
+            }
+            Self::QuerySerializationError { query_id, .. } => {
+                write!(f, "cannot serialize query {query_id}")
             }
             Self::SchedulerQueueSerializationError { .. } => {
                 f.write_str("cannot serialize scheduler queue")
@@ -811,8 +896,11 @@ impl fmt::Display for SaveError {
             Self::SimulationStateSerializationError { .. } => {
                 f.write_str("cannot serialize simulation state")
             }
-            Self::EventNotFound { source_id } => {
-                write!(f, "serialized event (id {source_id}) cannot be found")
+            Self::EventNotFound { event_id } => {
+                write!(f, "serialized event (id {event_id}) cannot be found")
+            }
+            Self::QueryNotFound { query_id } => {
+                write!(f, "serialized query (id {query_id}) cannot be found")
             }
             Self::ArgumentTypeMismatch { type_name } => write!(
                 f,
@@ -830,9 +918,11 @@ impl Error for SaveError {
             Self::ConfigSerializationError { cause } => Some(cause.as_ref()),
             Self::ModelSerializationError { cause, .. } => Some(cause.as_ref()),
             Self::EventSerializationError { cause, .. } => Some(cause.as_ref()),
+            Self::QuerySerializationError { cause, .. } => Some(cause.as_ref()),
             Self::SchedulerQueueSerializationError { cause } => Some(cause.as_ref()),
             Self::SimulationStateSerializationError { cause } => Some(cause.as_ref()),
             Self::EventNotFound { .. } => None,
+            Self::QueryNotFound { .. } => None,
             Self::ArgumentTypeMismatch { .. } => None,
             Self::ArgumentSerializationError { cause, .. } => Some(cause.as_ref()),
         }
@@ -863,8 +953,8 @@ pub enum RestoreError {
         /// Underlying serialization error.
         cause: Box<dyn Error + Send>,
     },
-    /// Failed attempt to deserialize an event.
-    EventDeserializationError {
+    /// Failed attempt to deserialize a queue item.
+    QueueItemDeserializationError {
         /// Underlying deserialization error.
         cause: Box<dyn Error + Send>,
     },
@@ -881,7 +971,12 @@ pub enum RestoreError {
     /// Failed attempt to restore an event with an unknown id.
     EventNotFound {
         /// Event's sourceId
-        source_id: usize,
+        event_id: usize,
+    },
+    /// Failed attempt to restore a query with an unknown id.
+    QueryNotFound {
+        /// Query's sourceId
+        query_id: usize,
     },
     /// Failed attempt to deserialize an event argument.
     ArgumentDeserializationError {
@@ -901,15 +996,20 @@ impl fmt::Display for RestoreError {
             Self::ModelSerializationError {
                 name, type_name, ..
             } => write!(f, "cannot serialize model {name}: {type_name}"),
-            Self::EventDeserializationError { .. } => f.write_str("cannot deserialize an event"),
+            Self::QueueItemDeserializationError { .. } => {
+                f.write_str("cannot deserialize queue item")
+            }
             Self::SchedulerQueueDeserializationError { .. } => {
                 f.write_str("cannot deserialize scheduler queue")
             }
             Self::SimulationStateDeserializationError { .. } => {
                 f.write_str("cannot deserialize simulation state")
             }
-            Self::EventNotFound { source_id } => {
-                write!(f, "deserialized event (id {source_id}) cannot be found")
+            Self::EventNotFound { event_id } => {
+                write!(f, "deserialized event (id {event_id}) cannot be found")
+            }
+            Self::QueryNotFound { query_id } => {
+                write!(f, "deserialized query (id {query_id}) cannot be found")
             }
             Self::ArgumentDeserializationError { type_name, .. } => {
                 write!(
@@ -926,10 +1026,11 @@ impl Error for RestoreError {
             Self::ConfigMissing => None,
             Self::ModelDeserializationError { cause, .. } => Some(cause.as_ref()),
             Self::ModelSerializationError { cause, .. } => Some(cause.as_ref()),
-            Self::EventDeserializationError { cause, .. } => Some(cause.as_ref()),
+            Self::QueueItemDeserializationError { cause, .. } => Some(cause.as_ref()),
             Self::SchedulerQueueDeserializationError { cause } => Some(cause.as_ref()),
             Self::SimulationStateDeserializationError { cause } => Some(cause.as_ref()),
             Self::EventNotFound { .. } => None,
+            Self::QueryNotFound { .. } => None,
             Self::ArgumentDeserializationError { cause, .. } => Some(cause.as_ref()),
         }
     }
@@ -1020,7 +1121,9 @@ pub enum ExecutionError {
     /// This is a non-fatal error.
     InvalidDeadline(MonotonicTime),
     /// A non-existent event source identifier has been used.
-    InvalidEventSourceId(usize),
+    InvalidEventId(usize),
+    /// A non-existent query source identifier has been used.
+    InvalidQueryId(usize),
     /// Simulation serialization has failed.
     SaveError(SaveError),
     /// Simulation deserialization has failed.
@@ -1089,7 +1192,8 @@ impl fmt::Display for ExecutionError {
                     "the specified deadline ({time}) lies in the past of the current simulation time"
                 )
             }
-            Self::InvalidEventSourceId(e) => write!(f, "event source with identifier '{e}' was not found"),
+            Self::InvalidEventId(e) => write!(f, "event source with identifier '{e}' was not found"),
+            Self::InvalidQueryId(e) => write!(f, "query source with identifier '{e}' was not found"),
             Self::SaveError(o) => write!(f, "saving the simulation state has failed: {o}"),
             Self::RestoreError(o) => write!(f, "restoring the simulation state has failed: {o}"),
         }
@@ -1167,7 +1271,7 @@ pub(crate) fn add_model<P>(
     mailbox: Mailbox<P::Model>,
     name: String,
     scheduler: GlobalScheduler,
-    scheduler_registry: &mut SchedulerSourceRegistry,
+    scheduler_registry: &mut SchedulerRegistry,
     executor: &Executor,
     abort_signal: &Signal,
     registered_models: &mut Vec<RegisteredModel>,
@@ -1195,6 +1299,7 @@ pub(crate) fn add_model<P>(
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
     let model_id = ModelId::new(registered_models.len());
+
     registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
 
     let cx = Context::new(name, scheduler, address, model_id.0, model_registry);

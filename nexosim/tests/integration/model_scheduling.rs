@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, Output};
+use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -37,12 +37,15 @@ fn model_schedule_event(num_threads: usize) {
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads);
 
-    simu.process_event(TestModel::trigger, (), addr).unwrap();
+    let event_id = EventSource::new()
+        .connect(TestModel::trigger, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.process_event(&event_id, ()).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
     assert!(output.try_read().is_some());
@@ -151,12 +154,15 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads);
 
-    simu.process_event(TestModel::trigger, (), addr).unwrap();
+    let event_id = EventSource::new()
+        .connect(TestModel::trigger, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.process_event(&event_id, ()).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(1));
     assert_eq!(output.try_read(), Some(1));
@@ -201,12 +207,15 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads);
 
-    simu.process_event(TestModel::trigger, (), addr).unwrap();
+    let event_id = EventSource::new()
+        .connect(TestModel::trigger, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.process_event(&event_id, ()).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
     assert_eq!(output.try_read(), Some(1));
@@ -246,12 +255,15 @@ fn model_schedule_periodic_event(num_threads: usize) {
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads);
 
-    simu.process_event(TestModel::trigger, (), addr).unwrap();
+    let event_id = EventSource::new()
+        .connect(TestModel::trigger, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.process_event(&event_id, ()).unwrap();
 
     // Move to the next events at t0 + 2s + k*3s.
     for k in 0..10 {
@@ -300,12 +312,15 @@ fn model_cancel_periodic_event(num_threads: usize) {
     let addr = mbox.address();
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads)
-        .add_model(model, mbox, "")
-        .init(t0)
-        .unwrap();
+    let mut simu = SimInit::with_num_threads(num_threads);
 
-    simu.process_event(TestModel::trigger, (), addr).unwrap();
+    let event_id = EventSource::new()
+        .connect(TestModel::trigger, &addr)
+        .register(&mut simu);
+
+    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.process_event(&event_id, ()).unwrap();
 
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));

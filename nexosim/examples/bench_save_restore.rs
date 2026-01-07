@@ -33,8 +33,10 @@
 use std::time::Duration;
 
 use nexosim::endpoints::Endpoints;
-use nexosim::ports::{EventQueue, EventSource, QuerySource};
-use nexosim::simulation::{InitError, Mailbox, SimInit, Simulation, SimulationError};
+use nexosim::ports::{EventQueue, EventSinkReader, EventSource, QuerySource};
+use nexosim::simulation::{
+    EventId, InitError, Mailbox, QueryId, SimInit, Simulation, SimulationError,
+};
 use nexosim::time::MonotonicTime;
 
 mod espresso_machine;
@@ -69,6 +71,9 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
         .connect(Controller::water_sense, &controller_mbox);
     pump.flow_rate.connect(Tank::set_flow_rate, &tank_mbox);
 
+    // Bench assembly.
+    let mut bench = SimInit::new();
+
     // Sinks.
 
     // Controller.
@@ -83,34 +88,31 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
     let water_sense = EventQueue::new_open();
     tank.water_sense.connect_sink(&water_sense);
 
-    // Sources.
-
     // Controller.
-    let mut brew_time = EventSource::new();
-    brew_time.connect(Controller::brew_time, &controller_mbox);
+    EventSource::new()
+        .connect(Controller::brew_time, &controller_mbox)
+        .add_endpoint(&mut bench, "brew_time")?;
 
-    let mut brew_cmd = EventSource::new();
-    brew_cmd.connect(Controller::brew_cmd, &controller_mbox);
+    EventSource::new()
+        .connect(Controller::brew_cmd, &controller_mbox)
+        .add_endpoint(&mut bench, "brew_cmd")?;
 
     // Tank.
-    let mut fill = EventSource::new();
-    fill.connect(Tank::fill, &tank_mbox);
+    EventSource::new()
+        .connect(Tank::fill, &tank_mbox)
+        .add_endpoint(&mut bench, "fill")?;
 
-    let mut volume = QuerySource::new();
-    volume.connect(Tank::volume, &tank_mbox);
+    QuerySource::new()
+        .connect(Tank::volume, &tank_mbox)
+        .add_endpoint(&mut bench, "volume")?;
 
-    // Bench assembly.
-    let bench = SimInit::new()
+    bench = bench
         .add_model(controller, controller_mbox, "controller")
         .add_model(pump, pump_mbox, "pump")
         .add_model(tank, tank_mbox, "tank")
         .add_event_sink(pump_cmd.into_reader(), "pump_cmd")?
         .add_event_sink(flow_rate.into_reader(), "flow_rate")?
-        .add_event_sink(water_sense.into_reader(), "water_sense")?
-        .add_event_source(brew_time, "brew_time")?
-        .add_event_source(brew_cmd, "brew_cmd")?
-        .add_event_source(fill, "fill")?
-        .add_query_source(volume, "volume")?;
+        .add_event_sink(water_sense.into_reader(), "water_sense")?;
 
     Ok(bench)
 }
@@ -122,33 +124,26 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
 /// managed from a remote client.
 fn run_simulation(
     mut simu: Simulation,
-    mut registry: Endpoints,
+    registry: Endpoints,
     mut t: MonotonicTime,
+    flow_rate: &mut Box<dyn EventSinkReader<f64>>,
 ) -> Result<(), SimulationError> {
     let scheduler = simu.scheduler();
 
-    // Sinks used in simulation.
-    let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
-
     // Sources used in simulation.
-    let brew_cmd = registry.take_event_source::<()>("brew_cmd").unwrap();
-    let brew_time = registry.take_event_source::<Duration>("brew_time").unwrap();
-    let fill = registry.take_event_source::<f64>("fill").unwrap();
-    let volume = registry.take_query_source::<(), f64>("volume").unwrap();
-
-    // Source IDs for scheduling.
-    let brew_source_id = registry.get_event_source_id::<()>("brew_cmd").unwrap();
+    let brew_cmd: EventId<()> = registry.get_event_source_id("brew_cmd").unwrap();
+    let brew_time: EventId<Duration> = registry.get_event_source_id("brew_time").unwrap();
+    let fill: EventId<f64> = registry.get_event_source_id("fill").unwrap();
+    let volume: QueryId<(), f64> = registry.get_query_source_id("volume").unwrap();
 
     // Check volume.
-    let (volume_action, mut volume_reply) = volume.query(());
-    simu.process_action(volume_action)?;
-    assert_eq!(volume_reply.take().unwrap().next(), Some(0.0013875));
+    assert_eq!(simu.process_query(&volume, ()).unwrap(), 0.0013875);
 
     // Drink too much coffee.
     let volume_per_shot = PUMP_FLOW_RATE * Controller::DEFAULT_BREW_TIME.as_secs_f64();
     let shots_per_tank = (INIT_TANK_VOLUME / volume_per_shot) as u64; // YOLO--who cares about floating-point rounding errors?
     for _ in 0..(shots_per_tank - 1) {
-        simu.process_action(brew_cmd.action(()))?;
+        simu.process_event(&brew_cmd, ())?;
         assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
         simu.step()?;
         t += Controller::DEFAULT_BREW_TIME;
@@ -157,24 +152,25 @@ fn run_simulation(
     }
 
     // Check that the tank becomes empty before the completion of the next shot.
-    simu.process_action(brew_cmd.action(()))?;
+    simu.process_event(&brew_cmd, ())?;
     simu.step()?;
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
-    assert_eq!(flow_rate.try_read(), Some(0.0));
-    let (volume_action, mut volume_reply) = volume.query(());
-    simu.process_action(volume_action)?;
-    assert_eq!(volume_reply.take().unwrap().next(), Some(0.0));
+    assert_eq!(
+        std::iter::from_fn(|| flow_rate.try_read()).last(),
+        Some(0.0)
+    );
+    assert_eq!(simu.process_query(&volume, ()).unwrap(), 0.0);
 
     // Try to brew another shot while the tank is still empty.
-    simu.process_action(brew_cmd.action(()))?;
+    simu.process_event(&brew_cmd, ())?;
     assert!(flow_rate.try_read().is_none());
 
     // Change the brew time and fill up the tank.
     let brew_t = Duration::new(30, 0);
-    simu.process_action(brew_time.action(brew_t))?;
-    simu.process_action(fill.action(1.0e-3))?;
-    simu.process_action(brew_cmd.action(()))?;
+    simu.process_event(&brew_time, brew_t)?;
+    simu.process_event(&fill, 1.0e-3)?;
+    simu.process_event(&brew_cmd, ())?;
     assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
@@ -184,9 +180,9 @@ fn run_simulation(
 
     // Interrupt the brew after 15s by pressing again the brew button.
     scheduler
-        .schedule_event(Duration::from_secs(15), &brew_source_id, ())
+        .schedule_event(Duration::from_secs(15), &brew_cmd, ())
         .unwrap();
-    simu.process_action(brew_cmd.action(()))?;
+    simu.process_event(&brew_cmd, ())?;
     assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
@@ -208,7 +204,7 @@ fn main() -> Result<(), SimulationError> {
     let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
 
     // Sources used in simulation.
-    let brew_cmd = registry.take_event_source::<()>("brew_cmd").unwrap();
+    let brew_cmd: EventId<()> = registry.get_event_source_id("brew_cmd").unwrap();
 
     // ----------
     // Simulation.
@@ -219,7 +215,7 @@ fn main() -> Result<(), SimulationError> {
     assert_eq!(simu.time(), t);
 
     // Brew one espresso shot with the default brew time.
-    simu.process_action(brew_cmd.action(()))?;
+    simu.process_event(&brew_cmd, ())?;
     assert_eq!(flow_rate.try_read(), Some(PUMP_FLOW_RATE));
 
     simu.step()?;
@@ -234,8 +230,12 @@ fn main() -> Result<(), SimulationError> {
 
     // Run the rest of the simulation twice: the second time from the saved
     // state.
-    run_simulation(simu, registry, t)?;
+    run_simulation(simu, registry, t, &mut flow_rate)?;
 
-    let (simu, registry) = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?.restore(&state[..])?;
-    run_simulation(simu, registry, saved_time)
+    let (simu, mut registry) =
+        build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?.restore(&state[..])?;
+    // Extract the sink again as the previous bench instance is dropped.
+    let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
+
+    run_simulation(simu, registry, saved_time, &mut flow_rate)
 }

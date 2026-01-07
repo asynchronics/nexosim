@@ -116,6 +116,7 @@ mod tests {
     use crate::{
         self as nexosim,
         model::Model,
+        ports::EventSource,
         simulation::{Mailbox, SimInit},
     };
 
@@ -136,14 +137,16 @@ mod tests {
         let t0 = MonotonicTime::EPOCH;
         let mut bench = SimInit::with_num_threads(num_threads).add_model(model, mbox, "test");
 
-        let source_id = bench.link_input(TestModel::input, &addr);
+        let event_id = EventSource::new()
+            .connect(TestModel::input, &addr)
+            .register(&mut bench);
         let reader = bench.clock_reader();
 
         let mut simu = bench.init(t0).unwrap();
         let scheduler = simu.scheduler();
 
         scheduler
-            .schedule_event(Duration::from_millis(500), &source_id, ())
+            .schedule_event(Duration::from_millis(500), &event_id, ())
             .unwrap();
 
         assert_eq!(reader.time(), simu.time());

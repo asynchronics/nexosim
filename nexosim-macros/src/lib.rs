@@ -1,11 +1,11 @@
 use proc_macro::TokenStream;
-use quote::{quote, quote_token, ToTokens};
+use quote::{ToTokens, quote, quote_token};
 use syn::{
+    Expr, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, ItemType, Meta, Path,
+    PathArguments, PathSegment, Signature, Token, Type, TypeTuple,
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
-    Expr, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, ItemType, Meta, Path,
-    PathArguments, PathSegment, Signature, Token, Type, TypeTuple,
 };
 
 const INIT_ATTR: &str = "init";
@@ -83,7 +83,7 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
 
     // Generic types cannot be used in a const context.
     // Therefore we are not able to use our custom error message.
-    let gen = if !is_generic {
+    let tokens = if !is_generic {
         quote! {
             {
                 // Call a hidden method in the array type definition
@@ -97,7 +97,7 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
     } else {
         quote! {&#path}
     };
-    Ok(gen.into())
+    Ok(tokens.into())
 }
 
 #[allow(non_snake_case)]
@@ -118,7 +118,7 @@ fn impl_model(ast: &mut syn::ItemImpl, env: ItemType) -> Result<TokenStream, syn
     let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
 
     let registered_methods = get_registered_method_paths(&schedulables);
-    let mut gen =
+    let mut tokens =
         get_impl_model_trait(name, &env, &ast.generics, init, restore, registered_methods);
     let hidden_methods = get_hidden_method_impls(&schedulables);
 
@@ -126,13 +126,13 @@ fn impl_model(ast: &mut syn::ItemImpl, env: ItemType) -> Result<TokenStream, syn
     let (impl_generics, _, where_clause) = ast.generics.split_for_impl();
 
     // Write hidden methods block.
-    gen.extend(quote! {
+    tokens.extend(quote! {
         impl #impl_generics #name #where_clause {
             #( #hidden_methods )*
         }
     });
 
-    Ok(gen.into())
+    Ok(tokens.into())
 }
 
 /// Checks whether Env type is provided by the user.
@@ -378,7 +378,7 @@ fn collect_nexosim_attributes(f: &mut ImplItemFn) -> Result<Vec<&'static str>, s
                 return Err(syn::Error::new_spanned(
                     &attr.meta,
                     "invalid `nexosim` attribute!",
-                ))
+                ));
             }
         }
     }

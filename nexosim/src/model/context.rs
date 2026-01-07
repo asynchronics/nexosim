@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::executor::{Executor, Signal};
 use crate::ports::InputFn;
 use crate::simulation::{
-    self, Address, EventKey, GlobalScheduler, InputSource, Mailbox, SchedulerSourceRegistry,
-    SchedulingError, SourceId, SourceIdErased,
+    self, Address, EventId, EventIdErased, EventKey, GlobalScheduler, InputSource, Mailbox,
+    SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -472,7 +472,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     mailbox: &'a Mailbox<P::Model>,
     name: &'a String,
     scheduler: &'a GlobalScheduler,
-    scheduler_registry: &'a mut SchedulerSourceRegistry,
+    scheduler_registry: &'a mut SchedulerRegistry,
     executor: &'a Executor,
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
@@ -486,7 +486,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         mailbox: &'a Mailbox<P::Model>,
         name: &'a String,
         scheduler: &'a GlobalScheduler,
-        scheduler_registry: &'a mut SchedulerSourceRegistry,
+        scheduler_registry: &'a mut SchedulerRegistry,
         executor: &'a Executor,
         abort_signal: &'a Signal,
         registered_models: &'a mut Vec<RegisteredModel>,
@@ -525,7 +525,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         S: Send + Sync + 'static,
     {
         let source = InputSource::new(func, self.address().clone());
-        let id = self.scheduler_registry.add(source);
+        let id = self.scheduler_registry.add_event_source(source);
         SchedulableId(id.0, PhantomData, PhantomData)
     }
 
@@ -596,11 +596,11 @@ impl<M: Model<Env = ()>> Context<M> {
 /// basically its order of appearance in the model's impl block) to obtain a
 /// valid `SchedulerRegistry` entry.
 #[derive(Debug, Default)]
-pub struct ModelRegistry(Vec<SourceIdErased>);
+pub struct ModelRegistry(Vec<EventIdErased>);
 impl ModelRegistry {
     #[doc(hidden)]
     pub fn add<M: Model, T>(&mut self, schedulable_id: SchedulableId<M, T>) {
-        self.0.push(SourceIdErased(schedulable_id.0));
+        self.0.push(EventIdErased(schedulable_id.0));
     }
     pub(crate) fn get<M: Model, T>(&self, idx: usize) -> SchedulableId<M, T> {
         SchedulableId(self.0[idx].0, PhantomData, PhantomData)
@@ -634,10 +634,10 @@ impl<M: Model, T> SchedulableId<M, T> {
     // However, as those (scheduler) indices are not known at compilation time,
     // proc-macro generated SchedulableIds (for the decorated methods) have to
     // use an indirection via the `ModelRegistry`.
-    pub(crate) fn source_id(&self, registry: &ModelRegistry) -> SourceId<T> {
+    pub(crate) fn source_id(&self, registry: &ModelRegistry) -> EventId<T> {
         match self.0 & Self::REGISTRY_MASK {
-            0 => SourceId(self.0, PhantomData),
-            _ => SourceId(
+            0 => EventId(self.0, PhantomData),
+            _ => EventId(
                 registry.get::<M, T>(self.0 ^ Self::REGISTRY_MASK).0,
                 PhantomData,
             ),

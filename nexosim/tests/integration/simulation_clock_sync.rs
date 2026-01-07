@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
+use nexosim::ports::EventSource;
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
@@ -46,7 +47,9 @@ fn clock_sync(
         .set_clock(clock)
         .set_clock_tolerance(clock_tolerance);
 
-    let source_id = bench.link_input(TestModel::block_for, &addr);
+    let event_id = EventSource::new()
+        .connect(TestModel::block_for, &addr)
+        .register(&mut bench);
 
     let mut simu = bench.init(t0).unwrap();
 
@@ -59,7 +62,7 @@ fn clock_sync(
             delta = tick;
         }
         scheduler
-            .schedule_event(tick, &source_id, block_time)
+            .schedule_event(tick, &event_id, block_time)
             .unwrap();
     }
 
