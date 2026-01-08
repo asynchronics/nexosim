@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use nexosim::model::{Context, InitializedModel, Model};
-//! use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
+//! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
@@ -64,22 +64,18 @@
 //! let counter_mbox = Mailbox::new();
 //!
 //! // Model handles for simulation.
-//! let counter_addr = counter_mbox.address();
-//! let count = EventQueue::new_open();
-//! counter.count.connect_sink(&count);
-//! let mut count = count.into_reader();
+//! let mut bench = SimInit::new();
 //!
-//! // Start time (arbitrary since models do not depend on absolute time).
-//! let t0 = MonotonicTime::EPOCH;
+//! let pulse = EventSource::new()
+//!     .connect(Counter::pulse, &counter_mbox)
+//!     .register(&mut bench);
+//!
+//! let (sink, mut count) = event_queue(SinkState::Enabled);
+//! counter.count.connect_sink(sink);
 //!
 //! // Assembly and initialization.
-//! let mut simu = SimInit::new();
-//!
-//! let pulse_id = EventSource::new()
-//!     .connect(Counter::pulse, &counter_addr)
-//!     .register(&mut simu);
-//!
-//! let mut simu = simu
+//! let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+//! let mut simu = bench
 //!     .add_model(counter, counter_mbox, "counter")
 //!     .init(t0).unwrap();
 //!
@@ -91,7 +87,7 @@
 //! assert_eq!(count.try_read(), Some(INITIAL));
 //!
 //! // Count one pulse.
-//! simu.process_event(&pulse_id, ()).unwrap();
+//! simu.process_event(&pulse, ()).unwrap();
 //! assert_eq!(count.try_read(), Some(INITIAL + 1));
 //! ```
 //!
@@ -106,7 +102,7 @@
 //! use serde::{Serialize, Deserialize};
 //!
 //! use nexosim::model::{schedulable, Context, InitializedModel, Model};
-//! use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
+//! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
@@ -207,27 +203,21 @@
 //! let proc_mbox = Mailbox::new();
 //!
 //! // Model handles for simulation.
-//! let mode = EventQueue::new_open();
-//! proc.mode.connect_sink(&mode);
-//! let mut mode = mode.into_reader();
+//! let mut bench = SimInit::new();
 //!
-//! let proc_addr = proc_mbox.address();
+//! let switch_power = EventSource::new()
+//!     .connect(Processor::switch_power, &proc_mbox)
+//!     .register(&mut bench);
+//! let process = EventSource::new()
+//!     .connect(Processor::process, &proc_mbox)
+//!     .register(&mut bench);
 //!
-//! // Start time (arbitrary since models do not depend on absolute time).
-//! let t0 = MonotonicTime::EPOCH;
+//! let (sink, mut mode) = event_queue(SinkState::Enabled);
+//! proc.mode.connect_sink(sink);
 //!
 //! // Assembly and initialization.
-//! let mut simu = SimInit::new();
-//!
-//! let switch_power_id = EventSource::new()
-//!     .connect(Processor::switch_power, &proc_addr)
-//!     .register(&mut simu);
-//!
-//! let process_id = EventSource::new()
-//!     .connect(Processor::process, &proc_addr)
-//!     .register(&mut simu);
-//!
-//! let mut simu = simu
+//! let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+//! let mut simu = bench
 //!     .add_model(proc, proc_mbox, "proc")
 //!     .init(t0).unwrap();
 //!
@@ -237,11 +227,11 @@
 //! assert_eq!(mode.read(), Some(ModeId::Off));
 //!
 //! // Switch processor on.
-//! simu.process_event(&switch_power_id, true).unwrap();
+//! simu.process_event(&switch_power, true).unwrap();
 //! assert_eq!(mode.read(), Some(ModeId::Idle));
 //!
 //! // Trigger processing.
-//! simu.process_event(&process_id, 100).unwrap();
+//! simu.process_event(&process, 100).unwrap();
 //! assert_eq!(mode.read(), Some(ModeId::Processing));
 //!
 //! // All data processed.

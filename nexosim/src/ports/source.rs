@@ -117,7 +117,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     ///
     /// This is typically only of interest when controlling the simulation from
     /// Rust. For simulations controlled by a remote client, use
-    /// [`EventSource::add_endpoint`] or [`EventSource::add_endpoint_raw`].
+    /// [`EventSource::add_to`] or [`EventSource::add_raw_to`].
     pub fn register(self, sim_init: &mut SimInit) -> EventId<T> {
         sim_init.link_event_source(self)
     }
@@ -132,7 +132,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
     /// [`EventSource::register`].
-    pub fn add_endpoint_raw(
+    pub fn add_raw_to(
         self,
         name: impl Into<String>,
         sim_init: &mut SimInit,
@@ -164,7 +164,7 @@ impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSo
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
     /// [`EventSource::register`].
-    pub fn add_endpoint(
+    pub fn add_to(
         self,
         sim_init: &mut SimInit,
         name: impl Into<String>,

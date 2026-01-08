@@ -23,7 +23,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -192,36 +192,31 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Connections.
     driver.current_out.connect(Motor::current_in, &motor_mbox);
 
-    // Model handles for simulation.
-    let position = EventQueue::new_open();
-    motor.position.connect_sink(&position);
-    let mut position = position.into_reader();
-    let motor_addr = motor_mbox.address();
-    let driver_addr = driver_mbox.address();
+    // Endpoints.
+    let mut bench = SimInit::new();
 
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
+    let pulse_rate = EventSource::new()
+        .connect(Driver::pulse_rate, &driver_mbox)
+        .register(&mut bench);
+    let motor_load = EventSource::new()
+        .connect(Motor::load, &motor_mbox)
+        .register(&mut bench);
+
+    let (sink, mut position) = event_queue(SinkState::Enabled);
+    motor.position.connect_sink(sink);
 
     // Assembly and initialization.
-    let mut bench = SimInit::new()
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+    let mut simu = bench
         .add_model(driver, driver_mbox, "driver")
-        .add_model(motor, motor_mbox, "motor");
-
-    let pulse_rate_event_id = EventSource::new()
-        .connect(Driver::pulse_rate, &driver_addr)
-        .register(&mut bench);
-
-    let motor_load_event_id = EventSource::new()
-        .connect(Motor::load, &motor_addr)
-        .register(&mut bench);
-
-    let mut simu = bench.init(t0)?;
-
-    let scheduler = simu.scheduler();
+        .add_model(motor, motor_mbox, "motor")
+        .init(t0)?;
 
     // ----------
     // Simulation.
     // ----------
+
+    let scheduler = simu.scheduler();
 
     // Check initial conditions.
     let mut t = t0;
@@ -231,7 +226,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(Duration::from_secs(2), &pulse_rate_event_id, 10.0)
+        .schedule_event(Duration::from_secs(2), &pulse_rate, 10.0)
         .unwrap();
 
     // Advance simulation time to two next events.
@@ -261,7 +256,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert!(position.try_read().is_none());
 
     // Increase the load beyond the torque limit for a 1A driver current.
-    simu.process_event(&motor_load_event_id, 2.0)?;
+    simu.process_event(&motor_load, 2.0)?;
 
     // Advance simulation time and check that the motor is blocked.
     simu.step()?;
@@ -277,7 +272,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Decrease the load below the torque limit for a 1A driver current and
     // advance simulation time.
-    simu.process_event(&motor_load_event_id, 0.5)?;
+    simu.process_event(&motor_load, 0.5)?;
     simu.step()?;
     t += Duration::new(0, 100_000_000);
 
@@ -301,7 +296,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Now make the motor rotate in the opposite direction. Note that this
     // driver only accounts for a new PPS at the next pulse.
-    simu.process_event(&pulse_rate_event_id, -10.0)?;
+    simu.process_event(&pulse_rate, -10.0)?;
     simu.step()?;
     t += Duration::new(0, 100_000_000);
     assert_eq!(simu.time(), t);

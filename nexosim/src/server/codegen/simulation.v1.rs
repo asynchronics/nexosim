@@ -242,8 +242,10 @@ pub struct GetEventSourceSchemasReply {
     /// This field is hoisted because protobuf3 does not support `map` within
     /// a `oneof`. It is Always empty if an error is returned
     #[prost(map = "string, string", tag = "1")]
-    pub schemas:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "get_event_source_schemas_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<get_event_source_schemas_reply::Result>,
@@ -299,7 +301,10 @@ pub struct GetQuerySourceSchemasReply {
     /// This field is hoisted because protobuf3 does not support `map` within
     /// a `oneof`. It is Always empty if an error is returned
     #[prost(map = "string, message", tag = "1")]
-    pub schemas: ::std::collections::HashMap<::prost::alloc::string::String, QuerySchema>,
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        QuerySchema,
+    >,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "get_query_source_schemas_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<get_query_source_schemas_reply::Result>,
@@ -348,8 +353,10 @@ pub struct GetEventSinkSchemasReply {
     /// This field is hoisted because protobuf3 does not support `map` within
     /// a `oneof`. It is Always empty if an error is returned
     #[prost(map = "string, string", tag = "1")]
-    pub schemas:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub schemas: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "get_event_sink_schemas_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<get_event_sink_schemas_reply::Result>,
@@ -534,18 +541,18 @@ pub mod read_event_reply {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OpenSinkRequest {
+pub struct EnableSinkRequest {
     #[prost(string, tag = "1")]
     pub sink_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct OpenSinkReply {
+pub struct EnableSinkReply {
     /// Always returns exactly 1 variant.
-    #[prost(oneof = "open_sink_reply::Result", tags = "10, 100")]
-    pub result: ::core::option::Option<open_sink_reply::Result>,
+    #[prost(oneof = "enable_sink_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<enable_sink_reply::Result>,
 }
-/// Nested message and enum types in `OpenSinkReply`.
-pub mod open_sink_reply {
+/// Nested message and enum types in `EnableSinkReply`.
+pub mod enable_sink_reply {
     /// Always returns exactly 1 variant.
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
@@ -556,18 +563,18 @@ pub mod open_sink_reply {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CloseSinkRequest {
+pub struct DisableSinkRequest {
     #[prost(string, tag = "1")]
     pub sink_name: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CloseSinkReply {
+pub struct DisableSinkReply {
     /// Always returns exactly 1 variant.
-    #[prost(oneof = "close_sink_reply::Result", tags = "10, 100")]
-    pub result: ::core::option::Option<close_sink_reply::Result>,
+    #[prost(oneof = "disable_sink_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<disable_sink_reply::Result>,
 }
-/// Nested message and enum types in `CloseSinkReply`.
-pub mod close_sink_reply {
+/// Nested message and enum types in `DisableSinkReply`.
+pub mod disable_sink_reply {
     /// Always returns exactly 1 variant.
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
@@ -583,7 +590,7 @@ pub struct AnyRequest {
     /// Expects exactly 1 variant.
     #[prost(
         oneof = "any_request::Request",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23"
     )]
     pub request: ::core::option::Option<any_request::Request>,
 }
@@ -597,31 +604,47 @@ pub mod any_request {
         #[prost(message, tag = "2")]
         HaltRequest(super::HaltRequest),
         #[prost(message, tag = "3")]
-        TimeRequest(super::TimeRequest),
-        #[prost(message, tag = "4")]
-        StepRequest(super::StepRequest),
-        #[prost(message, tag = "5")]
-        StepUntilRequest(super::StepUntilRequest),
-        #[prost(message, tag = "6")]
-        ScheduleEventRequest(super::ScheduleEventRequest),
-        #[prost(message, tag = "7")]
-        CancelEventRequest(super::CancelEventRequest),
-        #[prost(message, tag = "8")]
-        ProcessEventRequest(super::ProcessEventRequest),
-        #[prost(message, tag = "9")]
-        ProcessQueryRequest(super::ProcessQueryRequest),
-        #[prost(message, tag = "10")]
-        ReadEventsRequest(super::TryReadEventsRequest),
-        #[prost(message, tag = "11")]
-        AwaitEventRequest(super::ReadEventRequest),
-        #[prost(message, tag = "12")]
-        OpenSinkRequest(super::OpenSinkRequest),
-        #[prost(message, tag = "13")]
-        CloseSinkRequest(super::CloseSinkRequest),
-        #[prost(message, tag = "14")]
-        StepUnboundedRequest(super::StepUnboundedRequest),
-        #[prost(message, tag = "15")]
         TerminateRequest(super::TerminateRequest),
+        #[prost(message, tag = "4")]
+        SaveRequest(super::SaveRequest),
+        #[prost(message, tag = "5")]
+        RestoreRequest(super::RestoreRequest),
+        #[prost(message, tag = "6")]
+        TimeRequest(super::TimeRequest),
+        #[prost(message, tag = "7")]
+        StepRequest(super::StepRequest),
+        #[prost(message, tag = "8")]
+        StepUntilRequest(super::StepUntilRequest),
+        #[prost(message, tag = "9")]
+        StepUnboundedRequest(super::StepUnboundedRequest),
+        #[prost(message, tag = "10")]
+        ListEventSources(super::ListEventSourcesRequest),
+        #[prost(message, tag = "11")]
+        GetEventSourceSchemas(super::GetEventSourceSchemasRequest),
+        #[prost(message, tag = "12")]
+        ListQuerySources(super::ListQuerySourcesRequest),
+        #[prost(message, tag = "13")]
+        GetQuerySourceSchemas(super::GetQuerySourceSchemasRequest),
+        #[prost(message, tag = "14")]
+        ListEventSinks(super::ListEventSinksRequest),
+        #[prost(message, tag = "15")]
+        GetEventSinkSchemas(super::GetEventSinkSchemasRequest),
+        #[prost(message, tag = "16")]
+        ScheduleEventRequest(super::ScheduleEventRequest),
+        #[prost(message, tag = "17")]
+        CancelEventRequest(super::CancelEventRequest),
+        #[prost(message, tag = "18")]
+        ProcessEventRequest(super::ProcessEventRequest),
+        #[prost(message, tag = "19")]
+        ProcessQueryRequest(super::ProcessQueryRequest),
+        #[prost(message, tag = "20")]
+        TryReadEventsRequest(super::TryReadEventsRequest),
+        #[prost(message, tag = "21")]
+        ReadEventRequest(super::ReadEventRequest),
+        #[prost(message, tag = "22")]
+        EnableSinkRequest(super::EnableSinkRequest),
+        #[prost(message, tag = "23")]
+        DisableSinkRequest(super::DisableSinkRequest),
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -758,7 +781,7 @@ pub mod simulation_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with SimulationServer.
@@ -768,22 +791,22 @@ pub mod simulation_server {
             &self,
             request: tonic::Request<super::InitRequest>,
         ) -> std::result::Result<tonic::Response<super::InitReply>, tonic::Status>;
-        async fn restore(
-            &self,
-            request: tonic::Request<super::RestoreRequest>,
-        ) -> std::result::Result<tonic::Response<super::RestoreReply>, tonic::Status>;
-        async fn terminate(
-            &self,
-            request: tonic::Request<super::TerminateRequest>,
-        ) -> std::result::Result<tonic::Response<super::TerminateReply>, tonic::Status>;
         async fn halt(
             &self,
             request: tonic::Request<super::HaltRequest>,
         ) -> std::result::Result<tonic::Response<super::HaltReply>, tonic::Status>;
+        async fn terminate(
+            &self,
+            request: tonic::Request<super::TerminateRequest>,
+        ) -> std::result::Result<tonic::Response<super::TerminateReply>, tonic::Status>;
         async fn save(
             &self,
             request: tonic::Request<super::SaveRequest>,
         ) -> std::result::Result<tonic::Response<super::SaveReply>, tonic::Status>;
+        async fn restore(
+            &self,
+            request: tonic::Request<super::RestoreRequest>,
+        ) -> std::result::Result<tonic::Response<super::RestoreReply>, tonic::Status>;
         async fn time(
             &self,
             request: tonic::Request<super::TimeRequest>,
@@ -799,63 +822,102 @@ pub mod simulation_server {
         async fn step_unbounded(
             &self,
             request: tonic::Request<super::StepUnboundedRequest>,
-        ) -> std::result::Result<tonic::Response<super::StepUnboundedReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::StepUnboundedReply>,
+            tonic::Status,
+        >;
         async fn list_event_sources(
             &self,
             request: tonic::Request<super::ListEventSourcesRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListEventSourcesReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListEventSourcesReply>,
+            tonic::Status,
+        >;
         async fn get_event_source_schemas(
             &self,
             request: tonic::Request<super::GetEventSourceSchemasRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetEventSourceSchemasReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetEventSourceSchemasReply>,
+            tonic::Status,
+        >;
         async fn list_query_sources(
             &self,
             request: tonic::Request<super::ListQuerySourcesRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListQuerySourcesReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListQuerySourcesReply>,
+            tonic::Status,
+        >;
         async fn get_query_source_schemas(
             &self,
             request: tonic::Request<super::GetQuerySourceSchemasRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetQuerySourceSchemasReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetQuerySourceSchemasReply>,
+            tonic::Status,
+        >;
         async fn list_event_sinks(
             &self,
             request: tonic::Request<super::ListEventSinksRequest>,
-        ) -> std::result::Result<tonic::Response<super::ListEventSinksReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ListEventSinksReply>,
+            tonic::Status,
+        >;
         async fn get_event_sink_schemas(
             &self,
             request: tonic::Request<super::GetEventSinkSchemasRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetEventSinkSchemasReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetEventSinkSchemasReply>,
+            tonic::Status,
+        >;
         async fn schedule_event(
             &self,
             request: tonic::Request<super::ScheduleEventRequest>,
-        ) -> std::result::Result<tonic::Response<super::ScheduleEventReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ScheduleEventReply>,
+            tonic::Status,
+        >;
         async fn cancel_event(
             &self,
             request: tonic::Request<super::CancelEventRequest>,
-        ) -> std::result::Result<tonic::Response<super::CancelEventReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::CancelEventReply>,
+            tonic::Status,
+        >;
         async fn process_event(
             &self,
             request: tonic::Request<super::ProcessEventRequest>,
-        ) -> std::result::Result<tonic::Response<super::ProcessEventReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ProcessEventReply>,
+            tonic::Status,
+        >;
         async fn process_query(
             &self,
             request: tonic::Request<super::ProcessQueryRequest>,
-        ) -> std::result::Result<tonic::Response<super::ProcessQueryReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ProcessQueryReply>,
+            tonic::Status,
+        >;
         async fn try_read_events(
             &self,
             request: tonic::Request<super::TryReadEventsRequest>,
-        ) -> std::result::Result<tonic::Response<super::TryReadEventsReply>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::TryReadEventsReply>,
+            tonic::Status,
+        >;
         async fn read_event(
             &self,
             request: tonic::Request<super::ReadEventRequest>,
         ) -> std::result::Result<tonic::Response<super::ReadEventReply>, tonic::Status>;
-        async fn open_sink(
+        async fn enable_sink(
             &self,
-            request: tonic::Request<super::OpenSinkRequest>,
-        ) -> std::result::Result<tonic::Response<super::OpenSinkReply>, tonic::Status>;
-        async fn close_sink(
+            request: tonic::Request<super::EnableSinkRequest>,
+        ) -> std::result::Result<tonic::Response<super::EnableSinkReply>, tonic::Status>;
+        async fn disable_sink(
             &self,
-            request: tonic::Request<super::CloseSinkRequest>,
-        ) -> std::result::Result<tonic::Response<super::CloseSinkReply>, tonic::Status>;
+            request: tonic::Request<super::DisableSinkRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::DisableSinkReply>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct SimulationServer<T> {
@@ -878,7 +940,10 @@ pub mod simulation_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -933,15 +998,21 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/Init" => {
                     #[allow(non_camel_case_types)]
                     struct InitSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::InitRequest> for InitSvc<T> {
+                    impl<T: Simulation> tonic::server::UnaryService<super::InitRequest>
+                    for InitSvc<T> {
                         type Response = super::InitReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::InitRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Simulation>::init(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::init(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -967,94 +1038,24 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
-                "/simulation.v1.Simulation/Restore" => {
-                    #[allow(non_camel_case_types)]
-                    struct RestoreSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::RestoreRequest> for RestoreSvc<T> {
-                        type Response = super::RestoreReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::RestoreRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Simulation>::restore(&inner, request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = RestoreSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/simulation.v1.Simulation/Terminate" => {
-                    #[allow(non_camel_case_types)]
-                    struct TerminateSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::TerminateRequest> for TerminateSvc<T> {
-                        type Response = super::TerminateReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::TerminateRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Simulation>::terminate(&inner, request).await };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let method = TerminateSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/simulation.v1.Simulation/Halt" => {
                     #[allow(non_camel_case_types)]
                     struct HaltSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::HaltRequest> for HaltSvc<T> {
+                    impl<T: Simulation> tonic::server::UnaryService<super::HaltRequest>
+                    for HaltSvc<T> {
                         type Response = super::HaltReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::HaltRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Simulation>::halt(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::halt(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1080,18 +1081,69 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
+                "/simulation.v1.Simulation/Terminate" => {
+                    #[allow(non_camel_case_types)]
+                    struct TerminateSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::TerminateRequest>
+                    for TerminateSvc<T> {
+                        type Response = super::TerminateReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::TerminateRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::terminate(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = TerminateSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/simulation.v1.Simulation/Save" => {
                     #[allow(non_camel_case_types)]
                     struct SaveSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::SaveRequest> for SaveSvc<T> {
+                    impl<T: Simulation> tonic::server::UnaryService<super::SaveRequest>
+                    for SaveSvc<T> {
                         type Response = super::SaveReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SaveRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Simulation>::save(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::save(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1117,18 +1169,69 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
+                "/simulation.v1.Simulation/Restore" => {
+                    #[allow(non_camel_case_types)]
+                    struct RestoreSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::RestoreRequest>
+                    for RestoreSvc<T> {
+                        type Response = super::RestoreReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::RestoreRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::restore(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = RestoreSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/simulation.v1.Simulation/Time" => {
                     #[allow(non_camel_case_types)]
                     struct TimeSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::TimeRequest> for TimeSvc<T> {
+                    impl<T: Simulation> tonic::server::UnaryService<super::TimeRequest>
+                    for TimeSvc<T> {
                         type Response = super::TimeReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::TimeRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Simulation>::time(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::time(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1157,15 +1260,21 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/Step" => {
                     #[allow(non_camel_case_types)]
                     struct StepSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::StepRequest> for StepSvc<T> {
+                    impl<T: Simulation> tonic::server::UnaryService<super::StepRequest>
+                    for StepSvc<T> {
                         type Response = super::StepReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::StepRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Simulation>::step(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::step(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1194,16 +1303,23 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/StepUntil" => {
                     #[allow(non_camel_case_types)]
                     struct StepUntilSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::StepUntilRequest> for StepUntilSvc<T> {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::StepUntilRequest>
+                    for StepUntilSvc<T> {
                         type Response = super::StepUntilReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::StepUntilRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Simulation>::step_until(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::step_until(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1232,11 +1348,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/StepUnbounded" => {
                     #[allow(non_camel_case_types)]
                     struct StepUnboundedSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::StepUnboundedRequest>
-                        for StepUnboundedSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::StepUnboundedRequest>
+                    for StepUnboundedSvc<T> {
                         type Response = super::StepUnboundedReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::StepUnboundedRequest>,
@@ -1273,11 +1393,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ListEventSources" => {
                     #[allow(non_camel_case_types)]
                     struct ListEventSourcesSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ListEventSourcesRequest>
-                        for ListEventSourcesSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListEventSourcesRequest>
+                    for ListEventSourcesSvc<T> {
                         type Response = super::ListEventSourcesReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListEventSourcesRequest>,
@@ -1314,19 +1438,23 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/GetEventSourceSchemas" => {
                     #[allow(non_camel_case_types)]
                     struct GetEventSourceSchemasSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation>
-                        tonic::server::UnaryService<super::GetEventSourceSchemasRequest>
-                        for GetEventSourceSchemasSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::GetEventSourceSchemasRequest>
+                    for GetEventSourceSchemasSvc<T> {
                         type Response = super::GetEventSourceSchemasReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetEventSourceSchemasRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Simulation>::get_event_source_schemas(&inner, request).await
+                                <T as Simulation>::get_event_source_schemas(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1356,11 +1484,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ListQuerySources" => {
                     #[allow(non_camel_case_types)]
                     struct ListQuerySourcesSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ListQuerySourcesRequest>
-                        for ListQuerySourcesSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListQuerySourcesRequest>
+                    for ListQuerySourcesSvc<T> {
                         type Response = super::ListQuerySourcesReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListQuerySourcesRequest>,
@@ -1397,19 +1529,23 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/GetQuerySourceSchemas" => {
                     #[allow(non_camel_case_types)]
                     struct GetQuerySourceSchemasSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation>
-                        tonic::server::UnaryService<super::GetQuerySourceSchemasRequest>
-                        for GetQuerySourceSchemasSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::GetQuerySourceSchemasRequest>
+                    for GetQuerySourceSchemasSvc<T> {
                         type Response = super::GetQuerySourceSchemasReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetQuerySourceSchemasRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Simulation>::get_query_source_schemas(&inner, request).await
+                                <T as Simulation>::get_query_source_schemas(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1439,11 +1575,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ListEventSinks" => {
                     #[allow(non_camel_case_types)]
                     struct ListEventSinksSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ListEventSinksRequest>
-                        for ListEventSinksSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ListEventSinksRequest>
+                    for ListEventSinksSvc<T> {
                         type Response = super::ListEventSinksReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ListEventSinksRequest>,
@@ -1480,19 +1620,23 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/GetEventSinkSchemas" => {
                     #[allow(non_camel_case_types)]
                     struct GetEventSinkSchemasSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation>
-                        tonic::server::UnaryService<super::GetEventSinkSchemasRequest>
-                        for GetEventSinkSchemasSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::GetEventSinkSchemasRequest>
+                    for GetEventSinkSchemasSvc<T> {
                         type Response = super::GetEventSinkSchemasReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetEventSinkSchemasRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Simulation>::get_event_sink_schemas(&inner, request).await
+                                <T as Simulation>::get_event_sink_schemas(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -1522,11 +1666,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ScheduleEvent" => {
                     #[allow(non_camel_case_types)]
                     struct ScheduleEventSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ScheduleEventRequest>
-                        for ScheduleEventSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ScheduleEventRequest>
+                    for ScheduleEventSvc<T> {
                         type Response = super::ScheduleEventReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ScheduleEventRequest>,
@@ -1563,9 +1711,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/CancelEvent" => {
                     #[allow(non_camel_case_types)]
                     struct CancelEventSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::CancelEventRequest> for CancelEventSvc<T> {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::CancelEventRequest>
+                    for CancelEventSvc<T> {
                         type Response = super::CancelEventReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CancelEventRequest>,
@@ -1602,9 +1756,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ProcessEvent" => {
                     #[allow(non_camel_case_types)]
                     struct ProcessEventSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ProcessEventRequest> for ProcessEventSvc<T> {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ProcessEventRequest>
+                    for ProcessEventSvc<T> {
                         type Response = super::ProcessEventReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ProcessEventRequest>,
@@ -1641,9 +1801,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ProcessQuery" => {
                     #[allow(non_camel_case_types)]
                     struct ProcessQuerySvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ProcessQueryRequest> for ProcessQuerySvc<T> {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ProcessQueryRequest>
+                    for ProcessQuerySvc<T> {
                         type Response = super::ProcessQueryReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ProcessQueryRequest>,
@@ -1680,11 +1846,15 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/TryReadEvents" => {
                     #[allow(non_camel_case_types)]
                     struct TryReadEventsSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::TryReadEventsRequest>
-                        for TryReadEventsSvc<T>
-                    {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::TryReadEventsRequest>
+                    for TryReadEventsSvc<T> {
                         type Response = super::TryReadEventsReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::TryReadEventsRequest>,
@@ -1721,16 +1891,23 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/ReadEvent" => {
                     #[allow(non_camel_case_types)]
                     struct ReadEventSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::ReadEventRequest> for ReadEventSvc<T> {
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ReadEventRequest>
+                    for ReadEventSvc<T> {
                         type Response = super::ReadEventReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ReadEventRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Simulation>::read_event(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::read_event(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1756,19 +1933,26 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
-                "/simulation.v1.Simulation/OpenSink" => {
+                "/simulation.v1.Simulation/EnableSink" => {
                     #[allow(non_camel_case_types)]
-                    struct OpenSinkSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::OpenSinkRequest> for OpenSinkSvc<T> {
-                        type Response = super::OpenSinkReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                    struct EnableSinkSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::EnableSinkRequest>
+                    for EnableSinkSvc<T> {
+                        type Response = super::EnableSinkReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::OpenSinkRequest>,
+                            request: tonic::Request<super::EnableSinkRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Simulation>::open_sink(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::enable_sink(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1778,7 +1962,7 @@ pub mod simulation_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = OpenSinkSvc(inner);
+                        let method = EnableSinkSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1794,19 +1978,26 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
-                "/simulation.v1.Simulation/CloseSink" => {
+                "/simulation.v1.Simulation/DisableSink" => {
                     #[allow(non_camel_case_types)]
-                    struct CloseSinkSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::CloseSinkRequest> for CloseSinkSvc<T> {
-                        type Response = super::CloseSinkReply;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                    struct DisableSinkSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::DisableSinkRequest>
+                    for DisableSinkSvc<T> {
+                        type Response = super::DisableSinkReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::CloseSinkRequest>,
+                            request: tonic::Request<super::DisableSinkRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as Simulation>::close_sink(&inner, request).await };
+                            let fut = async move {
+                                <T as Simulation>::disable_sink(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1816,7 +2007,7 @@ pub mod simulation_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = CloseSinkSvc(inner);
+                        let method = DisableSinkSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -1832,19 +2023,23 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }

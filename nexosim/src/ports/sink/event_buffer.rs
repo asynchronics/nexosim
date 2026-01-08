@@ -26,7 +26,7 @@ pub struct EventBuffer<T> {
 
 impl<T> EventBuffer<T> {
     /// Default capacity when constructed with `new`.
-    pub const DEFAULT_CAPACITY: usize = 16;
+    pub const DEFAULT_CAPACITY: usize = 256;
 
     /// Creates an open `EventBuffer` with the default capacity.
     pub fn new() -> Self {

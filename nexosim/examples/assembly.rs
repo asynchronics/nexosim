@@ -29,7 +29,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{BuildContext, Model, ProtoModel};
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -124,32 +124,30 @@ fn main() -> Result<(), SimulationError> {
     let init_pos = 123;
     let mut assembly = ProtoMotorAssembly::new(init_pos);
 
-    // Mailboxes.
     let assembly_mbox = Mailbox::new();
     let assembly_addr = assembly_mbox.address();
 
-    // Model handles for simulation.
-    let position = EventQueue::new_open();
-    assembly.position.connect_sink(&position);
-    let mut position = position.into_reader();
+    // Endpoints.
+    let mut bench = SimInit::new();
 
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
-
-    // Assembly and initialization.
-    let mut bench = SimInit::new().add_model(assembly, assembly_mbox, "assembly");
-
-    let pulse_rate_event_id = EventSource::new()
+    let pulse_rate = EventSource::new()
         .connect(MotorAssembly::pulse_rate, &assembly_addr)
         .register(&mut bench);
 
-    let mut simu = bench.init(t0)?;
+    let (sink, mut position) = event_queue(SinkState::Enabled);
+    assembly.position.connect_sink(sink);
 
-    let scheduler = simu.scheduler();
+    // Bench assembly and initialization.
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+    let mut simu = bench
+        .add_model(assembly, assembly_mbox, "assembly")
+        .init(t0)?;
 
     // ----------
     // Simulation.
     // ----------
+
+    let scheduler = simu.scheduler();
 
     // Check initial conditions.
     let mut t = t0;
@@ -159,7 +157,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(Duration::from_secs(2), &pulse_rate_event_id, 10.0)
+        .schedule_event(Duration::from_secs(2), &pulse_rate, 10.0)
         .unwrap();
 
     // Advance simulation time to two next events.

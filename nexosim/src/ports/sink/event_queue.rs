@@ -8,76 +8,69 @@ use futures_channel::mpsc;
 use futures_core::Stream;
 use futures_util::stream::StreamExt;
 use pin_project::pin_project;
+use serde::Serialize;
 
-use super::{EventSink, EventSinkReader, EventSinkWriter};
+use crate::model::Message;
+use crate::simulation::{DuplicateEventSinkError, SimInit};
 
-/// An event queue with an unbounded size.
+use super::{EventSinkReader, EventSinkWriter, SinkState};
+
+/// Creates an event queue with an unbounded size.
 ///
-/// Implements [`EventSink`].
+/// This function returns an [`EventQueueReader`] and an [`EventQueueWriter`]
+/// which implement [`EventSinkReader`] and [`EventSinkWriter`], respectively.
+pub fn event_queue<T: Send>(state: SinkState) -> (EventQueueWriter<T>, EventQueueReader<T>) {
+    let (sender, receiver) = mpsc::unbounded();
+    let is_enabled = Arc::new(AtomicBool::new(state == SinkState::Enabled));
+
+    let reader = EventQueueReader {
+        receiver,
+        is_enabled: is_enabled.clone(),
+    };
+    let writer = EventQueueWriter { sender, is_enabled };
+
+    (writer, reader)
+}
+
+/// Creates an event queue with an unbounded size, adding it as a simulation
+/// endpoint sink.
 ///
-/// Note that [`EventSinkReader`] is implemented by [`EventQueueReader`],
-/// created with the [`EventQueue::into_reader`] method.
-pub struct EventQueue<T: Send> {
-    is_open: Arc<AtomicBool>,
-    sender: mpsc::UnboundedSender<T>,
-    receiver: mpsc::UnboundedReceiver<T>,
+/// This is a convenience function and is equivalent to calling [`event_queue`]
+/// and immediately registering the reader as an endpoint with
+/// [`SimInit::add_event_sink`].
+pub fn event_queue_endpoint<T: Message + Serialize + Send + 'static>(
+    sim_init: &mut SimInit,
+    state: SinkState,
+    name: impl Into<String>,
+) -> Result<EventQueueWriter<T>, DuplicateEventSinkError> {
+    let (writer, reader) = event_queue(state);
+
+    sim_init.add_event_sink(reader, name).map(|()| writer)
 }
 
-impl<T: Send> EventQueue<T> {
-    /// Creates an open `EventQueue`.
-    pub fn new_open() -> Self {
-        Self::new_with_state(true)
-    }
+/// Creates an event queue with an unbounded size, adding it as a simulation
+/// endpoint sink without requiring a [`Message`] implementation for its item
+/// type.
+///
+/// This is a convenience function and is equivalent to calling [`event_queue`]
+/// and immediately registering the reader as an endpoint with
+/// [`SimInit::add_event_sink_raw`].
+pub fn event_queue_endpoint_raw<T: Serialize + Send + 'static>(
+    sim_init: &mut SimInit,
+    state: SinkState,
+    name: impl Into<String>,
+) -> Result<EventQueueWriter<T>, DuplicateEventSinkError> {
+    let (writer, reader) = event_queue(state);
 
-    /// Creates a closed `EventQueue`.
-    pub fn new_closed() -> Self {
-        Self::new_with_state(false)
-    }
-
-    /// Returns a consumer handle in the non-blocking mode.
-    pub fn into_reader(self) -> EventQueueReader<T> {
-        EventQueueReader {
-            is_open: self.is_open,
-            receiver: self.receiver,
-        }
-    }
-
-    /// Creates a new `EventQueue` in the specified state.
-    fn new_with_state(is_open: bool) -> Self {
-        let (sender, receiver) = mpsc::unbounded();
-        Self {
-            is_open: Arc::new(AtomicBool::new(is_open)),
-            sender,
-            receiver,
-        }
-    }
+    sim_init.add_event_sink_raw(reader, name).map(|()| writer)
 }
 
-impl<T: Send + 'static> EventSink<T> for EventQueue<T> {
-    type Writer = EventQueueWriter<T>;
-
-    fn writer(&self) -> Self::Writer {
-        EventQueueWriter {
-            is_open: self.is_open.clone(),
-            sender: self.sender.clone(),
-        }
-    }
-}
-
-impl<T: Send> fmt::Debug for EventQueue<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("EventQueue")
-            .field("is_open", &self.is_open.load(Ordering::Relaxed))
-            .finish_non_exhaustive()
-    }
-}
-
-/// Consumer handle of an `EventQueue`.
+/// The unique consumer handle of an event queue.
 ///
 /// Implements [`EventSinkReader`].
 #[pin_project]
 pub struct EventQueueReader<T: Send> {
-    is_open: Arc<AtomicBool>,
+    is_enabled: Arc<AtomicBool>,
     #[pin]
     receiver: mpsc::UnboundedReceiver<T>,
 }
@@ -97,12 +90,12 @@ impl<T: Send> Stream for EventQueueReader<T> {
 }
 
 impl<T: Send + 'static> EventSinkReader<T> for EventQueueReader<T> {
-    fn open(&mut self) {
-        self.is_open.store(true, Ordering::Relaxed);
+    fn enable(&mut self) {
+        self.is_enabled.store(true, Ordering::Relaxed);
     }
 
-    fn close(&mut self) {
-        self.is_open.store(false, Ordering::Relaxed);
+    fn disable(&mut self) {
+        self.is_enabled.store(false, Ordering::Relaxed);
     }
 
     fn try_read(&mut self) -> Option<T> {
@@ -117,21 +110,21 @@ impl<T: Send + 'static> EventSinkReader<T> for EventQueueReader<T> {
 impl<T: Send> fmt::Debug for EventQueueReader<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("EventQueueReader")
-            .field("is_open", &self.is_open.load(Ordering::Relaxed))
+            .field("is_enabled", &self.is_enabled.load(Ordering::Relaxed))
             .finish_non_exhaustive()
     }
 }
 
-/// A producer handle of an `EventQueue`.
+/// A cloneable producer handle of an event queue.
 pub struct EventQueueWriter<T: Send> {
-    is_open: Arc<AtomicBool>,
+    is_enabled: Arc<AtomicBool>,
     sender: mpsc::UnboundedSender<T>,
 }
 
 impl<T: Send + 'static> EventSinkWriter<T> for EventQueueWriter<T> {
     /// Pushes an event onto the queue.
     fn write(&self, event: T) {
-        if !self.is_open.load(Ordering::Relaxed) {
+        if !self.is_enabled.load(Ordering::Relaxed) {
             return;
         }
         // Ignore sending failure.
@@ -142,7 +135,7 @@ impl<T: Send + 'static> EventSinkWriter<T> for EventQueueWriter<T> {
 impl<T: Send> Clone for EventQueueWriter<T> {
     fn clone(&self) -> Self {
         Self {
-            is_open: self.is_open.clone(),
+            is_enabled: self.is_enabled.clone(),
             sender: self.sender.clone(),
         }
     }
@@ -150,6 +143,8 @@ impl<T: Send> Clone for EventQueueWriter<T> {
 
 impl<T: Send> fmt::Debug for EventQueueWriter<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("EventQueueWriter").finish_non_exhaustive()
+        f.debug_struct("EventQueueWriter")
+            .field("is_enabled", &self.is_enabled.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
     }
 }

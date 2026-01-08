@@ -39,17 +39,18 @@ fn clock_sync(
     let model = TestModel::default();
     let clock = AutoSystemClock::new();
     let mbox = Mailbox::new();
-    let addr = mbox.address();
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let block_for = EventSource::new()
+        .connect(TestModel::block_for, &mbox)
+        .register(&mut bench);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut bench = SimInit::with_num_threads(num_threads)
+    bench = bench
         .add_model(model, mbox, "test")
         .set_clock(clock)
         .set_clock_tolerance(clock_tolerance);
-
-    let event_id = EventSource::new()
-        .connect(TestModel::block_for, &addr)
-        .register(&mut bench);
 
     let mut simu = bench.init(t0).unwrap();
 
@@ -62,7 +63,7 @@ fn clock_sync(
             delta = tick;
         }
         scheduler
-            .schedule_event(tick, &event_id, block_time)
+            .schedule_event(tick, &block_for, block_time)
             .unwrap();
     }
 

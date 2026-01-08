@@ -39,16 +39,18 @@ fn no_input_from_model(num_threads: usize) {
 
     drop(bad_mbox);
 
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads).add_model(model, mbox, MODEL_NAME);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
-    let event_id = EventSource::new()
+    let activate_output = EventSource::new()
         .connect(TestModel::activate_output, &addr)
-        .register(&mut simu);
+        .register(&mut bench);
 
-    let mut simu = simu.init(t0).unwrap();
+    let mut simu = bench
+        .add_model(model, mbox, MODEL_NAME)
+        .init(MonotonicTime::EPOCH)
+        .unwrap();
 
-    match simu.process_event(&event_id, ()) {
+    match simu.process_event(&activate_output, ()) {
         Err(ExecutionError::NoRecipient { model }) => {
             assert_eq!(model, Some(String::from(MODEL_NAME)));
         }
@@ -62,7 +64,6 @@ fn no_replier_from_model(num_threads: usize) {
 
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
-    let addr = mbox.address();
     let bad_mbox = Mailbox::new();
 
     model
@@ -71,16 +72,18 @@ fn no_replier_from_model(num_threads: usize) {
 
     drop(bad_mbox);
 
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads).add_model(model, mbox, MODEL_NAME);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
-    let event_id = EventSource::new()
-        .connect(TestModel::activate_requestor, &addr)
-        .register(&mut simu);
+    let activate_requestor = EventSource::new()
+        .connect(TestModel::activate_requestor, &mbox)
+        .register(&mut bench);
 
-    let mut simu = simu.init(t0).unwrap();
+    let mut simu = bench
+        .add_model(model, mbox, MODEL_NAME)
+        .init(MonotonicTime::EPOCH)
+        .unwrap();
 
-    match simu.process_event(&event_id, ()) {
+    match simu.process_event(&activate_requestor, ()) {
         Err(ExecutionError::NoRecipient { model }) => {
             assert_eq!(model, Some(String::from(MODEL_NAME)));
         }
@@ -92,20 +95,19 @@ fn no_replier_from_model(num_threads: usize) {
 fn no_input_from_scheduler(num_threads: usize) {
     let bad_mbox = Mailbox::new();
 
-    let t0 = MonotonicTime::EPOCH;
     let mut bench = SimInit::with_num_threads(num_threads);
 
-    let event_id = EventSource::new()
+    let activate_output = EventSource::new()
         .connect(TestModel::activate_output, &bad_mbox)
         .register(&mut bench);
 
     drop(bad_mbox);
 
-    let mut simu = bench.init(t0).unwrap();
+    let mut simu = bench.init(MonotonicTime::EPOCH).unwrap();
     let scheduler = simu.scheduler();
 
     scheduler
-        .schedule_event(Duration::from_secs(1), &event_id, ())
+        .schedule_event(Duration::from_secs(1), &activate_output, ())
         .unwrap();
 
     match simu.step() {
@@ -123,16 +125,15 @@ fn no_replier_from_query(num_threads: usize) {
 
     drop(bad_mbox);
 
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
-    let query_id = QuerySource::new()
+    let query = QuerySource::new()
         .connect(TestModel::activate_requestor, &addr)
-        .register(&mut simu);
+        .register(&mut bench);
 
-    let mut simu = simu.init(t0).unwrap();
+    let mut simu = bench.init(MonotonicTime::EPOCH).unwrap();
 
-    let result = simu.process_query(&query_id, ());
+    let result = simu.process_query(&query, ());
 
     match result {
         Err(ExecutionError::NoRecipient { .. }) => (),

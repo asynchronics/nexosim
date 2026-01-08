@@ -136,7 +136,7 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::{schedulable, Context, Model};
+//! use nexosim::model::{Context, Model, schedulable};
 //! use nexosim::ports::Output;
 //!
 //! #[derive(Default, Serialize, Deserialize)]
@@ -202,7 +202,7 @@
 //! #
 //! #     use serde::{Serialize, Deserialize};
 //! #
-//! #     use nexosim::model::{schedulable, Context, Model};
+//! #     use nexosim::model::{Context, Model, schedulable};
 //! #     use nexosim::ports::Output;
 //! #     #[derive(Default, Serialize, Deserialize)]
 //! #     pub struct Multiplier {
@@ -230,7 +230,7 @@
 //! #     }
 //! # }
 //! use std::time::Duration;
-//! use nexosim::ports::EventQueue;
+//! use nexosim::ports::{EventSource, SinkState, event_queue};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //!
@@ -255,13 +255,18 @@
 //! delay1.output.connect(Delay::input, &delay2_mbox);
 //!
 //! // Keep handles to the system input and output for the simulation.
-//! let mut output_queue = EventQueue::new_open();
-//! delay2.output.connect_sink(&output_queue);
-//! let input_address = multiplier1_mbox.address();
+//! let mut bench = SimInit::new();
+//!
+//! let input = EventSource::new()
+//!     .connect(Multiplier::input, &multiplier1_mbox)
+//!     .register(&mut bench);
+//!
+//! let (sink, mut output) = event_queue(SinkState::Enabled);
+//! delay2.output.connect_sink(sink);
 //!
 //! // Pick an arbitrary simulation start time and build the simulation.
 //! let t0 = MonotonicTime::EPOCH;
-//! let mut simu = SimInit::new()
+//! let mut simu = bench
 //!     .add_model(multiplier1, multiplier1_mbox, "multiplier1")
 //!     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //!     .add_model(delay1, delay1_mbox, "delay1")
@@ -294,9 +299,9 @@
 //! such as [`AutoSystemClock`](time::AutoSystemClock).
 //!
 //! Simulation outputs can be monitored using
-//! [`EventQueue`](ports::EventQueue)s, or any implementer of the
-//! [`EventSink`](ports::EventSink) trait, connected to one or several model
-//! output ports.
+//! [`event_queue`](ports::event_queue)s, or any implementer of the
+//! [`EventSinkWriter`](ports::EventSinkWriter) trait connected to one or
+//! several model output ports.
 //!
 //! This is an example of simulation that could be performed using the above
 //! bench assembly:
@@ -335,7 +340,7 @@
 //! #     }
 //! # }
 //! # use std::time::Duration;
-//! # use nexosim::ports::{EventQueue, EventSinkReader, EventSource};
+//! # use nexosim::ports::{EventSinkReader, EventSource, SinkState, event_queue};
 //! # use nexosim::simulation::{Mailbox, SimInit};
 //! # use nexosim::time::MonotonicTime;
 //! # use models::{Delay, Multiplier};
@@ -351,40 +356,35 @@
 //! # multiplier1.output.connect(Multiplier::input, &multiplier2_mbox);
 //! # multiplier2.output.connect(Delay::input, &delay2_mbox);
 //! # delay1.output.connect(Delay::input, &delay2_mbox);
-//! # let output_queue = EventQueue::new_open();
-//! # delay2.output.connect_sink(&output_queue);
-//! # let mut output_queue = output_queue.into_reader();
-//! # let input_address = multiplier1_mbox.address();
+//! # let mut bench = SimInit::new();
+//! # let input = EventSource::new()
+//! #     .connect(Multiplier::input, &multiplier1_mbox)
+//! #     .register(&mut bench);
+//! # let (sink, mut output) = event_queue(SinkState::Enabled);
+//! # delay2.output.connect_sink(sink);
 //! # let t0 = MonotonicTime::EPOCH;
-//! #
-//! # let mut simu = SimInit::new();
-//! #
-//! # let input_id = EventSource::new()
-//! #     .connect(Multiplier::input, &input_address)
-//! #     .register(&mut simu);
-//! #
-//! # let mut simu = simu
+//! # let mut simu = bench
 //! #     .add_model(multiplier1, multiplier1_mbox, "multiplier1")
 //! #     .add_model(multiplier2, multiplier2_mbox, "multiplier2")
 //! #     .add_model(delay1, delay1_mbox, "delay1")
 //! #     .add_model(delay2, delay2_mbox, "delay2")
 //! #     .init(t0)?;
 //! // Send a value to the first multiplier.
-//! simu.process_event(&input_id, 21.0)?;
+//! simu.process_event(&input, 21.0)?;
 //!
 //! // The simulation is still at t0 so nothing is expected at the output of the
 //! // second delay gate.
-//! assert!(output_queue.try_read().is_none());
+//! assert!(output.try_read().is_none());
 //!
 //! // Advance simulation time until the next event and check the time and output.
 //! simu.step()?;
 //! assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-//! assert_eq!(output_queue.try_read(), Some(84.0));
+//! assert_eq!(output.try_read(), Some(84.0));
 //!
 //! // Get the answer to the ultimate question of life, the universe & everything.
 //! simu.step()?;
 //! assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-//! assert_eq!(output_queue.try_read(), Some(42.0));
+//! assert_eq!(output.try_read(), Some(42.0));
 //!
 //! # Ok::<(), nexosim::simulation::SimulationError>(())
 //! ```

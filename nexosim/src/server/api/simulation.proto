@@ -296,16 +296,16 @@ message ReadEventReply {
   }
 }
 
-message OpenSinkRequest { string sink_name = 1; }
-message OpenSinkReply {
+message EnableSinkRequest { string sink_name = 1; }
+message EnableSinkReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
   }
 }
 
-message CloseSinkRequest { string sink_name = 1; }
-message CloseSinkReply {
+message DisableSinkRequest { string sink_name = 1; }
+message DisableSinkReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
@@ -323,21 +323,21 @@ message AnyRequest {
     TimeRequest time_request = 6;
     StepRequest step_request = 7;
     StepUntilRequest step_until_request = 8;
-    StepUnbounded step_unbounded_request = 9;
-    ListEventSources list_event_sources = 10;
-    GetEventSourceSchemas get_event_source_schemas = 11;
-    ListQuerySources list_query_sources = 12;
-    GetQuerySourceSchemas get_query_source_schemas = 13;
-    ListEventSinks list_event_sinks = 14;
-    GetEventSinkSchemas get_event_sink_schemas = 15;
+    StepUnboundedRequest step_unbounded_request = 9;
+    ListEventSourcesRequest list_event_sources = 10;
+    GetEventSourceSchemasRequest get_event_source_schemas = 11;
+    ListQuerySourcesRequest list_query_sources = 12;
+    GetQuerySourceSchemasRequest get_query_source_schemas = 13;
+    ListEventSinksRequest list_event_sinks = 14;
+    GetEventSinkSchemasRequest get_event_sink_schemas = 15;
     ScheduleEventRequest schedule_event_request = 16;
     CancelEventRequest cancel_event_request = 17;
     ProcessEventRequest process_event_request = 18;
     ProcessQueryRequest process_query_request = 19;
     TryReadEventsRequest try_read_events_request = 20;
     ReadEventRequest read_event_request = 21;
-    OpenSinkRequest open_sink_request = 22;
-    CloseSinkRequest close_sink_request = 23;
+    EnableSinkRequest enable_sink_request = 22;
+    DisableSinkRequest disable_sink_request = 23;
   }
 }
 
@@ -363,6 +363,6 @@ service Simulation {
   rpc ProcessQuery(ProcessQueryRequest) returns (ProcessQueryReply);
   rpc TryReadEvents(TryReadEventsRequest) returns (TryReadEventsReply);
   rpc ReadEvent(ReadEventRequest) returns (ReadEventReply);
-  rpc OpenSink(OpenSinkRequest) returns (OpenSinkReply);
-  rpc CloseSink(CloseSinkRequest) returns (CloseSinkReply);
+  rpc EnableSink(EnableSinkRequest) returns (EnableSinkReply);
+  rpc DisableSink(DisableSinkRequest) returns (DisableSinkReply);
 }

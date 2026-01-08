@@ -158,10 +158,10 @@ pub(crate) trait EventSinkReaderEntryAny:
     Stream<Item = Result<Vec<u8>, SerializationError>> + Send + Unpin + 'static
 {
     /// Starts or resumes the collection of new events.
-    fn open(&mut self);
+    fn enable(&mut self);
 
     /// Pauses the collection of new events.
-    fn close(&mut self);
+    fn disable(&mut self);
 
     /// Returns the next event, if any.
     fn try_read(&mut self) -> Option<Result<Vec<u8>, SerializationError>>;
@@ -203,12 +203,12 @@ where
     T: Serialize + 'static,
 {
     #[cfg(feature = "server")]
-    fn open(&mut self) {
-        self.sink.open();
+    fn enable(&mut self) {
+        self.sink.enable();
     }
     #[cfg(feature = "server")]
-    fn close(&mut self) {
-        self.sink.close();
+    fn disable(&mut self) {
+        self.sink.disable();
     }
     #[cfg(feature = "server")]
     fn try_read(&mut self) -> Option<Result<Vec<u8>, SerializationError>> {

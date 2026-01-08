@@ -22,7 +22,6 @@
 //! ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 //! ```
 
-use std::future::Future;
 use std::thread;
 use std::time::Duration;
 
@@ -31,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use thread_guard::ThreadGuard;
 
 use nexosim::model::{Context, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{
     AutoEventKey, EventKey, ExecutionError, Mailbox, SimInit, SimulationError,
 };
@@ -174,15 +173,9 @@ impl Detector {
     /// Note: self-scheduling async methods must be for now defined with an
     /// explicit signature instead of `async fn` due to a rustc issue.
     #[nexosim(schedulable)]
-    fn pulse<'a>(
-        &'a mut self,
-        _: (),
-        cx: &'a Context<Self>,
-    ) -> impl Future<Output = ()> + Send + 'a {
-        async move {
-            self.pulse.send(()).await;
-            self.schedule_next(cx).await;
-        }
+    async fn pulse<'a>(&'a mut self, _: (), cx: &'a Context<Self>) {
+        self.pulse.send(()).await;
+        self.schedule_next(cx).await;
     }
 
     /// Schedules the next detection.
@@ -222,37 +215,32 @@ fn main() -> Result<(), SimulationError> {
     // Connections.
     detector.pulse.connect(Counter::pulse, &counter_mbox);
 
-    // Model handles for simulation.
-    let detector_addr = detector_mbox.address();
-    let counter_addr = counter_mbox.address();
-    let observer = EventQueue::new_open();
+    // Bench.
+    let mut bench = SimInit::new();
+
+    // Sources.
+    let power_in = EventSource::new()
+        .connect(Counter::power_in, &counter_mbox)
+        .register(&mut bench);
+    let switch_on = EventSource::new()
+        .connect(Detector::switch_on, &detector_mbox)
+        .register(&mut bench);
+
+    // Sinks.
+    let (sink, mut observer) = event_queue(SinkState::Enabled);
     counter
         .mode
-        .map_connect_sink(|m| Event::Mode(*m), &observer);
-    counter
-        .count
-        .map_connect_sink(|c| Event::Count(*c), &observer);
-
-    let mut observer = observer.into_reader();
-
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
+        .map_connect_sink(|m| Event::Mode(*m), sink.clone());
+    counter.count.map_connect_sink(|c| Event::Count(*c), sink);
 
     // Assembly and initialization.
-    let mut bench = SimInit::new()
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+    let mut simu = SimInit::new()
         .add_model(detector, detector_mbox, "detector")
         .add_model(counter, counter_mbox, "counter")
         .add_model(ticker, ticker_mbox, "ticker")
-        .set_clock(AutoSystemClock::new());
-
-    let power_in_id = EventSource::new()
-        .connect(Counter::power_in, counter_addr)
-        .register(&mut bench);
-    let switch_on_id = EventSource::new()
-        .connect(Detector::switch_on, detector_addr)
-        .register(&mut bench);
-
-    let mut simu = bench.init(t0)?;
+        .set_clock(AutoSystemClock::new())
+        .init(t0)?;
 
     let scheduler = simu.scheduler();
 
@@ -273,7 +261,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Switch the counter on.
-    scheduler.schedule_event(Duration::from_millis(1), &power_in_id, true)?;
+    scheduler.schedule_event(Duration::from_millis(1), &power_in, true)?;
 
     // Wait until counter mode is `On`.
     loop {
@@ -288,7 +276,7 @@ fn main() -> Result<(), SimulationError> {
     }
 
     // Switch the detector on.
-    scheduler.schedule_event(Duration::from_millis(100), &switch_on_id, ())?;
+    scheduler.schedule_event(Duration::from_millis(100), &switch_on, ())?;
 
     // Wait until `N` detections.
     loop {

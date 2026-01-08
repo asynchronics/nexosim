@@ -33,7 +33,7 @@
 use std::time::Duration;
 
 use nexosim::endpoints::Endpoints;
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, QuerySource};
+use nexosim::ports::{EventSinkReader, EventSource, QuerySource, SinkState, event_queue_endpoint};
 use nexosim::simulation::{
     EventId, InitError, Mailbox, QueryId, SimInit, Simulation, SimulationError,
 };
@@ -60,7 +60,6 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
     let mut controller = Controller::new();
     let mut tank = Tank::new(init_tank_volume);
 
-    // Mailboxes.
     let pump_mbox = Mailbox::new();
     let controller_mbox = Mailbox::new();
     let tank_mbox = Mailbox::new();
@@ -71,48 +70,34 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
         .connect(Controller::water_sense, &controller_mbox);
     pump.flow_rate.connect(Tank::set_flow_rate, &tank_mbox);
 
-    // Bench assembly.
+    // Endpoints.
     let mut bench = SimInit::new();
 
-    // Sinks.
-
-    // Controller.
-    let pump_cmd = EventQueue::new_open();
-    controller.pump_cmd.connect_sink(&pump_cmd);
-
-    // Pump.
-    let flow_rate = EventQueue::new_open();
-    pump.flow_rate.connect_sink(&flow_rate);
-
-    // Tank.
-    let water_sense = EventQueue::new_open();
-    tank.water_sense.connect_sink(&water_sense);
-
-    // Controller.
     EventSource::new()
         .connect(Controller::brew_time, &controller_mbox)
-        .add_endpoint(&mut bench, "brew_time")?;
-
+        .add_to(&mut bench, "brew_time")?;
     EventSource::new()
         .connect(Controller::brew_cmd, &controller_mbox)
-        .add_endpoint(&mut bench, "brew_cmd")?;
-
-    // Tank.
+        .add_to(&mut bench, "brew_cmd")?;
     EventSource::new()
         .connect(Tank::fill, &tank_mbox)
-        .add_endpoint(&mut bench, "fill")?;
-
+        .add_to(&mut bench, "fill")?;
     QuerySource::new()
         .connect(Tank::volume, &tank_mbox)
         .add_endpoint(&mut bench, "volume")?;
 
+    let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "pump_cmd")?;
+    controller.pump_cmd.connect_sink(sink);
+    let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "flow_rate")?;
+    pump.flow_rate.connect_sink(sink);
+    let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "water_sense")?;
+    tank.water_sense.connect_sink(sink);
+
+    // Bench assembly.
     bench = bench
         .add_model(controller, controller_mbox, "controller")
         .add_model(pump, pump_mbox, "pump")
-        .add_model(tank, tank_mbox, "tank")
-        .add_event_sink(pump_cmd.into_reader(), "pump_cmd")?
-        .add_event_sink(flow_rate.into_reader(), "flow_rate")?
-        .add_event_sink(water_sense.into_reader(), "water_sense")?;
+        .add_model(tank, tank_mbox, "tank");
 
     Ok(bench)
 }
@@ -196,8 +181,7 @@ fn run_simulation(
 fn main() -> Result<(), SimulationError> {
     let bench = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?;
 
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
     let (mut simu, mut registry) = bench.init_with_registry(t0)?;
 
     // Sinks used in simulation.

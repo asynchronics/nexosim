@@ -93,10 +93,8 @@ struct Slot<T: ?Sized> {
 /// `usize` and share the following layout:
 ///
 /// ```text
-///
 /// | <- MSB                                LSB -> |
 /// | Sequence count | flag (1 bit) | Buffer index |
-///
 /// ```
 ///
 /// The purpose of the flag differs depending on the field:
@@ -107,7 +105,6 @@ struct Slot<T: ?Sized> {
 /// - slot stamp: the flag de-facto extends the mantissa of the buffer index,
 ///   which makes it in particular possible to support queues with a capacity of
 ///   1 without special-casing.
-///
 pub(super) struct Queue<T: ?Sized> {
     /// Buffer position of the slot to which the next closure will be written.
     ///

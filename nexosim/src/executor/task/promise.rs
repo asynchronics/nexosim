@@ -120,7 +120,8 @@ pub(crate) enum Stage<T> {
 }
 
 impl<U> Stage<U> {
-    /// Maps a `Stage<U>` to `Stage<V>` by applying a function to a contained value.
+    /// Maps a `Stage<U>` to `Stage<V>` by applying a function to a contained
+    /// value.
     #[allow(unused)]
     pub(crate) fn map<V, F>(self, f: F) -> Stage<V>
     where

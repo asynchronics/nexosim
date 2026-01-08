@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
 use nexosim::ports::{
-    EventQueue, EventQueueReader, EventSinkReader, EventSource, Output, QuerySource,
+    EventQueueReader, EventSinkReader, EventSource, Output, QuerySource, SinkState, event_queue,
 };
 use nexosim::simulation::{EventId, EventKey, Mailbox, QueryId, SimInit};
 use nexosim::time::MonotonicTime;
@@ -206,26 +206,27 @@ fn model_with_output() {
         let mbox = Mailbox::new();
         let mut model = ModelWithOutput::default();
 
-        let msg = EventQueue::new_open();
-        model.output.connect_sink(&msg);
+        let (sink, msg) = event_queue(SinkState::Enabled);
+        model.output.connect_sink(sink);
 
         let mut bench = SimInit::new();
-        let event_id = EventSource::new()
+        let event = EventSource::new()
             .connect(ModelWithOutput::send, &mbox)
             .register(&mut bench);
         bench = bench.add_model(model, mbox, "modelWithOutput");
 
-        (bench, event_id, msg.into_reader())
+        (bench, event, msg)
     }
 
-    let (bench, event_id, _) = get_bench();
+    let (bench, event, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
     let mut simu = bench.init(t0).unwrap();
+
     // Schedule event on an initialized sim.
     let _ = simu
         .scheduler()
-        .schedule_event(Duration::from_secs(5), &event_id, 5);
+        .schedule_event(Duration::from_secs(5), &event, 5);
 
     // Store state with an event scheduled.
     let mut state = Vec::new();
@@ -255,54 +256,52 @@ fn model_with_key() {
         let key_mbox = Mailbox::new();
         let key_model = ModelWithKey { key: None };
 
-        let msg = EventQueue::new_open();
-        output_model.output.connect_sink(&msg);
-
-        let key_addr = key_mbox.address();
+        let (sink, msg) = event_queue(SinkState::Enabled);
+        output_model.output.connect_sink(sink);
 
         let mut bench = SimInit::new();
 
-        let output_id = EventSource::new()
+        let output = EventSource::new()
             .connect(ModelWithOutput::send, &output_mbox)
             .register(&mut bench);
 
-        let set_key_id = EventSource::new()
-            .connect(ModelWithKey::set_key, &key_addr)
+        let set_key = EventSource::new()
+            .connect(ModelWithKey::set_key, &key_mbox)
             .register(&mut bench);
 
-        let process_id = EventSource::new()
-            .connect(ModelWithKey::process, &key_addr)
+        let process = EventSource::new()
+            .connect(ModelWithKey::process, &key_mbox)
             .register(&mut bench);
 
         bench = bench
             .add_model(output_model, output_mbox, "modelWithOutput")
             .add_model(key_model, key_mbox, "modelWithKey");
 
-        (bench, output_id, set_key_id, process_id, msg.into_reader())
+        (bench, output, set_key, process, msg)
     }
 
-    let (bench, output_id, set_key_id, _, _) = get_bench();
+    let (bench, output, set_key, _, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
     let mut simu = bench.init(t0).unwrap();
     // Schedule event on an initialized sim.
     let key = simu
         .scheduler()
-        .schedule_keyed_event(Duration::from_secs(5), &output_id, 5)
+        .schedule_keyed_event(Duration::from_secs(5), &output, 5)
         .unwrap();
 
-    let _ = simu.process_event(&set_key_id, key);
+    let _ = simu.process_event(&set_key, key);
 
     // Store state with an event scheduled and key set.
     let mut state = Vec::new();
     simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
-    let (bench, _, _, process_id, mut msg) = get_bench();
+    let (bench, _, _, process, mut msg) = get_bench();
     let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Cancel the serialized key.
-    let _ = simu.process_event(&process_id, ());
+    let _ = simu.process_event(&process, ());
 
     // Verify that the scheduled event does not fire.
     simu.step().unwrap();
@@ -315,25 +314,23 @@ fn model_init_restore() {
         let mbox = Mailbox::new();
         let model = ModelWithState::new(1);
 
-        let addr = mbox.address();
-
         let mut bench = SimInit::new();
 
-        let query_id = QuerySource::new()
-            .connect(ModelWithState::query, &addr)
+        let query = QuerySource::new()
+            .connect(ModelWithState::query, &mbox)
             .register(&mut bench);
 
         bench = bench.add_model(model, mbox, "modelWithKey");
 
-        (bench, query_id)
+        (bench, query)
     }
 
-    let (bench, query_id) = get_bench();
+    let (bench, query) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
     let mut simu = bench.init(t0).unwrap();
     // Verify `init` called.
-    let model_state = simu.process_query(&query_id, ()).unwrap();
+    let model_state = simu.process_query(&query, ()).unwrap();
     assert_eq!(model_state, 11);
 
     // // Store state with an initialized model.
@@ -345,7 +342,7 @@ fn model_init_restore() {
     let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify that `restore` has been called instead of `init` this time
-    let model_state = simu.process_query(&query_id, ()).unwrap();
+    let model_state = simu.process_query(&query, ()).unwrap();
     assert_eq!(model_state, 11 * 13);
 }
 
@@ -355,12 +352,12 @@ fn model_with_schedule() {
         let mbox = Mailbox::new();
         let mut model = ModelWithSchedule::new();
 
-        let msg = EventQueue::new_open();
-        model.output.connect_sink(&msg);
+        let (sink, msg) = event_queue(SinkState::Enabled);
+        model.output.connect_sink(sink);
 
         let bench = SimInit::new().add_model(model, mbox, "modelWithSchedule");
 
-        (bench, msg.into_reader())
+        (bench, msg)
     }
 
     let (bench, mut msg) = get_bench();
@@ -392,28 +389,30 @@ fn model_with_generics() {
             output: Output::<f64>::default(),
         };
 
-        let msg = EventQueue::new_open();
-        model.output.connect_sink(&msg);
-        let address = mbox.address();
+        let mut bench = SimInit::new();
 
-        let mut bench = SimInit::new().add_model(model, mbox, "modelWithGenerics");
-        let input_id = EventSource::new()
-            .connect(ModelWithGenerics::input, address)
+        let (sink, msg) = event_queue(SinkState::Enabled);
+        model.output.connect_sink(sink);
+
+        let input = EventSource::new()
+            .connect(ModelWithGenerics::input, &mbox)
             .register(&mut bench);
 
-        (bench, msg.into_reader(), input_id)
+        bench = bench.add_model(model, mbox, "modelWithGenerics");
+
+        (bench, msg, input)
     }
 
-    let (bench, mut msg, input_id) = get_bench();
+    let (bench, mut msg, input) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
     let mut simu = bench.init(t0).unwrap();
     let scheduler = simu.scheduler();
     scheduler
-        .schedule_event(Duration::from_secs(2), &input_id, (-5, 5.14))
+        .schedule_event(Duration::from_secs(2), &input, (-5, 5.14))
         .unwrap();
     scheduler
-        .schedule_event(Duration::from_secs(5), &input_id, (-5, 7.14))
+        .schedule_event(Duration::from_secs(5), &input, (-5, 7.14))
         .unwrap();
     simu.step().unwrap();
 
@@ -460,26 +459,29 @@ fn model_with_hashmap() {
         let mut sinks = vec![];
 
         let mbox = Mailbox::new();
-        let address = mbox.address();
         let mut model = ModelWithHashMap {
             outputs: HashMap::with_hasher(BuildHasherDefault::new()),
         };
+
+        let mut bench = SimInit::new();
+
         for idx in 0..COUNT {
             let mut output = Output::new();
-            let msg = EventQueue::new_open();
-            output.connect_sink(&msg);
+            let (sink, msg) = event_queue(SinkState::Enabled);
+            output.connect_sink(sink);
             model.outputs.insert(idx, output);
-            sinks.push(msg.into_reader());
+            sinks.push(msg);
         }
 
-        let mut bench = SimInit::new().add_model(model, mbox, "model");
-
-        let event_id = EventSource::new()
-            .connect(ModelWithHashMap::send, &address)
+        let event = EventSource::new()
+            .connect(ModelWithHashMap::send, &mbox)
             .register(&mut bench);
 
-        (bench, event_id, sinks)
+        bench = bench.add_model(model, mbox, "model");
+
+        (bench, event, sinks)
     }
+
     let (bench, _, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
@@ -488,7 +490,7 @@ fn model_with_hashmap() {
     let mut state = Vec::new();
     simu.save(&mut state).unwrap();
 
-    let (bench, event_id, mut sinks) = get_bench();
+    let (bench, event, mut sinks) = get_bench();
     let mut simu = bench.restore(&state[..]).unwrap().0;
 
     for _ in 0..ITERATIONS {
@@ -496,7 +498,7 @@ fn model_with_hashmap() {
         // assigned sinks. (fails when a standard RandomState HashMap is used)
         #[allow(clippy::needless_range_loop)]
         for idx in 0..COUNT {
-            simu.process_event(&event_id, idx).unwrap();
+            simu.process_event(&event, idx).unwrap();
             assert_eq!(sinks[idx].try_read(), Some(idx));
         }
     }
@@ -508,39 +510,37 @@ fn model_relative_order() {
         let mbox = Mailbox::new();
         let model = ModelWithState::new(1);
 
-        let addr = mbox.address();
-
         let mut bench = SimInit::new();
-        let add_id = EventSource::new()
-            .connect(ModelWithState::add, &addr)
+        let add = EventSource::new()
+            .connect(ModelWithState::add, &mbox)
             .register(&mut bench);
 
-        let mul_id = EventSource::new()
-            .connect(ModelWithState::mul, &addr)
+        let mul = EventSource::new()
+            .connect(ModelWithState::mul, &mbox)
             .register(&mut bench);
 
-        let query_id = QuerySource::new()
-            .connect(ModelWithState::query, &addr)
+        let query = QuerySource::new()
+            .connect(ModelWithState::query, &mbox)
             .register(&mut bench);
 
         bench = bench.add_model(model, mbox, "modelWithKey");
 
-        (bench, add_id, mul_id, query_id)
+        (bench, add, mul, query)
     }
 
     // Test mul -> add order.
 
-    let (bench, add_id, mul_id, _) = get_bench();
+    let (bench, add, mul, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
     let mut simu = bench.init(t0).unwrap();
 
     // Schedule two events at the same time
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &mul_id, 7)
+        .schedule_event(Duration::from_secs(1), &mul, 7)
         .unwrap();
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &add_id, 19)
+        .schedule_event(Duration::from_secs(1), &add, 19)
         .unwrap();
 
     // Store state with an initialized model and events scheduled.
@@ -548,26 +548,26 @@ fn model_relative_order() {
     simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
-    let (bench, _, _, query_id) = get_bench();
+    let (bench, _, _, query) = get_bench();
     let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
-    assert_eq!(11 * 13 * 7 + 19, simu.process_query(&query_id, ()).unwrap());
+    assert_eq!(11 * 13 * 7 + 19, simu.process_query(&query, ()).unwrap());
 
     // Test add -> mul order.
 
-    let (bench, add_id, mul_id, _) = get_bench();
+    let (bench, add, mul, _) = get_bench();
     let t0 = MonotonicTime::EPOCH;
 
     let mut simu = bench.init(t0).unwrap();
 
     // Schedule two events at the same time
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &add_id, 19)
+        .schedule_event(Duration::from_secs(1), &add, 19)
         .unwrap();
     simu.scheduler()
-        .schedule_event(Duration::from_secs(1), &mul_id, 7)
+        .schedule_event(Duration::from_secs(1), &mul, 7)
         .unwrap();
 
     // Store state with an initialized model and events scheduled.
@@ -575,13 +575,10 @@ fn model_relative_order() {
     simu.save(&mut state).unwrap();
 
     // Recreate the bench with the state restored.
-    let (bench, _, _, query_id) = get_bench();
+    let (bench, _, _, query) = get_bench();
     let mut simu = bench.restore(&state[..]).unwrap().0;
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
-    assert_eq!(
-        (11 * 13 + 19) * 7,
-        simu.process_query(&query_id, ()).unwrap()
-    );
+    assert_eq!((11 * 13 + 19) * 7, simu.process_query(&query, ()).unwrap());
 }

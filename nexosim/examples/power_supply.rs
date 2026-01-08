@@ -29,7 +29,7 @@
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output, Requestor};
+use nexosim::ports::{EventSinkReader, EventSource, Output, Requestor, SinkState, event_queue};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -115,7 +115,6 @@ fn main() -> Result<(), SimulationError> {
     let mut load2 = Load::new(r2);
     let mut load3 = Load::new(r3);
 
-    // Mailboxes.
     let psu_mbox = Mailbox::new();
     let load1_mbox = Mailbox::new();
     let load2_mbox = Mailbox::new();
@@ -126,36 +125,30 @@ fn main() -> Result<(), SimulationError> {
     psu.pwr_out.connect(Load::pwr_in, &load2_mbox);
     psu.pwr_out.connect(Load::pwr_in, &load3_mbox);
 
-    // Model handles for simulation.
-    let psu_power = EventQueue::new_open();
-    let load1_power = EventQueue::new_open();
-    let load2_power = EventQueue::new_open();
-    let load3_power = EventQueue::new_open();
-    psu.power.connect_sink(&psu_power);
-    load1.power.connect_sink(&load1_power);
-    load2.power.connect_sink(&load2_power);
-    load3.power.connect_sink(&load3_power);
-    let mut psu_power = psu_power.into_reader();
-    let mut load1_power = load1_power.into_reader();
-    let mut load2_power = load2_power.into_reader();
-    let mut load3_power = load3_power.into_reader();
-    let psu_addr = psu_mbox.address();
+    // Endpoints.
+    let mut bench = SimInit::new();
 
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
+    let voltage_setting = EventSource::new()
+        .connect(PowerSupply::voltage_setting, &psu_mbox)
+        .register(&mut bench);
+
+    let (sink, mut psu_power) = event_queue(SinkState::Enabled);
+    psu.power.connect_sink(sink);
+    let (sink, mut load1_power) = event_queue(SinkState::Enabled);
+    load1.power.connect_sink(sink);
+    let (sink, mut load2_power) = event_queue(SinkState::Enabled);
+    load2.power.connect_sink(sink);
+    let (sink, mut load3_power) = event_queue(SinkState::Enabled);
+    load3.power.connect_sink(sink);
 
     // Assembly and initialization.
-    let mut simu = SimInit::new()
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+    let mut simu = bench
         .add_model(psu, psu_mbox, "psu")
         .add_model(load1, load1_mbox, "load1")
         .add_model(load2, load2_mbox, "load2")
-        .add_model(load3, load3_mbox, "load3");
-
-    let voltage_setting_event_id = EventSource::new()
-        .connect(PowerSupply::voltage_setting, &psu_addr)
-        .register(&mut simu);
-
-    let mut simu = simu.init(t0)?;
+        .add_model(load3, load3_mbox, "load3")
+        .init(t0)?;
 
     // ----------
     // Simulation.
@@ -169,7 +162,7 @@ fn main() -> Result<(), SimulationError> {
 
     // Vary the supply voltage, check the load and power supply consumptions.
     for voltage in [10.0, 15.0, 20.0] {
-        simu.process_event(&voltage_setting_event_id, voltage)?;
+        simu.process_event(&voltage_setting, voltage)?;
 
         let v_square = voltage * voltage;
         assert!(same_power(load1_power.try_read().unwrap(), v_square / r1));

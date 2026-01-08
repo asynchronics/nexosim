@@ -27,7 +27,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, Model, ProtoModel, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, Output};
+use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime};
 
@@ -104,30 +104,20 @@ impl ProtoModel for ProtoListener {
 }
 
 fn main() -> Result<(), SimulationError> {
-    // ---------------
-    // Bench assembly.
-    // ---------------
-
     // Channel for communication with simulation from outside.
     let (tx, rx) = channel();
 
     // Models.
-
-    // The listener model.
     let mut listener = ProtoListener::new(rx);
 
-    // Mailboxes.
     let listener_mbox = Mailbox::new();
 
-    // Model handles for simulation.
-    let message = EventQueue::new_open();
-    listener.message.connect_sink(&message);
-    let mut message = message.into_reader();
-
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
+    // Endpoints.
+    let (sink, mut message) = event_queue(SinkState::Enabled);
+    listener.message.connect_sink(sink);
 
     // Assembly and initialization.
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
     let mut simu = SimInit::new()
         .add_model(listener, listener_mbox, "listener")
         .set_clock(AutoSystemClock::new())

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, Output};
+use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
 
@@ -43,9 +43,8 @@ fn halt_and_resume() -> Result<(), SimulationError> {
     let mut model = RecurringModel::new(Duration::from_millis(200));
     let mailbox = Mailbox::new();
 
-    let message = EventQueue::new_open();
-    model.message.connect_sink(&message);
-    let mut message = message.into_reader();
+    let (sink, mut message) = event_queue(SinkState::Enabled);
+    model.message.connect_sink(sink);
 
     let t0 = MonotonicTime::EPOCH;
 

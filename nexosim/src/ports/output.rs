@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::macros::scoped_thread_local::scoped_thread_local;
 use crate::model::Model;
-use crate::ports::EventSink;
+use crate::ports::EventSinkWriter;
 use crate::ports::{InputFn, ReplierFn};
 use crate::simulation::Address;
 use crate::util::cached_rw_lock::CachedRwLock;
@@ -71,9 +71,9 @@ impl<T: Clone + Send + 'static> Output<T> {
     }
 
     /// Adds a connection to an event sink such as
-    /// [`EventQueue`](crate::ports::EventQueue).
-    pub fn connect_sink<S: EventSink<T>>(&mut self, sink: &S) {
-        let sender = Box::new(EventSinkSender::new(sink.writer()));
+    /// [`EventQueueWriter`](crate::ports::EventQueueWriter).
+    pub fn connect_sink<S: EventSinkWriter<T>>(&mut self, sink: S) {
+        let sender = Box::new(EventSinkSender::new(sink));
         self.broadcaster.write().unwrap().add(sender)
     }
 
@@ -99,17 +99,17 @@ impl<T: Clone + Send + 'static> Output<T> {
     }
 
     /// Adds an auto-converting connection to an event sink such as
-    /// [`EventQueue`](crate::ports::EventQueue).
+    /// [`EventQueueWriter`](crate::ports::EventQueueWriter).
     ///
     /// Events are mapped to another type using the closure provided in
     /// argument.
-    pub fn map_connect_sink<C, U, S>(&mut self, map: C, sink: &S)
+    pub fn map_connect_sink<C, U, S>(&mut self, map: C, sink: S)
     where
         C: Fn(&T) -> U + Send + Sync + 'static,
         U: Send + 'static,
-        S: EventSink<U>,
+        S: EventSinkWriter<U>,
     {
-        let sender = Box::new(MapEventSinkSender::new(map, sink.writer()));
+        let sender = Box::new(MapEventSinkSender::new(map, sink));
         self.broadcaster.write().unwrap().add(sender);
     }
 
@@ -143,17 +143,17 @@ impl<T: Clone + Send + 'static> Output<T> {
     }
 
     /// Adds an auto-converting connection to an event sink such as
-    /// [`EventQueue`](crate::ports::EventQueue).
+    /// [`EventQueueWriter`](crate::ports::EventQueueWriter).
     ///
     /// Events are mapped to another type using the closure provided in
     /// argument.
-    pub fn filter_map_connect_sink<C, U, S>(&mut self, filter_map: C, sink: &S)
+    pub fn filter_map_connect_sink<C, U, S>(&mut self, filter_map: C, sink: S)
     where
         C: Fn(&T) -> Option<U> + Send + Sync + 'static,
         U: Send + 'static,
-        S: EventSink<U>,
+        S: EventSinkWriter<U>,
     {
-        let sender = Box::new(FilterMapEventSinkSender::new(filter_map, sink.writer()));
+        let sender = Box::new(FilterMapEventSinkSender::new(filter_map, sink));
         self.broadcaster.write().unwrap().add(sender);
     }
 

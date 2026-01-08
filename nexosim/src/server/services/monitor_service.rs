@@ -70,8 +70,8 @@ impl MonitorService {
         }
     }
 
-    /// Opens an event sink.
-    pub(crate) fn open_sink(&mut self, request: OpenSinkRequest) -> Result<(), Error> {
+    /// Enables an event sink.
+    pub(crate) fn enable_sink(&mut self, request: EnableSinkRequest) -> Result<(), Error> {
         match self {
             Self::Started {
                 event_sink_registry,
@@ -79,7 +79,7 @@ impl MonitorService {
                 let sink_name = &request.sink_name;
 
                 if let Ok(sink) = event_sink_registry.get_entry_mut(sink_name) {
-                    sink.open();
+                    sink.enable();
 
                     Ok(())
                 } else {
@@ -87,7 +87,7 @@ impl MonitorService {
                         to_error(
                             ErrorCode::SinkReadRace,
                             format!(
-                                "attempting to open sink '{sink_name}' while a read operation is ongoing"
+                                "attempting to enable sink '{sink_name}' while a read operation is ongoing"
                             ),
                         )
                     } else {
@@ -99,8 +99,8 @@ impl MonitorService {
         }
     }
 
-    /// Closes an event sink.
-    pub(crate) fn close_sink(&mut self, request: CloseSinkRequest) -> Result<(), Error> {
+    /// Disables an event sink.
+    pub(crate) fn disable_sink(&mut self, request: DisableSinkRequest) -> Result<(), Error> {
         match self {
             Self::Started {
                 event_sink_registry,
@@ -108,7 +108,7 @@ impl MonitorService {
                 let sink_name = &request.sink_name;
 
                 if let Ok(sink) = event_sink_registry.get_entry_mut(sink_name) {
-                    sink.close();
+                    sink.disable();
 
                     Ok(())
                 } else {
@@ -116,7 +116,7 @@ impl MonitorService {
                         to_error(
                             ErrorCode::SinkReadRace,
                             format!(
-                                "attempting to close sink '{sink_name}' while a read operation is ongoing"
+                                "attempting to disable sink '{sink_name}' while a read operation is ongoing"
                             ),
                         )
                     } else {
