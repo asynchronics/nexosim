@@ -243,7 +243,7 @@ impl SimInit {
     ///
     /// An error is returned if the specified name is already used by another
     /// event sink. The error is convertible to an [`InitError`].
-    pub fn add_event_sink<S, T>(
+    pub fn bind_event_sink<S, T>(
         &mut self,
         sink: S,
         name: impl Into<String>,
@@ -277,7 +277,7 @@ impl SimInit {
     ///
     /// An error is returned if the specified name is already used by another
     /// event sink. The error is convertible to an [`InitError`].
-    pub fn add_event_sink_raw<S, T>(
+    pub fn bind_event_sink_raw<S, T>(
         &mut self,
         sink: S,
         name: impl Into<String>,

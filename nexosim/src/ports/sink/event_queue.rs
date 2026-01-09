@@ -37,7 +37,7 @@ pub fn event_queue<T: Send>(state: SinkState) -> (EventQueueWriter<T>, EventQueu
 ///
 /// This is a convenience function and is equivalent to calling [`event_queue`]
 /// and immediately registering the reader as an endpoint with
-/// [`SimInit::add_event_sink`].
+/// [`SimInit::bind_event_sink`].
 pub fn event_queue_endpoint<T: Message + Serialize + Send + 'static>(
     sim_init: &mut SimInit,
     state: SinkState,
@@ -45,7 +45,7 @@ pub fn event_queue_endpoint<T: Message + Serialize + Send + 'static>(
 ) -> Result<EventQueueWriter<T>, DuplicateEventSinkError> {
     let (writer, reader) = event_queue(state);
 
-    sim_init.add_event_sink(reader, name).map(|()| writer)
+    sim_init.bind_event_sink(reader, name).map(|()| writer)
 }
 
 /// Creates an event queue with an unbounded size, adding it as a simulation
@@ -54,7 +54,7 @@ pub fn event_queue_endpoint<T: Message + Serialize + Send + 'static>(
 ///
 /// This is a convenience function and is equivalent to calling [`event_queue`]
 /// and immediately registering the reader as an endpoint with
-/// [`SimInit::add_event_sink_raw`].
+/// [`SimInit::bind_event_sink_raw`].
 pub fn event_queue_endpoint_raw<T: Serialize + Send + 'static>(
     sim_init: &mut SimInit,
     state: SinkState,
@@ -62,7 +62,7 @@ pub fn event_queue_endpoint_raw<T: Serialize + Send + 'static>(
 ) -> Result<EventQueueWriter<T>, DuplicateEventSinkError> {
     let (writer, reader) = event_queue(state);
 
-    sim_init.add_event_sink_raw(reader, name).map(|()| writer)
+    sim_init.bind_event_sink_raw(reader, name).map(|()| writer)
 }
 
 /// The unique consumer handle of an event queue.

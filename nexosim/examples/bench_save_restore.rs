@@ -75,13 +75,13 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
 
     EventSource::new()
         .connect(Controller::brew_time, &controller_mbox)
-        .add_to(&mut bench, "brew_time")?;
+        .bind_endpoint(&mut bench, "brew_time")?;
     EventSource::new()
         .connect(Controller::brew_cmd, &controller_mbox)
-        .add_to(&mut bench, "brew_cmd")?;
+        .bind_endpoint(&mut bench, "brew_cmd")?;
     EventSource::new()
         .connect(Tank::fill, &tank_mbox)
-        .add_to(&mut bench, "fill")?;
+        .bind_endpoint(&mut bench, "fill")?;
     QuerySource::new()
         .connect(Tank::volume, &tank_mbox)
         .add_endpoint(&mut bench, "volume")?;

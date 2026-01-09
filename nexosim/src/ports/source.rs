@@ -117,7 +117,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     ///
     /// This is typically only of interest when controlling the simulation from
     /// Rust. For simulations controlled by a remote client, use
-    /// [`EventSource::add_to`] or [`EventSource::add_raw_to`].
+    /// [`EventSource::bind_endpoint`] or [`EventSource::bind_raw_endpoint`].
     pub fn register(self, sim_init: &mut SimInit) -> EventId<T> {
         sim_init.link_event_source(self)
     }
@@ -130,12 +130,12 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     /// error is convertible to an [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
-    /// a remote client. For simulations controlled from Rust, use
-    /// [`EventSource::register`].
-    pub fn add_raw_to(
+    /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
+    /// In other cases, use [`EventSource::register`].
+    pub fn bind_raw_endpoint(
         self,
-        name: impl Into<String>,
         sim_init: &mut SimInit,
+        name: impl Into<String>,
     ) -> Result<(), DuplicateEventSourceError<T>> {
         sim_init.add_event_source_raw(self, name)
     }
@@ -155,16 +155,16 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
 }
 
 impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
-    /// Adds an event source to the endpoint registry.
+    /// Adds this event source to the endpoint registry.
     ///
     /// If the specified name is already used by another input or another event
     /// source, the source provided as argument is returned in the error. The
     /// error is convertible to an [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
-    /// a remote client. For simulations controlled from Rust, use
-    /// [`EventSource::register`].
-    pub fn add_to(
+    /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
+    /// In other cases, use [`EventSource::register`].
+    pub fn bind_endpoint(
         self,
         sim_init: &mut SimInit,
         name: impl Into<String>,
