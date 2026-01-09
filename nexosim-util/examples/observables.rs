@@ -20,7 +20,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventQueueReader, EventSinkReader, EventSource, Output};
+use nexosim::ports::{
+    EventQueueReader, EventSinkReader, EventSource, Output, SinkState, event_queue,
+};
 use nexosim::simulation::{AutoEventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 use nexosim_util::observable::{Observable, Observe};
@@ -173,33 +175,28 @@ fn main() -> Result<(), SimulationError> {
     // Mailboxes.
     let proc_mbox = Mailbox::new();
 
-    // Model handles for simulation.
-    let mode = EventQueue::new_open();
-    let value = EventQueue::new_open();
-    let hk = EventQueue::new_open();
+    // Bench.
+    let mut bench = SimInit::new();
 
-    proc.mode.connect_sink(&mode);
-    proc.value.connect_sink(&value);
-    proc.hk.connect_sink(&hk);
-    let mut mode = mode.into_reader();
-    let mut value = value.into_reader();
-    let mut hk = hk.into_reader();
-    let proc_addr = proc_mbox.address();
+    // Sources.
+    let switch_power_event = EventSource::new()
+        .connect(Processor::switch_power, &proc_mbox)
+        .register(&mut bench);
+    let process_event = EventSource::new()
+        .connect(Processor::process, &proc_mbox)
+        .register(&mut bench);
 
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
+    // Sinks.
+    let (sink, mut mode) = event_queue(SinkState::Enabled);
+    proc.mode.connect_sink(sink);
+    let (sink, mut value) = event_queue(SinkState::Enabled);
+    proc.value.connect_sink(sink);
+    let (sink, mut hk) = event_queue(SinkState::Enabled);
+    proc.hk.connect_sink(sink);
 
     // Assembly and initialization.
-    let mut simu = SimInit::new().add_model(proc, proc_mbox, "proc");
-
-    let switch_power_event_id = EventSource::new()
-        .connect(Processor::switch_power, &proc_addr)
-        .register(&mut simu);
-    let process_event_id = EventSource::new()
-        .connect(Processor::process, &proc_addr)
-        .register(&mut simu);
-
-    let mut simu = simu.init(t0)?;
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+    let mut simu = bench.add_model(proc, proc_mbox, "proc").init(t0)?;
 
     // ----------
     // Simulation.
@@ -217,7 +214,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Switch processor on.
-    simu.process_event(&switch_power_event_id, true)?;
+    simu.process_event(&switch_power_event, true)?;
     expect(
         &mut mode,
         Some(ModeId::Idle),
@@ -229,7 +226,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Trigger processing.
-    simu.process_event(&process_event_id, 100)?;
+    simu.process_event(&process_event, 100)?;
     expect(
         &mut mode,
         Some(ModeId::Processing),
@@ -253,7 +250,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Trigger long processing.
-    simu.process_event(&process_event_id, 100)?;
+    simu.process_event(&process_event, 100)?;
     expect(
         &mut mode,
         Some(ModeId::Processing),
@@ -265,7 +262,7 @@ fn main() -> Result<(), SimulationError> {
     );
 
     // Trigger short processing, it cancels the previous one.
-    simu.process_event(&process_event_id, 10)?;
+    simu.process_event(&process_event, 10)?;
     expect(
         &mut mode,
         Some(ModeId::Processing),

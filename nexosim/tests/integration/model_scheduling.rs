@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
@@ -31,21 +31,19 @@ fn model_schedule_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new_open();
-    model.output.connect_sink(&output);
-    let mut output = output.into_reader();
-    let addr = mbox.address();
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
-    let event_id = EventSource::new()
-        .connect(TestModel::trigger, &addr)
-        .register(&mut simu);
+    let trigger = EventSource::new()
+        .connect(TestModel::trigger, &mbox)
+        .register(&mut bench);
 
-    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
 
-    simu.process_event(&event_id, ()).unwrap();
+    simu.process_event(&trigger, ()).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
     assert!(output.try_read().is_some());
@@ -88,10 +86,9 @@ fn multiple_models_scheduling(num_threads: usize) {
         }
     }
 
-    let t0 = MonotonicTime::EPOCH;
     let mut bench = SimInit::with_num_threads(num_threads);
 
-    let output = EventQueue::new_open();
+    let (sink, mut output) = event_queue(SinkState::Enabled);
 
     // Iterate in reverse, to avoid happy accidents.
     // Last added model will be scheduled first, etc.
@@ -102,12 +99,11 @@ fn multiple_models_scheduling(num_threads: usize) {
             output: Output::default(),
         };
         let mbox = Mailbox::new();
-        model.output.connect_sink(&output);
+        model.output.connect_sink(sink.clone());
         bench = bench.add_model(model, mbox, format!("Model_{idx}"));
     }
 
-    let mut simu = bench.init(t0).unwrap();
-    let mut output = output.into_reader();
+    let mut simu = bench.init(MonotonicTime::EPOCH).unwrap();
 
     for idx in 0..MODEL_COUNT {
         simu.step().unwrap();
@@ -148,21 +144,19 @@ fn model_cancel_future_keyed_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new_open();
-    model.output.connect_sink(&output);
-    let mut output = output.into_reader();
-    let addr = mbox.address();
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let trigger = EventSource::new()
+        .connect(TestModel::trigger, &mbox)
+        .register(&mut bench);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
 
-    let event_id = EventSource::new()
-        .connect(TestModel::trigger, &addr)
-        .register(&mut simu);
-
-    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
-
-    simu.process_event(&event_id, ()).unwrap();
+    simu.process_event(&trigger, ()).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(1));
     assert_eq!(output.try_read(), Some(1));
@@ -201,21 +195,19 @@ fn model_cancel_same_time_keyed_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new_open();
-    model.output.connect_sink(&output);
-    let mut output = output.into_reader();
-    let addr = mbox.address();
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let trigger = EventSource::new()
+        .connect(TestModel::trigger, &mbox)
+        .register(&mut bench);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
 
-    let event_id = EventSource::new()
-        .connect(TestModel::trigger, &addr)
-        .register(&mut simu);
-
-    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
-
-    simu.process_event(&event_id, ()).unwrap();
+    simu.process_event(&trigger, ()).unwrap();
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
     assert_eq!(output.try_read(), Some(1));
@@ -249,21 +241,19 @@ fn model_schedule_periodic_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new_open();
-    model.output.connect_sink(&output);
-    let mut output = output.into_reader();
-    let addr = mbox.address();
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let trigger = EventSource::new()
+        .connect(TestModel::trigger, &mbox)
+        .register(&mut bench);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
 
-    let event_id = EventSource::new()
-        .connect(TestModel::trigger, &addr)
-        .register(&mut simu);
-
-    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
-
-    simu.process_event(&event_id, ()).unwrap();
+    simu.process_event(&trigger, ()).unwrap();
 
     // Move to the next events at t0 + 2s + k*3s.
     for k in 0..10 {
@@ -306,21 +296,19 @@ fn model_cancel_periodic_event(num_threads: usize) {
     let mut model = TestModel::default();
     let mbox = Mailbox::new();
 
-    let output = EventQueue::new_open();
-    model.output.connect_sink(&output);
-    let mut output = output.into_reader();
-    let addr = mbox.address();
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let trigger = EventSource::new()
+        .connect(TestModel::trigger, &mbox)
+        .register(&mut bench);
 
     let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
 
-    let event_id = EventSource::new()
-        .connect(TestModel::trigger, &addr)
-        .register(&mut simu);
-
-    let mut simu = simu.add_model(model, mbox, "").init(t0).unwrap();
-
-    simu.process_event(&event_id, ()).unwrap();
+    simu.process_event(&trigger, ()).unwrap();
 
     simu.step().unwrap();
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));

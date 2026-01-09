@@ -191,6 +191,21 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
 
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: cargo fmt --all -- --check
+
   lints:
     name: Lints
     runs-on: ubuntu-latest
@@ -201,14 +216,10 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Run cargo fmt
-        run: cargo fmt --all -- --check
-
       - name: Run cargo clippy
         run: |
           cargo clippy --tests --all-features
-          # See PR#75: https://github.com/asynchronics/nexosim/pull/75
-          cargo clippy --examples --all-features -- -A clippy::new_without_default -A clippy::manual_async_fn
+          cargo clippy --examples --all-features -- -A clippy::new_without_default
 
   docs:
     name: Docs

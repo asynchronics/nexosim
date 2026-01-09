@@ -62,20 +62,19 @@ fn timeout_untriggered(num_threads: usize) {
     let mbox = Mailbox::new();
     let addr = mbox.address();
 
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
-    let event_id = EventSource::new()
+    let input = EventSource::new()
         .connect(TestModel::input, &addr)
-        .register(&mut simu);
+        .register(&mut bench);
 
-    let mut simu = simu
+    let mut simu = bench
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
-        .init(t0)
+        .init(MonotonicTime::EPOCH)
         .unwrap();
 
-    assert!(simu.process_event(&event_id, ()).is_ok());
+    assert!(simu.process_event(&input, ()).is_ok());
 }
 
 fn timeout_triggered(num_threads: usize) {
@@ -90,21 +89,20 @@ fn timeout_triggered(num_threads: usize) {
     // Make a loopback connection.
     model.output.connect(TestModel::input, addr.clone());
 
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = SimInit::with_num_threads(num_threads);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
-    let event_id = EventSource::new()
+    let input = EventSource::new()
         .connect(TestModel::input, &addr)
-        .register(&mut simu);
+        .register(&mut bench);
 
-    let mut simu = simu
+    let mut simu = bench
         .add_model(model, mbox, "test")
         .set_timeout(Duration::from_secs(1))
-        .init(t0)
+        .init(MonotonicTime::EPOCH)
         .unwrap();
 
     assert!(matches!(
-        simu.process_event(&event_id, ()),
+        simu.process_event(&input, ()),
         Err(ExecutionError::Timeout)
     ));
 

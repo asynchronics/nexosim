@@ -7,7 +7,7 @@
 //!
 //! Events are send-and-forget messages that can be broadcast from an [`Output`]
 //! port or [`EventSource`] to an arbitrary number of *input ports* or
-//! [`EventSink`]s with a matching event type.
+//! [`EventSinkWriter`]s with a matching event type.
 //!
 //! Queries actually involve two messages: a *request* that can be broadcast
 //! from a [`Requestor`] port, a [`UniRequestor`] port or a [`QuerySource`] to
@@ -245,9 +245,9 @@
 //! [`Requestor`] ports, respectively. They can be connected to models and can
 //! be used to send and schedule events or queries to such models.
 //!
-//! Objects implementing the [`EventSink`] trait, such as [`EventQueue`], are in
-//! turn similar to input ports. They can be connected to model outputs and
-//! collect events sent by such models.
+//! Objects implementing the [`EventSinkWriter`] trait, such as
+//! [`EventQueueWriter`], are in turn similar to input ports. They can be
+//! connected to model outputs and collect events sent by such models.
 //!
 //!
 //! # Connections
@@ -285,8 +285,11 @@ pub use input::markers;
 pub use input::{InputFn, ReplierFn};
 pub use output::{Output, Requestor, UniRequestor};
 pub use sink::{
-    EventSink, EventSinkReader, EventSinkWriter,
-    event_queue::{EventQueue, EventQueueReader},
+    EventSinkReader, EventSinkWriter, SinkState,
+    event_queue::{
+        EventQueueReader, EventQueueWriter, event_queue, event_queue_endpoint,
+        event_queue_endpoint_raw,
+    },
 };
 pub use source::{EventSource, QuerySource, ReplyReader};
 

@@ -234,6 +234,135 @@ impl SimInit {
         self
     }
 
+    /// Adds an event sink to the endpoint registry.
+    ///
+    /// Note that this method is exclusively meant for the implementation of
+    /// custom event sinks. Dedicated sink builder functions such as
+    /// [event_queue_endpoint](crate::ports::event_queue_endpoint) should be
+    /// preferred in all other cases.
+    ///
+    /// An error is returned if the specified name is already used by another
+    /// event sink. The error is convertible to an [`InitError`].
+    pub fn bind_event_sink<S, T>(
+        &mut self,
+        sink: S,
+        name: impl Into<String>,
+    ) -> Result<(), DuplicateEventSinkError>
+    where
+        S: EventSinkReader<T> + Send + Sync + 'static,
+        T: Message + Serialize + 'static,
+    {
+        let name = name.into();
+
+        if self
+            .event_sink_info_registry
+            .register::<T>(name.clone())
+            .is_err()
+        {
+            return Err(DuplicateEventSinkError { name });
+        };
+
+        self.event_sink_registry
+            .add(sink, name)
+            .map_err(|(name, _)| DuplicateEventSinkError { name })
+    }
+
+    /// Adds an event sink to the endpoint registry without requiring a
+    /// [`Message`] implementation for its item type.
+    ///
+    /// Note that this method is exclusively meant for the implementation of
+    /// custom event sinks. Dedicated sink builder functions such as
+    /// [event_queue_endpoint](crate::ports::event_queue_endpoint) should be
+    /// preferred in all other cases.
+    ///
+    /// An error is returned if the specified name is already used by another
+    /// event sink. The error is convertible to an [`InitError`].
+    pub fn bind_event_sink_raw<S, T>(
+        &mut self,
+        sink: S,
+        name: impl Into<String>,
+    ) -> Result<(), DuplicateEventSinkError>
+    where
+        S: EventSinkReader<T> + Send + Sync + 'static,
+        T: Serialize + 'static,
+    {
+        let name = name.into();
+
+        if self
+            .event_sink_info_registry
+            .register_raw(name.clone())
+            .is_err()
+        {
+            return Err(DuplicateEventSinkError { name });
+        };
+
+        self.event_sink_registry
+            .add(sink, name)
+            .map_err(|(name, _)| DuplicateEventSinkError { name })
+    }
+
+    /// Builds a simulation initialized at the specified simulation time,
+    /// executing the [`Model::init`](crate::model::Model::init) method on all
+    /// model initializers.
+    ///
+    /// The simulation object and endpoints registry are returned upon success.
+    pub fn init_with_registry(
+        mut self,
+        start_time: MonotonicTime,
+    ) -> Result<(Simulation, Endpoints), SimulationError> {
+        self.time.write(start_time);
+        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
+            if let Some(tolerance) = &self.clock_tolerance {
+                if &lag > tolerance {
+                    return Err(ExecutionError::OutOfSync(lag).into());
+                }
+            }
+        }
+
+        let callback = self.post_init_callback.take();
+        let (mut simulation, endpoint_registry) = self.build();
+        if let Some(mut callback) = callback {
+            callback(&mut simulation)?;
+        }
+        simulation.run()?;
+
+        Ok((simulation, endpoint_registry))
+    }
+
+    /// Builds a simulation initialized at the specified simulation time,
+    /// executing the [`Model::init`](crate::model::Model::init) method on all
+    /// model initializers.
+    ///
+    /// The simulation object is returned upon success.
+    pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
+        Ok(self.init_with_registry(start_time)?.0)
+    }
+
+    /// Restores a simulation from a previously persisted state, executing the
+    /// [`Model::restore`](crate::model::Model::restore) method on all
+    /// registered models.
+    ///
+    /// The simulation object is returned upon success.
+    pub fn restore<R: std::io::Read>(
+        mut self,
+        state: R,
+    ) -> Result<(Simulation, Endpoints), SimulationError> {
+        self.is_resumed.store(true, Ordering::Relaxed);
+
+        let callback = self.post_restore_callback.take();
+        let (mut simulation, endpoint_registry) = self.build();
+
+        simulation.restore(state)?;
+
+        if let Some(mut callback) = callback {
+            callback(&mut simulation)?;
+        }
+        // TODO should run?
+        simulation.run()?;
+
+        Ok((simulation, endpoint_registry))
+    }
+
     /// Adds an event source to the endpoint registry.
     ///
     /// If the specified name is already used by another input or another event
@@ -310,69 +439,7 @@ impl SimInit {
             .map_err(|(name, source)| DuplicateQuerySourceError { name, source })
     }
 
-    /// Adds an event sink to the endpoint registry.
-    ///
-    /// If the specified name is already used by another event sink, the event
-    /// sink provided as argument is returned in the error.
-    pub fn add_event_sink<S, T>(
-        mut self,
-        sink: S,
-        name: impl Into<String>,
-    ) -> Result<Self, DuplicateEventSinkError<S>>
-    where
-        S: EventSinkReader<T> + Send + Sync + 'static,
-        S::Item: Message + Serialize,
-        T: 'static,
-    {
-        let name = name.into();
-
-        if self
-            .event_sink_info_registry
-            .register::<T>(name.clone())
-            .is_err()
-        {
-            return Err(DuplicateEventSinkError { name, sink });
-        };
-
-        self.event_sink_registry
-            .add(sink, name)
-            .map_err(|(name, sink)| DuplicateEventSinkError { name, sink })?;
-
-        Ok(self)
-    }
-
-    /// Adds an event sink to the endpoint registry without requiring a
-    /// [`Message`] implementation for its item type.
-    ///
-    /// If the specified name is already used by another event sink, the event
-    /// sink provided as argument is returned in the error.
-    pub fn add_event_sink_raw<S, T>(
-        mut self,
-        sink: S,
-        name: impl Into<String>,
-    ) -> Result<Self, DuplicateEventSinkError<S>>
-    where
-        S: EventSinkReader<T> + Send + Sync + 'static,
-        S::Item: Serialize,
-        T: 'static,
-    {
-        let name = name.into();
-
-        if self
-            .event_sink_info_registry
-            .register_raw(name.clone())
-            .is_err()
-        {
-            return Err(DuplicateEventSinkError { name, sink });
-        };
-
-        self.event_sink_registry
-            .add(sink, name)
-            .map_err(|(name, sink)| DuplicateEventSinkError { name, sink })?;
-
-        Ok(self)
-    }
-
+    /// Builds a [`Simulation`] from this [`SimInit`] instance.
     fn build(self) -> (Simulation, Endpoints) {
         let simulation = Simulation::new(
             self.executor,
@@ -394,68 +461,6 @@ impl SimInit {
         );
 
         (simulation, endpoint_registry)
-    }
-
-    /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`](crate::model::Model::init) method on all
-    /// model initializers.
-    ///
-    /// The simulation object and endpoints registry are returned upon success.
-    pub fn init_with_registry(
-        mut self,
-        start_time: MonotonicTime,
-    ) -> Result<(Simulation, Endpoints), SimulationError> {
-        self.time.write(start_time);
-        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
-            if let Some(tolerance) = &self.clock_tolerance {
-                if &lag > tolerance {
-                    return Err(ExecutionError::OutOfSync(lag).into());
-                }
-            }
-        }
-
-        let callback = self.post_init_callback.take();
-        let (mut simulation, endpoint_registry) = self.build();
-        if let Some(mut callback) = callback {
-            callback(&mut simulation)?;
-        }
-        simulation.run()?;
-
-        Ok((simulation, endpoint_registry))
-    }
-
-    /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`](crate::model::Model::init) method on all
-    /// model initializers.
-    ///
-    /// The simulation object is returned upon success.
-    pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
-        Ok(self.init_with_registry(start_time)?.0)
-    }
-
-    /// Restores a simulation from a previously persisted state, executing the
-    /// [`Model::restore`](crate::model::Model::restore) method on all
-    /// registered models.
-    ///
-    /// The simulation object is returned upon success.
-    pub fn restore<R: std::io::Read>(
-        mut self,
-        state: R,
-    ) -> Result<(Simulation, Endpoints), SimulationError> {
-        self.is_resumed.store(true, Ordering::Relaxed);
-
-        let callback = self.post_restore_callback.take();
-        let (mut simulation, endpoint_registry) = self.build();
-
-        simulation.restore(state)?;
-
-        if let Some(mut callback) = callback {
-            callback(&mut simulation)?;
-        }
-        // TODO should run?
-        simulation.run()?;
-
-        Ok((simulation, endpoint_registry))
     }
 }
 
@@ -608,13 +613,11 @@ impl<S> From<DuplicateQuerySourceError<S>> for InitError {
 }
 
 /// Error returned when attempting to add an event sink with an existing name.
-pub struct DuplicateEventSinkError<S> {
+pub struct DuplicateEventSinkError {
     /// Name of the event sink.
     pub name: String,
-    /// The event sink.
-    pub sink: S,
 }
-impl<S> fmt::Display for DuplicateEventSinkError<S> {
+impl fmt::Display for DuplicateEventSinkError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             fmt,
@@ -623,18 +626,17 @@ impl<S> fmt::Display for DuplicateEventSinkError<S> {
         )
     }
 }
-impl<S> fmt::Debug for DuplicateEventSinkError<S> {
+impl fmt::Debug for DuplicateEventSinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DuplicateEventSource")
             .field("name", &self.name)
-            .field("sink", &"<EventSink>")
             .finish()
     }
 }
-impl<S> Error for DuplicateEventSinkError<S> {}
+impl Error for DuplicateEventSinkError {}
 
-impl<S> From<DuplicateEventSinkError<S>> for InitError {
-    fn from(e: DuplicateEventSinkError<S>) -> Self {
+impl From<DuplicateEventSinkError> for InitError {
+    fn from(e: DuplicateEventSinkError) -> Self {
         Self::DuplicateSinkName(e.name)
     }
 }

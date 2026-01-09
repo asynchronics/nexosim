@@ -1,18 +1,8 @@
+use std::fmt;
+
 use futures_core::stream::Stream;
 
 pub(crate) mod event_queue;
-
-/// A simulation endpoint that can receive events sent by model outputs.
-///
-/// An `EventSink` can be thought of as a self-standing input meant to
-/// externally monitor the simulated system.
-pub trait EventSink<T> {
-    /// Writer handle to an event sink.
-    type Writer: EventSinkWriter<T>;
-
-    /// Returns the writer handle associated to this sink.
-    fn writer(&self) -> Self::Writer;
-}
 
 /// A writer handle to an event sink.
 pub trait EventSinkWriter<T>: Clone + Send + Sync + 'static {
@@ -24,12 +14,13 @@ pub trait EventSinkWriter<T>: Clone + Send + Sync + 'static {
 /// collection. Accessing the next event can be blocking or non-blocking.
 pub trait EventSinkReader<T>: Stream<Item = T> + Unpin {
     /// Starts or resumes the collection of new events.
-    fn open(&mut self);
+    fn enable(&mut self);
 
     /// Pauses the collection of new events.
     ///
-    /// Events that were previously in the stream remain available.
-    fn close(&mut self);
+    /// Events that were collected in the queue prior to this call remain
+    /// available.
+    fn disable(&mut self);
 
     /// Returns the next event, if any.
     fn try_read(&mut self) -> Option<T>;
@@ -39,4 +30,22 @@ pub trait EventSinkReader<T>: Stream<Item = T> + Unpin {
     ///
     /// Returns `None` if all writers were dropped.
     fn read(&mut self) -> Option<T>;
+}
+
+/// The state of a sink.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SinkState {
+    /// The sink accepts new events.
+    Enabled,
+    /// The sink ignores new events.
+    Disabled,
+}
+
+impl fmt::Display for SinkState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SinkState::Enabled => write!(f, "enabled"),
+            SinkState::Disabled => write!(f, "disabled"),
+        }
+    }
 }

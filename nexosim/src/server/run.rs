@@ -668,31 +668,31 @@ impl simulation_server::Simulation for GrpcSimulationService {
             }),
         }))
     }
-    async fn open_sink(
+    async fn enable_sink(
         &self,
-        request: Request<OpenSinkRequest>,
-    ) -> Result<Response<OpenSinkReply>, Status> {
+        request: Request<EnableSinkRequest>,
+    ) -> Result<Response<EnableSinkReply>, Status> {
         let request = request.into_inner();
-        let reply = self.monitor_service.lock().await.open_sink(request);
+        let reply = self.monitor_service.lock().await.enable_sink(request);
 
-        Ok(Response::new(OpenSinkReply {
+        Ok(Response::new(EnableSinkReply {
             result: Some(match reply {
-                Ok(()) => open_sink_reply::Result::Empty(()),
-                Err(e) => open_sink_reply::Result::Error(e),
+                Ok(()) => enable_sink_reply::Result::Empty(()),
+                Err(e) => enable_sink_reply::Result::Error(e),
             }),
         }))
     }
-    async fn close_sink(
+    async fn disable_sink(
         &self,
-        request: Request<CloseSinkRequest>,
-    ) -> Result<Response<CloseSinkReply>, Status> {
+        request: Request<DisableSinkRequest>,
+    ) -> Result<Response<DisableSinkReply>, Status> {
         let request = request.into_inner();
-        let reply = self.monitor_service.lock().await.close_sink(request);
+        let reply = self.monitor_service.lock().await.disable_sink(request);
 
-        Ok(Response::new(CloseSinkReply {
+        Ok(Response::new(DisableSinkReply {
             result: Some(match reply {
-                Ok(()) => close_sink_reply::Result::Empty(()),
-                Err(e) => close_sink_reply::Result::Error(e),
+                Ok(()) => disable_sink_reply::Result::Empty(()),
+                Err(e) => disable_sink_reply::Result::Error(e),
             }),
         }))
     }

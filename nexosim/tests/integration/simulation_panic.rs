@@ -32,9 +32,8 @@ fn model_panic(num_threads: usize) {
     // Connect all models in a cycle graph.
     let mut model0 = TestModel::default();
     let mbox0 = Mailbox::new();
-    let addr0 = mbox0.address();
 
-    let mut siminit = SimInit::with_num_threads(num_threads);
+    let mut bench = SimInit::with_num_threads(num_threads);
 
     let mut addr = mbox0.address();
     for model_id in (1..MODEL_COUNT).rev() {
@@ -42,21 +41,20 @@ fn model_panic(num_threads: usize) {
         let mbox = Mailbox::new();
         model.countdown_out.connect(TestModel::countdown_in, addr);
         addr = mbox.address();
-        siminit = siminit.add_model(model, mbox, model_id.to_string());
+        bench = bench.add_model(model, mbox, model_id.to_string());
     }
-
     model0.countdown_out.connect(TestModel::countdown_in, addr);
-    siminit = siminit.add_model(model0, mbox0, 0.to_string());
 
-    let event_id = EventSource::new()
-        .connect(TestModel::countdown_in, &addr0)
-        .register(&mut siminit);
+    let countdown_in = EventSource::new()
+        .connect(TestModel::countdown_in, &mbox0)
+        .register(&mut bench);
+
+    bench = bench.add_model(model0, mbox0, 0.to_string());
 
     // Run the simulation.
-    let t0 = MonotonicTime::EPOCH;
-    let mut simu = siminit.init(t0).unwrap();
+    let mut simu = bench.init(MonotonicTime::EPOCH).unwrap();
 
-    match simu.process_event(&event_id, INIT_COUNTDOWN) {
+    match simu.process_event(&countdown_in, INIT_COUNTDOWN) {
         Err(ExecutionError::Panic { model, payload }) => {
             let msg = payload.downcast_ref::<&str>().unwrap();
             let panicking_model_id = INIT_COUNTDOWN % MODEL_COUNT;

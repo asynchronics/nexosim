@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use nexosim_util::observable::Observable;
 
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventQueue, EventSinkReader, EventSource, Output, UniRequestor};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, UniRequestor, event_queue};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -134,26 +134,25 @@ fn main() -> Result<(), SimulationError> {
     let mut sensor = Sensor::new(100.0, temp_req);
     let env = Env::new(0.0);
 
-    // Model handles for simulation.
-    let env_addr = env_mbox.address();
+    // Bench.
+    let mut bench = SimInit::new();
 
-    let overheat = EventQueue::new_open();
-    sensor.overheat.connect_sink(&overheat);
-    let mut overheat = overheat.into_reader();
-
-    // Start time (arbitrary since models do not depend on absolute time).
-    let t0 = MonotonicTime::EPOCH;
-
-    // Assembly and initialization.
-    let mut bench = SimInit::new()
-        .add_model(sensor, sensor_mbox, "sensor")
-        .add_model(env, env_mbox, "env");
-
-    let set_temp_id = EventSource::new()
-        .connect(Env::set_temp, env_addr)
+    // Sources.
+    let set_temp = EventSource::new()
+        .connect(Env::set_temp, &env_mbox)
         .register(&mut bench);
 
-    let mut simu = bench.init(t0)?;
+    // Sinks.
+    let (sink, mut overheat) = event_queue(SinkState::Enabled);
+    sensor.overheat.connect_sink(sink);
+
+    // Assembly and initialization.
+    let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
+    let mut simu = bench
+        .add_model(sensor, sensor_mbox, "sensor")
+        .add_model(env, env_mbox, "env")
+        .init(t0)?;
+
     let scheduler = simu.scheduler();
 
     // ----------
@@ -167,12 +166,12 @@ fn main() -> Result<(), SimulationError> {
 
     // Change temperature in 2s.
     scheduler
-        .schedule_event(Duration::from_secs(2), &set_temp_id, 105.0)
+        .schedule_event(Duration::from_secs(2), &set_temp, 105.0)
         .unwrap();
 
     // Change temperature in 4s.
     scheduler
-        .schedule_event(Duration::from_secs(4), &set_temp_id, 213.0)
+        .schedule_event(Duration::from_secs(4), &set_temp, 213.0)
         .unwrap();
 
     simu.step_until(Duration::from_secs(3))?;

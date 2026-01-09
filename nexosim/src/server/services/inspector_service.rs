@@ -211,7 +211,7 @@ impl InspectorService {
     ///
     /// If `sink_names` field is empty, it returns schemas for all the the
     /// registered sinks. Sinks added with
-    /// [`SimInit::add_event_sink_raw`](crate::simulation::SimInit::add_event_sink_raw)
+    /// [`SimInit::bind_event_sink_raw`](crate::simulation::SimInit::bind_event_sink_raw)
     /// would provide an empty string as their schema.
     pub(crate) fn get_event_sink_schemas(
         &self,
