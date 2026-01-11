@@ -83,7 +83,10 @@ mod sim_init;
 pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
-pub use sim_init::{InitError, SimInit};
+pub use sim_init::{
+    DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError, InitError,
+    SimInit,
+};
 
 #[cfg(feature = "server")]
 pub(crate) use queue_items::Event;
@@ -92,9 +95,6 @@ pub(crate) use queue_items::{
     SchedulerRegistry,
 };
 pub(crate) use scheduler::GlobalScheduler;
-pub(crate) use sim_init::{
-    DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError,
-};
 
 use std::any::{Any, TypeId};
 use std::cell::Cell;
@@ -121,6 +121,7 @@ use crate::channel::{ChannelObserver, SendError};
 use crate::endpoints::{EventSourceEntryAny, QuerySourceEntryAny, ReplyReaderAny};
 use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
+use crate::path::Path;
 use crate::ports::{ReplierFn, query_replier};
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
 use crate::util::seq_futures::SeqFuture;
@@ -174,7 +175,7 @@ pub struct Simulation {
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
-    observers: Vec<(String, Box<dyn ChannelObserver>)>,
+    observers: Vec<(Path, Box<dyn ChannelObserver>)>,
     registered_models: Vec<RegisteredModel>,
     is_halted: Arc<AtomicBool>,
     is_terminated: bool,
@@ -191,7 +192,7 @@ impl Simulation {
         clock: Box<dyn Clock + 'static>,
         clock_tolerance: Option<Duration>,
         timeout: Duration,
-        observers: Vec<(String, Box<dyn ChannelObserver>)>,
+        observers: Vec<(Path, Box<dyn ChannelObserver>)>,
         registered_models: Vec<RegisteredModel>,
         is_halted: Arc<AtomicBool>,
     ) -> Self {
@@ -450,7 +451,7 @@ impl Simulation {
                 ExecutorError::Panic(model_id, payload) => {
                     let model = model_id
                         .get()
-                        .map(|id| self.registered_models.get(id).unwrap().name.clone());
+                        .map(|id| self.registered_models.get(id).unwrap().path.clone());
 
                     // Filter out panics originating from a `SendError`.
                     if (*payload).type_id() == TypeId::of::<SendError>() {
@@ -805,11 +806,8 @@ struct SimulationState {
 /// Information regarding a deadlocked model.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeadlockInfo {
-    /// The fully qualified name of a deadlocked model.
-    ///
-    /// This is the name of the model, if relevant prepended by the
-    /// dot-separated names of all parent models.
-    pub model: String,
+    /// The path to a deadlocked model.
+    pub model: Path,
     /// Number of messages in the mailbox.
     pub mailbox_size: usize,
 }
@@ -825,8 +823,8 @@ pub enum SaveError {
     },
     /// Failed attempt to binary encode model's state.
     ModelSerializationError {
-        /// The fully qualified name of the model.
-        name: String,
+        /// Path to the model.
+        model: Path,
         /// Type name of the model.
         type_name: &'static str,
         /// Underlying serialization error.
@@ -884,8 +882,10 @@ impl fmt::Display for SaveError {
         match self {
             Self::ConfigSerializationError { .. } => f.write_str("config serialization has failed"),
             Self::ModelSerializationError {
-                name, type_name, ..
-            } => write!(f, "cannot serialize model {name}: {type_name}"),
+                model: path,
+                type_name,
+                ..
+            } => write!(f, "cannot serialize model '{path}': {type_name}"),
             Self::EventSerializationError { event_id, .. } => {
                 write!(f, "cannot serialize event {event_id}")
             }
@@ -939,8 +939,8 @@ pub enum RestoreError {
     ConfigMissing,
     /// Failed attempt to deserialize model's state.
     ModelDeserializationError {
-        /// The fully qualified name of the model.
-        name: String,
+        /// Path to the model.
+        model: Path,
         /// Type name of the model.
         type_name: &'static str,
         /// Underlying deserialization error
@@ -948,8 +948,8 @@ pub enum RestoreError {
     },
     /// Failed attempt to serialize model's state.
     ModelSerializationError {
-        /// The fully qualified name of the model.
-        name: String,
+        /// Path to the model.
+        model: Path,
         /// Type name of the model.
         type_name: &'static str,
         /// Underlying serialization error.
@@ -993,11 +993,11 @@ impl fmt::Display for RestoreError {
         match self {
             Self::ConfigMissing => f.write_str("simulation config is missing"),
             Self::ModelDeserializationError {
-                name, type_name, ..
-            } => write!(f, "cannot deserialize model {name}: {type_name}"),
+                model, type_name, ..
+            } => write!(f, "cannot deserialize model {model}: {type_name}"),
             Self::ModelSerializationError {
-                name, type_name, ..
-            } => write!(f, "cannot serialize model {name}: {type_name}"),
+                model, type_name, ..
+            } => write!(f, "cannot serialize model {model}: {type_name}"),
             Self::QueueItemDeserializationError { .. } => {
                 f.write_str("cannot deserialize queue item")
             }
@@ -1072,24 +1072,18 @@ pub enum ExecutionError {
     /// This is a fatal error: any subsequent attempt to run the simulation will
     /// return an [`ExecutionError::Terminated`] error.
     NoRecipient {
-        /// The fully qualified name of the model that attempted to send a
-        /// message, or `None` if the message was sent from the scheduler.
-        ///
-        /// The fully qualified name is made of the unqualified model name, if
-        /// relevant prepended by the dot-separated names of all parent models.
-        model: Option<String>,
+        /// Path to the model that attempted to send a message, or `None` if
+        /// the message was sent from the scheduler.
+        model: Option<Path>,
     },
     /// A panic was caught during execution.
     ///
     /// This is a fatal error: any subsequent attempt to run the simulation will
     /// return an [`ExecutionError::Terminated`] error.
     Panic {
-        /// The fully qualified name of the panicking model.
-        ///
-        /// The fully qualified name is made of the unqualified model name, if
-        /// relevant prepended by the dot-separated names of all parent models.
-        model: String,
-        /// The payload associated with the panic.
+        /// Path to the panicking model.
+        model: Path,
+        /// Payload associated with the panic.
         ///
         /// The payload can be usually downcast to a `String` or `&str`. This is
         /// always the case if the panic was triggered by the `panic!` macro,
@@ -1271,7 +1265,7 @@ impl From<InitError> for SimulationError {
 pub(crate) fn add_model<P>(
     model: P,
     mailbox: Mailbox<P::Model>,
-    name: String,
+    path: Path,
     scheduler: GlobalScheduler,
     scheduler_registry: &mut SchedulerRegistry,
     executor: &Executor,
@@ -1282,11 +1276,11 @@ pub(crate) fn add_model<P>(
     P: ProtoModel,
 {
     #[cfg(feature = "tracing")]
-    let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", name);
+    let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", path = path.to_string());
 
     let mut build_cx = BuildContext::new(
         &mailbox,
-        &name,
+        &path,
         &scheduler,
         scheduler_registry,
         executor,
@@ -1302,9 +1296,9 @@ pub(crate) fn add_model<P>(
     let abort_signal = abort_signal.clone();
     let model_id = ModelId::new(registered_models.len());
 
-    registered_models.push(RegisteredModel::new(name.clone(), address.clone()));
+    registered_models.push(RegisteredModel::new(path.clone(), address.clone()));
 
-    let cx = Context::new(name, scheduler, address, model_id.0, model_registry);
+    let cx = Context::new(path, scheduler, address, model_id.0, model_registry);
     let fut = async move {
         let mut model = if !is_resumed.load(Ordering::Relaxed) {
             model.init(&cx, &mut env).await.0

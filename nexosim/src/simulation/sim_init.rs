@@ -12,6 +12,7 @@ use crate::endpoints::{
 };
 use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, ProtoModel, RegisteredModel};
+use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime,
@@ -40,7 +41,7 @@ pub struct SimInit {
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
     timeout: Duration,
-    observers: Vec<(String, Box<dyn ChannelObserver>)>,
+    observers: Vec<(Path, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
     registered_models: Vec<RegisteredModel>,
     post_init_callback: Option<Box<PostCallback>>,
@@ -194,25 +195,16 @@ impl SimInit {
 
     /// Adds a model and its mailbox to the simulation bench.
     ///
-    /// The `name` argument needs not be unique. The use of the dot character in
-    /// the name is possible but discouraged as it can cause confusion with the
-    /// fully qualified name of a submodel. If an empty string is provided, it
-    /// is replaced by the string `<unknown>`.
-    pub fn add_model<P>(
-        mut self,
-        model: P,
-        mailbox: Mailbox<P::Model>,
-        name: impl Into<String>,
-    ) -> Self
+    /// The `name` argument defines the [`Path`] to this top-level model and the
+    /// root path of its submodels. Because model paths are used for logging and
+    /// error reports, the use of unique names is recommended.
+    pub fn add_model<P>(mut self, model: P, mailbox: Mailbox<P::Model>, name: &str) -> Self
     where
         P: ProtoModel,
     {
-        let mut name = name.into();
-        if name.is_empty() {
-            name = String::from("<unknown>");
-        };
+        let path: Path = name.into();
         self.observers
-            .push((name.clone(), Box::new(mailbox.0.observer())));
+            .push((path.clone(), Box::new(mailbox.0.observer())));
         let scheduler = GlobalScheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
@@ -222,7 +214,7 @@ impl SimInit {
         add_model(
             model,
             mailbox,
-            name,
+            path,
             scheduler,
             &mut self.scheduler_registry,
             &self.executor,

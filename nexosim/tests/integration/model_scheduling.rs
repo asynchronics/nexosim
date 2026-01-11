@@ -100,7 +100,7 @@ fn multiple_models_scheduling(num_threads: usize) {
         };
         let mbox = Mailbox::new();
         model.output.connect_sink(sink.clone());
-        bench = bench.add_model(model, mbox, format!("Model_{idx}"));
+        bench = bench.add_model(model, mbox, &format!("Model_{idx}"));
     }
 
     let mut simu = bench.init(MonotonicTime::EPOCH).unwrap();

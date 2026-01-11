@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::executor::{Executor, Signal};
+use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
     self, Address, EventId, EventIdErased, EventKey, GlobalScheduler, InputSource, Mailbox,
@@ -86,7 +87,7 @@ use crate::channel::Receiver;
 // The self-scheduling caveat seems related to this issue:
 // https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
-    name: String,
+    path: Path,
     scheduler: GlobalScheduler,
     address: Address<M>,
     origin_id: usize,
@@ -96,14 +97,14 @@ pub struct Context<M: Model> {
 impl<M: Model> Context<M> {
     /// Creates a new local context.
     pub(crate) fn new(
-        name: String,
+        path: Path,
         scheduler: GlobalScheduler,
         address: Address<M>,
         origin_id: usize,
         model_registry: ModelRegistry,
     ) -> Self {
         Self {
-            name,
+            path,
             scheduler,
             address,
             origin_id,
@@ -111,12 +112,9 @@ impl<M: Model> Context<M> {
         }
     }
 
-    /// Returns the fully qualified model instance name.
-    ///
-    /// The fully qualified name is made of the unqualified model name, if
-    /// relevant prepended by the dot-separated names of all parent models.
-    pub fn name(&self) -> &str {
-        &self.name
+    /// Returns the path to the model instance.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Returns the current simulation time.
@@ -374,7 +372,7 @@ impl<M: Model> Context<M> {
 impl<M: Model> fmt::Debug for Context<M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Context")
-            .field("name", &self.name())
+            .field("path", &self.path())
             .field("time", &self.time())
             .field("address", &self.address)
             .field("origin_id", &self.origin_id)
@@ -470,7 +468,7 @@ impl<M: Model> fmt::Debug for Context<M> {
 #[derive(Debug)]
 pub struct BuildContext<'a, P: ProtoModel> {
     mailbox: &'a Mailbox<P::Model>,
-    name: &'a String,
+    path: &'a Path,
     scheduler: &'a GlobalScheduler,
     scheduler_registry: &'a mut SchedulerRegistry,
     executor: &'a Executor,
@@ -484,7 +482,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         mailbox: &'a Mailbox<P::Model>,
-        name: &'a String,
+        path: &'a Path,
         scheduler: &'a GlobalScheduler,
         scheduler_registry: &'a mut SchedulerRegistry,
         executor: &'a Executor,
@@ -494,7 +492,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     ) -> Self {
         Self {
             mailbox,
-            name,
+            path,
             scheduler,
             scheduler_registry,
             executor,
@@ -504,12 +502,12 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         }
     }
 
-    /// Returns the fully qualified model instance name.
+    /// Returns the path to the model.
     ///
-    /// The fully qualified name is made of the unqualified model name, if
-    /// relevant prepended by the dot-separated names of all parent models.
-    pub fn name(&self) -> &str {
-        self.name
+    /// The path is constituted by the name of the root model, followed by its
+    /// sub-models if any.
+    pub fn path(&self) -> &Path {
+        self.path
     }
 
     /// Returns a handle to the model's mailbox.
@@ -531,26 +529,19 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Adds a sub-model to the simulation bench.
     ///
-    /// The `name` argument needs not be unique. It is appended to that of the
-    /// parent models' names using a dot separator (e.g.
-    /// `parent_name.child_name`) to build the fully qualified name. The use of
-    /// the dot character in the unqualified name is possible but discouraged.
-    /// If an empty string is provided, it is replaced by the string
-    /// `<unknown>`.
-    pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: impl Into<String>)
+    /// The `name` argument defines the [`Path`] to the sub-model relative to
+    /// this model (root path). Because model paths are used for logging and
+    /// error reports, the use of unique names is recommended.
+    pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: &str)
     where
         S: ProtoModel,
     {
-        let mut submodel_name = name.into();
-        if submodel_name.is_empty() {
-            submodel_name = String::from("<unknown>");
-        };
-        submodel_name = self.name.to_string() + "." + &submodel_name;
+        let submodel_path = self.path.join(name);
 
         simulation::add_model(
             model,
             mailbox,
-            submodel_name,
+            submodel_path,
             self.scheduler.clone(),
             self.scheduler_registry,
             self.executor,
@@ -573,7 +564,7 @@ impl<M: Model<Env = ()>> Context<M> {
     pub(crate) fn new_dummy() -> Self {
         let dummy_address = Receiver::new(1).sender();
         Context::new(
-            String::new(),
+            Path::from(""),
             GlobalScheduler::new_dummy(),
             Address(dummy_address),
             0,

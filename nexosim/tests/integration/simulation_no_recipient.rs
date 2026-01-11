@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
+use nexosim::path::Path;
 use nexosim::ports::{EventSource, Output, QuerySource, Requestor};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -52,7 +53,7 @@ fn no_input_from_model(num_threads: usize) {
 
     match simu.process_event(&activate_output, ()) {
         Err(ExecutionError::NoRecipient { model }) => {
-            assert_eq!(model, Some(String::from(MODEL_NAME)));
+            assert_eq!(model, Some(Path::from(MODEL_NAME)));
         }
         _ => panic!("missing recipient not detected"),
     }
@@ -85,7 +86,7 @@ fn no_replier_from_model(num_threads: usize) {
 
     match simu.process_event(&activate_requestor, ()) {
         Err(ExecutionError::NoRecipient { model }) => {
-            assert_eq!(model, Some(String::from(MODEL_NAME)));
+            assert_eq!(model, Some(Path::from(MODEL_NAME)));
         }
         _ => panic!("missing recipient not detected"),
     }

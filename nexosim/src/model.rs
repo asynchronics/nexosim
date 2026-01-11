@@ -266,6 +266,7 @@ use std::sync::Mutex;
 
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::path::Path;
 use crate::ports::PORT_REG;
 use crate::simulation::{
     Address, EVENT_KEY_REG, EventKeyReg, ExecutionError, RestoreError, SaveError, Simulation,
@@ -422,7 +423,7 @@ impl<M: Model<Env = E>, E: Default> ProtoModel for M {
 
 /// An internal helper struct used to handle (de)serialization of the models.
 pub(crate) struct RegisteredModel {
-    pub name: String,
+    pub path: Path,
     #[allow(clippy::type_complexity)]
     pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
     #[allow(clippy::type_complexity)]
@@ -430,24 +431,24 @@ pub(crate) struct RegisteredModel {
         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
 }
 impl RegisteredModel {
-    pub(crate) fn new<M: Model>(name: String, address: Address<M>) -> Self {
+    pub(crate) fn new<M: Model>(path: Path, address: Address<M>) -> Self {
         let ser_address = address.clone();
         let de_address = address.clone();
-        let ser_name = name.clone();
-        let de_name = name.clone();
+        let ser_path = path.clone();
+        let de_path = path.clone();
 
         let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_replier_fn(serialize_model, ser_name.clone(), &ser_address)?
+            sim.process_replier_fn(serialize_model, ser_path.clone(), &ser_address)?
         });
         let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
             sim.process_replier_fn(
                 deserialize_model,
-                (state.0, state.1, de_name.clone()),
+                (state.0, state.1, de_path.clone()),
                 &de_address,
             )?
         });
         Self {
-            name,
+            path,
             serialize,
             deserialize,
         }
@@ -457,18 +458,18 @@ impl RegisteredModel {
 impl std::fmt::Debug for RegisteredModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Registered Model")
-            .field("name", &self.name)
+            .field("path", &self.path)
             .finish_non_exhaustive()
     }
 }
 
 pub(crate) async fn serialize_model<M: Model>(
     model: &mut M,
-    name: String,
+    path: Path,
 ) -> Result<Vec<u8>, ExecutionError> {
     bincode::serde::encode_to_vec(model, serialization_config()).map_err(|e| {
         SaveError::ModelSerializationError {
-            name,
+            model: path,
             type_name: type_name::<M>(),
             cause: Box::new(e),
         }
@@ -478,7 +479,7 @@ pub(crate) async fn serialize_model<M: Model>(
 
 pub(crate) async fn deserialize_model<M: Model>(
     model: &mut M,
-    state: (Vec<u8>, EventKeyReg, String),
+    state: (Vec<u8>, EventKeyReg, Path),
     cx: &Context<M>,
     env: &mut M::Env,
 ) -> Result<(), ExecutionError> {
@@ -487,14 +488,14 @@ pub(crate) async fn deserialize_model<M: Model>(
             EVENT_KEY_REG.set(&state.1, || {
                 bincode::serde::encode_to_vec(&model, serialization_config()).map_err(|e| {
                     RestoreError::ModelSerializationError {
-                        name: state.2.clone(),
+                        model: state.2.clone(),
                         type_name: type_name::<M>(),
                         cause: Box::new(e),
                     }
                 })?;
                 bincode::serde::borrow_decode_from_slice::<M, _>(&state.0, serialization_config())
                     .map_err(|e| RestoreError::ModelDeserializationError {
-                        name: state.2,
+                        model: state.2,
                         type_name: type_name::<M>(),
                         cause: Box::new(e),
                     })
