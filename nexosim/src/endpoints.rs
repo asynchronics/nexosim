@@ -1,8 +1,7 @@
 //! Registry for sinks and sources.
 //!
-//! This module provides the `EndpointRegistry` object which associates each
-//! event sink, event source and query source in a simulation bench to a unique
-//! name.
+//! This module provides the [`Endpoints`] object which associates each event
+//! sink, event source and query source in a simulation bench to a unique name.
 
 use std::fmt::Debug;
 

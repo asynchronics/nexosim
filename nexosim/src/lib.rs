@@ -504,6 +504,7 @@ pub(crate) mod executor;
 mod loom_exports;
 pub(crate) mod macros;
 pub mod model;
+pub mod path;
 pub mod ports;
 #[cfg(feature = "server")]
 pub mod server;
