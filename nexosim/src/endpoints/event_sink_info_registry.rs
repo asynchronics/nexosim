@@ -4,43 +4,45 @@ use std::fmt;
 
 use serde::Serialize;
 
+use crate::path::Path;
+
 use super::{EndpointError, Message, MessageSchema};
 
-/// A registry that holds information about the event schemas of the sinks.
+/// A registry that holds information about sink event schemas.
 #[derive(Default)]
-pub(crate) struct EventSinkInfoRegistry(HashMap<String, EventSinkInfo>);
+pub(crate) struct EventSinkInfoRegistry(HashMap<Path, EventSinkInfo>);
 
 impl EventSinkInfoRegistry {
     /// Registers the event type of a sink in the registry.
     ///
-    /// If the specified name is already used by another sink, and error is
+    /// If the specified path is already used by another sink, an error is
     /// returned.
-    pub(crate) fn register<T>(&mut self, name: String) -> Result<(), String>
+    pub(crate) fn register<T>(&mut self, path: Path) -> Result<(), Path>
     where
         T: Serialize + Message + 'static,
     {
-        self.register_any::<_>(name, T::schema)
+        self.register_any::<_>(path, T::schema)
     }
 
     /// Registers the event type of a sink in the registry without a schema
     /// definition.
     ///
-    /// If the specified name is already used by another sink, and error is
+    /// If the specified path is already used by another sink, an error is
     /// returned.
-    pub(crate) fn register_raw(&mut self, name: String) -> Result<(), String> {
-        self.register_any::<_>(name, String::new)
+    pub(crate) fn register_raw(&mut self, path: Path) -> Result<(), Path> {
+        self.register_any::<_>(path, String::new)
     }
 
     /// Registers the event type of a sink in the registry, possibly with an
     /// empty schema definition.
     ///
-    /// If the specified name is already used by another sink, and error is
+    /// If the specified path is already used by another sink, an error is
     /// returned.
-    fn register_any<F>(&mut self, name: String, schema_gen: F) -> Result<(), String>
+    fn register_any<F>(&mut self, path: Path, schema_gen: F) -> Result<(), Path>
     where
         F: Fn() -> MessageSchema + Send + Sync + 'static,
     {
-        match self.0.entry(name) {
+        match self.0.entry(path) {
             Entry::Vacant(s) => {
                 s.insert(EventSinkInfo {
                     event_schema_gen: Box::new(schema_gen),
@@ -52,20 +54,27 @@ impl EventSinkInfoRegistry {
         }
     }
 
-    /// Returns an iterator over the names of all sinks in the registry.
-    pub(crate) fn list_all(&self) -> impl Iterator<Item = &str> {
-        self.0.keys().map(|s| s.as_str())
+    /// Returns an iterator over the paths of all registered event sinks.
+    pub(crate) fn list_sinks(&self) -> impl Iterator<Item = &Path> {
+        self.0.keys()
     }
 
     /// Returns the schema of the event of the specified sink if it is in the
     /// registry.
-    pub(crate) fn event_schema(&self, name: &str) -> Result<MessageSchema, EndpointError> {
+    pub(crate) fn get_sink_schema(&self, path: &Path) -> Result<MessageSchema, EndpointError> {
         self.0
-            .get(name)
+            .get(path)
             .map(|info| (info.event_schema_gen)())
-            .ok_or_else(|| EndpointError::EventSinkNotFound {
-                name: name.to_string(),
-            })
+            .ok_or_else(|| EndpointError::EventSinkNotFound { path: path.clone() })
+    }
+
+    /// Returns an iterator over the paths and schemas of the registered event
+    /// sinks.
+    #[cfg(feature = "server")]
+    pub(crate) fn list_schemas(&self) -> impl Iterator<Item = (&Path, MessageSchema)> {
+        self.0
+            .iter()
+            .map(|(path, info)| (path, (info.event_schema_gen)()))
     }
 }
 

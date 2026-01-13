@@ -1,6 +1,5 @@
 //! Simulation server.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 #[cfg(unix)]
@@ -512,12 +511,12 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .list_event_sources(request);
 
         Ok(Response::new(match reply {
-            Ok(source_names) => ListEventSourcesReply {
-                source_names,
+            Ok(sources) => ListEventSourcesReply {
+                sources,
                 result: Some(list_event_sources_reply::Result::Empty(())),
             },
             Err(e) => ListEventSourcesReply {
-                source_names: Vec::new(),
+                sources: Vec::new(),
                 result: Some(list_event_sources_reply::Result::Error(e)),
             },
         }))
@@ -539,7 +538,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 result: Some(get_event_source_schemas_reply::Result::Empty(())),
             },
             Err(e) => GetEventSourceSchemasReply {
-                schemas: HashMap::new(),
+                schemas: Vec::new(),
                 result: Some(get_event_source_schemas_reply::Result::Error(e)),
             },
         }))
@@ -556,12 +555,12 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .list_query_sources(request);
 
         Ok(Response::new(match reply {
-            Ok(source_names) => ListQuerySourcesReply {
-                source_names,
+            Ok(sources) => ListQuerySourcesReply {
+                sources,
                 result: Some(list_query_sources_reply::Result::Empty(())),
             },
             Err(e) => ListQuerySourcesReply {
-                source_names: Vec::new(),
+                sources: Vec::new(),
                 result: Some(list_query_sources_reply::Result::Error(e)),
             },
         }))
@@ -583,7 +582,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 result: Some(get_query_source_schemas_reply::Result::Empty(())),
             },
             Err(e) => GetQuerySourceSchemasReply {
-                schemas: HashMap::new(),
+                schemas: Vec::new(),
                 result: Some(get_query_source_schemas_reply::Result::Error(e)),
             },
         }))
@@ -600,12 +599,12 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .list_event_sinks(request);
 
         Ok(Response::new(match reply {
-            Ok(sink_names) => ListEventSinksReply {
-                sink_names,
+            Ok(sinks) => ListEventSinksReply {
+                sinks,
                 result: Some(list_event_sinks_reply::Result::Empty(())),
             },
             Err(e) => ListEventSinksReply {
-                sink_names: Vec::new(),
+                sinks: Vec::new(),
                 result: Some(list_event_sinks_reply::Result::Error(e)),
             },
         }))
@@ -627,7 +626,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 result: Some(get_event_sink_schemas_reply::Result::Empty(())),
             },
             Err(e) => GetEventSinkSchemasReply {
-                schemas: HashMap::new(),
+                schemas: Vec::new(),
                 result: Some(get_event_sink_schemas_reply::Result::Error(e)),
             },
         }))

@@ -226,71 +226,63 @@ impl SimInit {
         self
     }
 
-    /// Adds an event sink to the endpoint registry.
+    /// Adds an event sink to the endpoint registry under the provided path.
     ///
     /// Note that this method is exclusively meant for the implementation of
     /// custom event sinks. Dedicated sink builder functions such as
     /// [event_queue_endpoint](crate::ports::event_queue_endpoint) should be
     /// preferred in all other cases.
     ///
-    /// An error is returned if the specified name is already used by another
-    /// event sink. The error is convertible to an [`InitError`].
+    /// An error is returned if the path is already used by another event sink.
+    /// The error is convertible to an [`InitError`].
     pub fn bind_event_sink<S, T>(
         &mut self,
         sink: S,
-        name: impl Into<String>,
+        path: impl Into<Path>,
     ) -> Result<(), DuplicateEventSinkError>
     where
         S: EventSinkReader<T> + Send + Sync + 'static,
         T: Message + Serialize + 'static,
     {
-        let name = name.into();
+        let path = path.into();
 
-        if self
-            .event_sink_info_registry
-            .register::<T>(name.clone())
-            .is_err()
-        {
-            return Err(DuplicateEventSinkError { name });
-        };
+        self.event_sink_info_registry
+            .register::<T>(path.clone())
+            .map_err(|path| DuplicateEventSinkError { path })?;
 
         self.event_sink_registry
-            .add(sink, name)
-            .map_err(|(name, _)| DuplicateEventSinkError { name })
+            .add(sink, path)
+            .map_err(|(path, _)| DuplicateEventSinkError { path })
     }
 
-    /// Adds an event sink to the endpoint registry without requiring a
-    /// [`Message`] implementation for its item type.
+    /// Adds an event sink to the endpoint registry under the provided path,
+    /// without requiring a [`Message`] implementation for its item type.
     ///
     /// Note that this method is exclusively meant for the implementation of
     /// custom event sinks. Dedicated sink builder functions such as
     /// [event_queue_endpoint](crate::ports::event_queue_endpoint) should be
     /// preferred in all other cases.
     ///
-    /// An error is returned if the specified name is already used by another
-    /// event sink. The error is convertible to an [`InitError`].
+    /// An error is returned if the path is already used by another event sink.
+    /// The error is convertible to an [`InitError`].
     pub fn bind_event_sink_raw<S, T>(
         &mut self,
         sink: S,
-        name: impl Into<String>,
+        path: impl Into<Path>,
     ) -> Result<(), DuplicateEventSinkError>
     where
         S: EventSinkReader<T> + Send + Sync + 'static,
         T: Serialize + 'static,
     {
-        let name = name.into();
+        let path = path.into();
 
-        if self
-            .event_sink_info_registry
-            .register_raw(name.clone())
-            .is_err()
-        {
-            return Err(DuplicateEventSinkError { name });
-        };
+        self.event_sink_info_registry
+            .register_raw(path.clone())
+            .map_err(|path| DuplicateEventSinkError { path })?;
 
         self.event_sink_registry
-            .add(sink, name)
-            .map_err(|(name, _)| DuplicateEventSinkError { name })
+            .add(sink, path)
+            .map_err(|(path, _)| DuplicateEventSinkError { path })
     }
 
     /// Builds a simulation initialized at the specified simulation time,
@@ -355,80 +347,81 @@ impl SimInit {
         Ok((simulation, endpoint_registry))
     }
 
-    /// Adds an event source to the endpoint registry.
+    /// Adds an event source to the endpoint registry under the provided path.
     ///
-    /// If the specified name is already used by another input or another event
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`].
-    pub(crate) fn add_event_source<T>(
+    /// If the path is already used by another event source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`].
+    pub(crate) fn bind_event_source<T>(
         &mut self,
         source: EventSource<T>,
-        name: impl Into<String>,
+        path: Path,
     ) -> Result<(), DuplicateEventSourceError<T>>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry
-            .add(source, name.into(), &mut self.scheduler_registry)
-            .map_err(|(name, source)| DuplicateEventSourceError { name, source })
+            .add(source, path, &mut self.scheduler_registry)
+            .map_err(|(path, source)| DuplicateEventSourceError { path, source })
     }
 
-    /// Adds an event source to the endpoint registry without requiring a
-    /// [`Message`] implementation for its item type.
+    /// Adds an event source to the endpoint registry under the provided path,
+    /// without requiring a [`Message`] implementation for its item type.
     ///
-    /// If the specified name is already used by another input or another event
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`].
-    pub(crate) fn add_event_source_raw<T>(
+    /// If the path is already used by another event source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`].
+    pub(crate) fn bind_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
-        name: impl Into<String>,
+        path: Path,
     ) -> Result<(), DuplicateEventSourceError<T>>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.event_source_registry
-            .add_raw(source, name.into(), &mut self.scheduler_registry)
-            .map_err(|(name, source)| DuplicateEventSourceError { name, source })
+            .add_raw(source, path, &mut self.scheduler_registry)
+            .map_err(|(path, source)| DuplicateEventSourceError { path, source })
     }
 
-    /// Adds a query source to the endpoint registry.
+    /// Adds a query source to the endpoint registry under the provided path.
     ///
-    /// If the specified name is already used by another query
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`].
-    pub(crate) fn add_query_source<T, R>(
+    /// If the path is already used by another query source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`].
+    pub(crate) fn bind_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
-        name: impl Into<String>,
+        path: Path,
     ) -> Result<(), DuplicateQuerySourceError<QuerySource<T, R>>>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
         self.query_source_registry
-            .add(source, name.into(), &mut self.scheduler_registry)
-            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })
+            .add(source, path, &mut self.scheduler_registry)
+            .map_err(|(path, source)| DuplicateQuerySourceError { path, source })
     }
 
-    /// Adds a query source to the endpoint registry without requiring
-    /// [`Message`] implementations for its query and response types.
+    /// Adds a query source to the endpoint registry under the provided path,
+    /// without requiring [`Message`] implementations for its query and response
+    /// types.
     ///
-    /// If the specified name is already used by another query
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`].
-    pub(crate) fn add_query_source_raw<T, R>(
+    /// If the path is already used by another query source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`].
+    pub(crate) fn bind_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
-        name: impl Into<String>,
+        path: Path,
     ) -> Result<(), DuplicateQuerySourceError<QuerySource<T, R>>>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
         self.query_source_registry
-            .add_raw(source, name.into(), &mut self.scheduler_registry)
-            .map_err(|(name, source)| DuplicateQuerySourceError { name, source })
+            .add_raw(source, path, &mut self.scheduler_registry)
+            .map_err(|(path, source)| DuplicateQuerySourceError { path, source })
     }
 
     /// Builds a [`Simulation`] from this [`SimInit`] instance.
@@ -473,43 +466,43 @@ impl fmt::Debug for SimInit {
 #[non_exhaustive]
 pub enum InitError {
     /// An attempt to add an input or event source failed because the provided
-    /// name is already in use.
-    DuplicateEventName(String),
-    /// An attempt to add a query source failed because the provided name is
-    /// already in use.
-    DuplicateQueryName(String),
-    /// An attempt to add an event sink failed because the provided name is
-    /// already in use.
-    DuplicateSinkName(String),
+    /// path is already in use by another event source.
+    DuplicateEventSource(Path),
+    /// An attempt to add a query source failed because the provided path is
+    /// already in use by another query source.
+    DuplicateQuerySource(Path),
+    /// An attempt to add an event sink failed because the provided path is
+    /// already in use by another event sink.
+    DuplicateEventSink(Path),
 }
 
 impl fmt::Display for InitError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateEventName(name) => write!(
+            Self::DuplicateEventSource(path) => write!(
                 fmt,
-                "cannot add input or event source under name `{name}` as this name is already in use",
+                "cannot add input or event source under `{path}`: this path is already in use by another event source",
             ),
-            Self::DuplicateQueryName(name) => write!(
+            Self::DuplicateQuerySource(path) => write!(
                 fmt,
-                "cannot add query source under name `{name}` as this name is already in use",
+                "cannot add query source under `{path}`: this path is already in use by another query source",
             ),
-            Self::DuplicateSinkName(name) => write!(
+            Self::DuplicateEventSink(path) => write!(
                 fmt,
-                "cannot add event sink under name `{name}` as this name is already in use",
+                "cannot add event sink under `{path}`: this path is already in use by another event sink",
             ),
         }
     }
 }
 impl Error for InitError {}
 
-/// Error returned when attempting to add an event source with an existing name.
+/// Error returned when attempting to bind an event source to an existing path.
 pub struct DuplicateEventSourceError<T>
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
-    /// Name of the event source.
-    pub name: String,
+    /// Path to the event source.
+    pub path: Path,
     /// The event source.
     pub source: EventSource<T>,
 }
@@ -520,8 +513,8 @@ where
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             fmt,
-            "cannot add event source under name `{}` as this name is already in use",
-            self.name
+            "cannot add event source under `{}`: this path is already in use by another event source",
+            self.path
         )
     }
 }
@@ -531,7 +524,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DuplicateEventSource")
-            .field("name", &self.name)
+            .field("path", &self.path)
             .field("source", &"<EventSource<T>>")
             .finish()
     }
@@ -545,37 +538,14 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> From<DuplicateEve
     for InitError
 {
     fn from(e: DuplicateEventSourceError<T>) -> Self {
-        Self::DuplicateEventName(e.name)
+        Self::DuplicateEventSource(e.path)
     }
 }
 
-/// Error returned when attempting to add an input with an existing name.
-#[derive(Debug)]
-pub struct DuplicateInputError {
-    /// Name of the input.
-    pub name: String,
-}
-impl fmt::Display for DuplicateInputError {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            fmt,
-            "cannot add input under name `{}` as this name is already in use",
-            self.name
-        )
-    }
-}
-impl Error for DuplicateInputError {}
-
-impl From<DuplicateInputError> for InitError {
-    fn from(e: DuplicateInputError) -> Self {
-        Self::DuplicateEventName(e.name)
-    }
-}
-
-/// Error returned when attempting to add a query source with an existing name.
+/// Error returned when attempting to bind a query source to an existing path.
 pub struct DuplicateQuerySourceError<S> {
-    /// Name of the query source.
-    pub name: String,
+    /// Path to the query source.
+    pub path: Path,
     /// The query source.
     pub source: S,
 }
@@ -583,15 +553,15 @@ impl<S> fmt::Display for DuplicateQuerySourceError<S> {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             fmt,
-            "cannot add query source under name `{}` as this name is already in use",
-            self.name
+            "cannot add query source under `{}`: this path is already in use by another query sink",
+            self.path
         )
     }
 }
 impl<S> fmt::Debug for DuplicateQuerySourceError<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DuplicateQuerySource")
-            .field("name", &self.name)
+            .field("path", &self.path)
             .field("source", &"<QuerySource<T, R>>")
             .finish()
     }
@@ -600,35 +570,29 @@ impl<S> Error for DuplicateQuerySourceError<S> {}
 
 impl<S> From<DuplicateQuerySourceError<S>> for InitError {
     fn from(e: DuplicateQuerySourceError<S>) -> Self {
-        Self::DuplicateQueryName(e.name)
+        Self::DuplicateQuerySource(e.path)
     }
 }
 
-/// Error returned when attempting to add an event sink with an existing name.
+/// Error returned when attempting to bind an event sink to an existing path.
+#[derive(Debug)]
 pub struct DuplicateEventSinkError {
-    /// Name of the event sink.
-    pub name: String,
+    /// Path to the event sink.
+    pub path: Path,
 }
 impl fmt::Display for DuplicateEventSinkError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             fmt,
-            "cannot add event sink under name `{}` as this name is already in use",
-            self.name
+            "cannot add event sink under `{}`: this path is already in use by another event sink",
+            self.path
         )
-    }
-}
-impl fmt::Debug for DuplicateEventSinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DuplicateEventSource")
-            .field("name", &self.name)
-            .finish()
     }
 }
 impl Error for DuplicateEventSinkError {}
 
 impl From<DuplicateEventSinkError> for InitError {
     fn from(e: DuplicateEventSinkError) -> Self {
-        Self::DuplicateSinkName(e.name)
+        Self::DuplicateEventSink(e.path)
     }
 }

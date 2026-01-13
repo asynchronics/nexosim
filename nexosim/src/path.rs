@@ -109,6 +109,12 @@ impl Path {
 
         self.0.get(start..end).map(|slice| Self(Box::from(slice)))
     }
+
+    /// Returns the path as a `Vec<String>`.
+    #[cfg(feature = "server")]
+    pub(crate) fn to_vec_string(&self) -> Vec<String> {
+        self.0.iter().map(|s| s.to_string()).collect()
+    }
 }
 
 impl Index<usize> for Path {

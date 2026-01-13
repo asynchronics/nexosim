@@ -73,9 +73,9 @@ fn map_scheduling_error(error: SchedulingError) -> Error {
 /// Map an `InitError` to a Protobuf error.
 fn map_init_error(error: InitError) -> Error {
     let error_code = match error {
-        InitError::DuplicateEventName(_) => ErrorCode::DuplicateEventName,
-        InitError::DuplicateQueryName(_) => ErrorCode::DuplicateQueryName,
-        InitError::DuplicateSinkName(_) => ErrorCode::DuplicateSinkName,
+        InitError::DuplicateEventSource(_) => ErrorCode::DuplicateEventSource,
+        InitError::DuplicateQuerySource(_) => ErrorCode::DuplicateQuerySource,
+        InitError::DuplicateEventSink(_) => ErrorCode::DuplicateEventSink,
     };
 
     let error_message = error.to_string();

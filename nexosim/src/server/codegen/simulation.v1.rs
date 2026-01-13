@@ -6,6 +6,34 @@ pub struct Error {
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Path {
+    #[prost(string, repeated, tag = "1")]
+    pub segments: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventSourceSchema {
+    #[prost(message, optional, tag = "1")]
+    pub source: ::core::option::Option<Path>,
+    #[prost(string, tag = "2")]
+    pub event: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct QuerySourceSchema {
+    #[prost(message, optional, tag = "1")]
+    pub source: ::core::option::Option<Path>,
+    #[prost(string, tag = "2")]
+    pub request: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub reply: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EventSinkSchema {
+    #[prost(message, optional, tag = "1")]
+    pub sink: ::core::option::Option<Path>,
+    #[prost(string, tag = "2")]
+    pub event: ::prost::alloc::string::String,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct EventKey {
     #[prost(uint64, tag = "1")]
@@ -214,9 +242,9 @@ pub struct ListEventSourcesRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListEventSourcesReply {
     /// This field is hoisted because protobuf3 does not support `repeated` within
-    /// a `oneof`. It is Always empty if an error is returned
-    #[prost(string, repeated, tag = "1")]
-    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// a `oneof`. It is Always empty if an error is returned.
+    #[prost(message, repeated, tag = "1")]
+    pub sources: ::prost::alloc::vec::Vec<Path>,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "list_event_sources_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<list_event_sources_reply::Result>,
@@ -234,18 +262,15 @@ pub mod list_event_sources_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetEventSourceSchemasRequest {
-    #[prost(string, repeated, tag = "1")]
-    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "1")]
+    pub sources: ::prost::alloc::vec::Vec<Path>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetEventSourceSchemasReply {
-    /// This field is hoisted because protobuf3 does not support `map` within
-    /// a `oneof`. It is Always empty if an error is returned
-    #[prost(map = "string, string", tag = "1")]
-    pub schemas: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned.
+    #[prost(message, repeated, tag = "1")]
+    pub schemas: ::prost::alloc::vec::Vec<EventSourceSchema>,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "get_event_source_schemas_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<get_event_source_schemas_reply::Result>,
@@ -267,8 +292,8 @@ pub struct ListQuerySourcesRequest {}
 pub struct ListQuerySourcesReply {
     /// This field is hoisted because protobuf3 does not support `repeated` within
     /// a `oneof`. It is Always empty if an error is returned
-    #[prost(string, repeated, tag = "1")]
-    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "1")]
+    pub sources: ::prost::alloc::vec::Vec<Path>,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "list_query_sources_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<list_query_sources_reply::Result>,
@@ -285,26 +310,16 @@ pub mod list_query_sources_reply {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct QuerySchema {
-    #[prost(string, tag = "1")]
-    pub request: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub reply: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetQuerySourceSchemasRequest {
-    #[prost(string, repeated, tag = "1")]
-    pub source_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "1")]
+    pub sources: ::prost::alloc::vec::Vec<Path>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetQuerySourceSchemasReply {
-    /// This field is hoisted because protobuf3 does not support `map` within
-    /// a `oneof`. It is Always empty if an error is returned
-    #[prost(map = "string, message", tag = "1")]
-    pub schemas: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        QuerySchema,
-    >,
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned.
+    #[prost(message, repeated, tag = "1")]
+    pub schemas: ::prost::alloc::vec::Vec<QuerySourceSchema>,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "get_query_source_schemas_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<get_query_source_schemas_reply::Result>,
@@ -325,9 +340,9 @@ pub struct ListEventSinksRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListEventSinksReply {
     /// This field is hoisted because protobuf3 does not support `repeated` within
-    /// a `oneof`. It is Always empty if an error is returned
-    #[prost(string, repeated, tag = "1")]
-    pub sink_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// a `oneof`. It is Always empty if an error is returned.
+    #[prost(message, repeated, tag = "1")]
+    pub sinks: ::prost::alloc::vec::Vec<Path>,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "list_event_sinks_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<list_event_sinks_reply::Result>,
@@ -345,18 +360,15 @@ pub mod list_event_sinks_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetEventSinkSchemasRequest {
-    #[prost(string, repeated, tag = "1")]
-    pub sink_names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "1")]
+    pub sinks: ::prost::alloc::vec::Vec<Path>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetEventSinkSchemasReply {
-    /// This field is hoisted because protobuf3 does not support `map` within
-    /// a `oneof`. It is Always empty if an error is returned
-    #[prost(map = "string, string", tag = "1")]
-    pub schemas: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned.
+    #[prost(message, repeated, tag = "1")]
+    pub schemas: ::prost::alloc::vec::Vec<EventSinkSchema>,
     /// Always returns exactly 1 variant.
     #[prost(oneof = "get_event_sink_schemas_reply::Result", tags = "10, 100")]
     pub result: ::core::option::Option<get_event_sink_schemas_reply::Result>,
@@ -374,8 +386,8 @@ pub mod get_event_sink_schemas_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScheduleEventRequest {
-    #[prost(string, tag = "3")]
-    pub source_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "3")]
+    pub source: ::core::option::Option<Path>,
     #[prost(bytes = "vec", tag = "4")]
     pub event: ::prost::alloc::vec::Vec<u8>,
     #[prost(message, optional, tag = "5")]
@@ -440,8 +452,8 @@ pub mod cancel_event_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProcessEventRequest {
-    #[prost(string, tag = "1")]
-    pub source_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub source: ::core::option::Option<Path>,
     #[prost(bytes = "vec", tag = "2")]
     pub event: ::prost::alloc::vec::Vec<u8>,
 }
@@ -464,8 +476,8 @@ pub mod process_event_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProcessQueryRequest {
-    #[prost(string, tag = "1")]
-    pub source_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub source: ::core::option::Option<Path>,
     #[prost(bytes = "vec", tag = "2")]
     pub request: ::prost::alloc::vec::Vec<u8>,
 }
@@ -492,8 +504,8 @@ pub mod process_query_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TryReadEventsRequest {
-    #[prost(string, tag = "1")]
-    pub sink_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub sink: ::core::option::Option<Path>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TryReadEventsReply {
@@ -518,8 +530,8 @@ pub mod try_read_events_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReadEventRequest {
-    #[prost(string, tag = "1")]
-    pub sink_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub sink: ::core::option::Option<Path>,
     #[prost(message, optional, tag = "2")]
     pub timeout: ::core::option::Option<::prost_types::Duration>,
 }
@@ -542,8 +554,8 @@ pub mod read_event_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnableSinkRequest {
-    #[prost(string, tag = "1")]
-    pub sink_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub sink: ::core::option::Option<Path>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EnableSinkReply {
@@ -564,8 +576,8 @@ pub mod enable_sink_reply {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisableSinkRequest {
-    #[prost(string, tag = "1")]
-    pub sink_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub sink: ::core::option::Option<Path>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DisableSinkReply {
@@ -584,69 +596,6 @@ pub mod disable_sink_reply {
         Error(super::Error),
     }
 }
-/// A convenience message type for custom transport implementation.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AnyRequest {
-    /// Expects exactly 1 variant.
-    #[prost(
-        oneof = "any_request::Request",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23"
-    )]
-    pub request: ::core::option::Option<any_request::Request>,
-}
-/// Nested message and enum types in `AnyRequest`.
-pub mod any_request {
-    /// Expects exactly 1 variant.
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Request {
-        #[prost(message, tag = "1")]
-        InitRequest(super::InitRequest),
-        #[prost(message, tag = "2")]
-        HaltRequest(super::HaltRequest),
-        #[prost(message, tag = "3")]
-        TerminateRequest(super::TerminateRequest),
-        #[prost(message, tag = "4")]
-        SaveRequest(super::SaveRequest),
-        #[prost(message, tag = "5")]
-        RestoreRequest(super::RestoreRequest),
-        #[prost(message, tag = "6")]
-        TimeRequest(super::TimeRequest),
-        #[prost(message, tag = "7")]
-        StepRequest(super::StepRequest),
-        #[prost(message, tag = "8")]
-        StepUntilRequest(super::StepUntilRequest),
-        #[prost(message, tag = "9")]
-        StepUnboundedRequest(super::StepUnboundedRequest),
-        #[prost(message, tag = "10")]
-        ListEventSources(super::ListEventSourcesRequest),
-        #[prost(message, tag = "11")]
-        GetEventSourceSchemas(super::GetEventSourceSchemasRequest),
-        #[prost(message, tag = "12")]
-        ListQuerySources(super::ListQuerySourcesRequest),
-        #[prost(message, tag = "13")]
-        GetQuerySourceSchemas(super::GetQuerySourceSchemasRequest),
-        #[prost(message, tag = "14")]
-        ListEventSinks(super::ListEventSinksRequest),
-        #[prost(message, tag = "15")]
-        GetEventSinkSchemas(super::GetEventSinkSchemasRequest),
-        #[prost(message, tag = "16")]
-        ScheduleEventRequest(super::ScheduleEventRequest),
-        #[prost(message, tag = "17")]
-        CancelEventRequest(super::CancelEventRequest),
-        #[prost(message, tag = "18")]
-        ProcessEventRequest(super::ProcessEventRequest),
-        #[prost(message, tag = "19")]
-        ProcessQueryRequest(super::ProcessQueryRequest),
-        #[prost(message, tag = "20")]
-        TryReadEventsRequest(super::TryReadEventsRequest),
-        #[prost(message, tag = "21")]
-        ReadEventRequest(super::ReadEventRequest),
-        #[prost(message, tag = "22")]
-        EnableSinkRequest(super::EnableSinkRequest),
-        #[prost(message, tag = "23")]
-        DisableSinkRequest(super::DisableSinkRequest),
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ErrorCode {
@@ -661,9 +610,9 @@ pub enum ErrorCode {
     InvalidTimeout = 7,
     /// Bench initialization errors.
     InitializerPanic = 30,
-    DuplicateEventName = 60,
-    DuplicateQueryName = 61,
-    DuplicateSinkName = 62,
+    DuplicateEventSource = 60,
+    DuplicateQuerySource = 61,
+    DuplicateEventSink = 62,
     DeserializationError = 63,
     /// Simulation runtime error.
     SimulationNotStarted = 31,
@@ -706,9 +655,9 @@ impl ErrorCode {
             Self::InvalidKey => "INVALID_KEY",
             Self::InvalidTimeout => "INVALID_TIMEOUT",
             Self::InitializerPanic => "INITIALIZER_PANIC",
-            Self::DuplicateEventName => "DUPLICATE_EVENT_NAME",
-            Self::DuplicateQueryName => "DUPLICATE_QUERY_NAME",
-            Self::DuplicateSinkName => "DUPLICATE_SINK_NAME",
+            Self::DuplicateEventSource => "DUPLICATE_EVENT_SOURCE",
+            Self::DuplicateQuerySource => "DUPLICATE_QUERY_SOURCE",
+            Self::DuplicateEventSink => "DUPLICATE_EVENT_SINK",
             Self::DeserializationError => "DESERIALIZATION_ERROR",
             Self::SimulationNotStarted => "SIMULATION_NOT_STARTED",
             Self::SimulationHalted => "SIMULATION_HALTED",
@@ -745,9 +694,9 @@ impl ErrorCode {
             "INVALID_KEY" => Some(Self::InvalidKey),
             "INVALID_TIMEOUT" => Some(Self::InvalidTimeout),
             "INITIALIZER_PANIC" => Some(Self::InitializerPanic),
-            "DUPLICATE_EVENT_NAME" => Some(Self::DuplicateEventName),
-            "DUPLICATE_QUERY_NAME" => Some(Self::DuplicateQueryName),
-            "DUPLICATE_SINK_NAME" => Some(Self::DuplicateSinkName),
+            "DUPLICATE_EVENT_SOURCE" => Some(Self::DuplicateEventSource),
+            "DUPLICATE_QUERY_SOURCE" => Some(Self::DuplicateQuerySource),
+            "DUPLICATE_EVENT_SINK" => Some(Self::DuplicateEventSink),
             "DESERIALIZATION_ERROR" => Some(Self::DeserializationError),
             "SIMULATION_NOT_STARTED" => Some(Self::SimulationNotStarted),
             "SIMULATION_HALTED" => Some(Self::SimulationHalted),

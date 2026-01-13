@@ -4,6 +4,7 @@ use std::sync::Arc;
 use prost_types::Timestamp;
 
 use crate::endpoints::{EventSourceRegistry, QuerySourceRegistry};
+use crate::path::Path as NexosimPath;
 use crate::server::services::map_endpoint_error;
 use crate::simulation::Simulation;
 
@@ -123,11 +124,15 @@ impl ControllerService {
             return Err(simulation_halted_error());
         };
 
-        let source_name = &request.source_name;
+        let source_path: &NexosimPath = &request
+            .source
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event source path"))?
+            .segments
+            .into();
         let event = &request.event;
 
         let source = event_source_registry
-            .get(source_name)
+            .get(source_path)
             .map_err(map_endpoint_error)?;
 
         let arg = source.deserialize_arg(event).map_err(|e| {
@@ -163,11 +168,15 @@ impl ControllerService {
             return Err(simulation_halted_error());
         };
 
-        let source_name = &request.source_name;
+        let source_path: &NexosimPath = &request
+            .source
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event source path"))?
+            .segments
+            .into();
         let request = &request.request;
 
         let source = query_source_registry
-            .get(source_name)
+            .get(source_path)
             .map_err(map_endpoint_error)?;
 
         let arg = source.deserialize_arg(request).map_err(|e| {

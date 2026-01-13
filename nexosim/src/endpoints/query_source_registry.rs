@@ -11,6 +11,7 @@ use ciborium;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use crate::path::Path;
 use crate::ports::QuerySource;
 use crate::simulation::{QueryId, QueryIdErased, SchedulerRegistry};
 
@@ -24,62 +25,61 @@ type SerializationError = ciborium::ser::Error<std::io::Error>;
 #[cfg(feature = "server")]
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
-/// A registry that holds all sources and sinks meant to be accessed through
-/// remote procedure calls.
+/// A registry that holds all query sources meant to be accessed through remote
+/// procedure calls.
 #[derive(Default)]
-pub(crate) struct QuerySourceRegistry(HashMap<String, Box<dyn QuerySourceEntryAny>>);
+pub(crate) struct QuerySourceRegistry(HashMap<Path, Box<dyn QuerySourceEntryAny>>);
 
 impl QuerySourceRegistry {
     /// Adds a query source to the registry.
     ///
-    /// If the specified name is already used by another query source, the name
-    /// of the query and the query source itself are returned in the error.
+    /// If the specified path is already used by another query source, the path
+    /// to the query and the query source itself are returned in the error.
     pub(crate) fn add<T, R>(
         &mut self,
         source: QuerySource<T, R>,
-        name: String,
+        path: Path,
         registry: &mut SchedulerRegistry,
-    ) -> Result<(), (String, QuerySource<T, R>)>
+    ) -> Result<(), (Path, QuerySource<T, R>)>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Message + Serialize + Send + 'static,
     {
-        self.add_any(source, name, || (T::schema(), R::schema()), registry)
+        self.add_any(source, path, || (T::schema(), R::schema()), registry)
     }
 
     /// Adds a query source to the registry without a schema definition.
     ///
-    /// If the specified name is already used by another query source, the name
-    /// of the query and the query source itself are returned in the error.
+    /// If the specified path is already used by another query source, the path
+    /// to the query and the query source itself are returned in the error.
     pub(crate) fn add_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
-        name: String,
+        path: Path,
         registry: &mut SchedulerRegistry,
-    ) -> Result<(), (String, QuerySource<T, R>)>
+    ) -> Result<(), (Path, QuerySource<T, R>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
     {
-        self.add_any(source, name, || (String::new(), String::new()), registry)
+        self.add_any(source, path, || (String::new(), String::new()), registry)
     }
 
-    // FIXME error type
     /// Adds a query source to the registry, possibly with an empty schema
     /// definition.
     fn add_any<T, R, F>(
         &mut self,
         source: QuerySource<T, R>,
-        name: String,
+        path: Path,
         schema_gen: F,
         registry: &mut SchedulerRegistry,
-    ) -> Result<(), (String, QuerySource<T, R>)>
+    ) -> Result<(), (Path, QuerySource<T, R>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Serialize + Send + 'static,
         F: Fn() -> (MessageSchema, MessageSchema) + Send + Sync + 'static,
     {
-        match self.0.entry(name) {
+        match self.0.entry(path) {
             Entry::Vacant(s) => {
                 let query_id = registry.add_query_source(source);
                 let entry = QuerySourceEntry {
@@ -96,37 +96,49 @@ impl QuerySourceRegistry {
 
     /// Returns a reference to the specified query source if it is in
     /// the registry.
-    pub(crate) fn get(&self, name: &str) -> Result<&dyn QuerySourceEntryAny, EndpointError> {
+    pub(crate) fn get(&self, path: &Path) -> Result<&dyn QuerySourceEntryAny, EndpointError> {
         self.0
-            .get(name)
+            .get(path)
             .map(|s| s.as_ref())
-            .ok_or_else(|| EndpointError::QuerySourceNotFound {
-                name: name.to_string(),
-            })
+            .ok_or_else(|| EndpointError::QuerySourceNotFound { path: path.clone() })
     }
 
-    /// Returns a typed SourceId of the requested EventSource.
-    pub(crate) fn get_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, EndpointError>
+    /// Returns the [`QueryId`] of the requested query source if it is in the
+    /// registry.
+    pub(crate) fn get_source_id<T, R>(&self, path: &Path) -> Result<QueryId<T, R>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
-        let query_id = self.get(name)?.get_query_id();
+        let query_id = self.get(path)?.get_query_id();
+
         Ok(QueryId(query_id.0, std::marker::PhantomData))
     }
 
-    /// Returns an iterator over the names of the registered query sources.
-    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &str> {
-        self.0.keys().map(|s| s.as_str())
+    /// Returns an iterator over the paths of all registered query sources.
+    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &Path> {
+        self.0.keys()
     }
 
     /// Returns the input and output schemas of the specified query source if it
     /// is in the registry.
     pub(crate) fn get_source_schema(
         &self,
-        name: &str,
+        path: &Path,
     ) -> Result<(MessageSchema, MessageSchema), EndpointError> {
-        Ok(self.get(name)?.query_schema())
+        Ok(self.get(path)?.query_schema())
+    }
+
+    /// Returns an iterator over the paths and schemas of all registered query
+    /// sources.
+    #[cfg(feature = "server")]
+    pub(crate) fn list_schemas(
+        &self,
+    ) -> impl Iterator<Item = (&Path, MessageSchema, MessageSchema)> {
+        self.0.iter().map(|(path, src)| {
+            let schemas = src.query_schema();
+            (path, schemas.0, schemas.1)
+        })
     }
 }
 
