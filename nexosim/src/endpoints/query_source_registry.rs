@@ -1,9 +1,9 @@
-#[cfg(feature = "server")]
 use std::any;
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
+use std::marker::PhantomData;
 
 #[cfg(feature = "server")]
 use ciborium;
@@ -94,8 +94,8 @@ impl QuerySourceRegistry {
         }
     }
 
-    /// Returns a reference to the specified query source if it is in
-    /// the registry.
+    /// Returns a reference to the specified query source if it is in the
+    /// registry.
     pub(crate) fn get(&self, path: &Path) -> Result<&dyn QuerySourceEntryAny, EndpointError> {
         self.0
             .get(path)
@@ -103,16 +103,30 @@ impl QuerySourceRegistry {
             .ok_or_else(|| EndpointError::QuerySourceNotFound { path: path.clone() })
     }
 
-    /// Returns the [`QueryId`] of the requested query source if it is in the
-    /// registry.
+    /// Returns the query identifier of the requested query source if it is in
+    /// the registry and is of the proper type.
     pub(crate) fn get_source_id<T, R>(&self, path: &Path) -> Result<QueryId<T, R>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
-        let query_id = self.get(path)?.get_query_id();
+        let query_id = self.get(path).and_then(|entry| {
+            if entry.request_type_id() == TypeId::of::<T>()
+                && entry.reply_type_id() == TypeId::of::<R>()
+            {
+                Ok(entry.get_query_id())
+            } else {
+                Err(EndpointError::InvalidQuerySourceType {
+                    path: path.clone(),
+                    found_request_type: any::type_name::<T>(),
+                    found_reply_type: any::type_name::<R>(),
+                    expected_request_type: entry.request_type_name(),
+                    expected_reply_type: entry.reply_type_name(),
+                })
+            }
+        })?;
 
-        Ok(QueryId(query_id.0, std::marker::PhantomData))
+        Ok(QueryId(query_id.0, PhantomData))
     }
 
     /// Returns an iterator over the paths of all registered query sources.
@@ -120,8 +134,8 @@ impl QuerySourceRegistry {
         self.0.keys()
     }
 
-    /// Returns the input and output schemas of the specified query source if it
-    /// is in the registry.
+    /// Returns the request and reply schemas of the specified query source, in
+    /// this order, if they are in the registry.
     pub(crate) fn get_source_schema(
         &self,
         path: &Path,
@@ -148,7 +162,7 @@ impl fmt::Debug for QuerySourceRegistry {
     }
 }
 
-/// A type-erased `QuerySource` that operates on CBOR-encoded serialized queries
+/// A type-erased query source that operates on CBOR-encoded serialized queries
 /// and returns CBOR-encoded replies.
 pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
     /// Returns a type erased deserialized query argument.
@@ -157,21 +171,23 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
     #[cfg(feature = "server")]
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError>;
 
+    /// The `TypeId` of the request event.
+    fn request_type_id(&self) -> TypeId;
+
     /// Human-readable name of the request type, as returned by
     /// `any::type_name`.
-    #[cfg(feature = "server")]
     fn request_type_name(&self) -> &'static str;
 
-    /// Human-readable name of the reply type, as returned by
-    /// `any::type_name`.
-    #[cfg(feature = "server")]
+    /// The `TypeId` of the reply event.
+    fn reply_type_id(&self) -> TypeId;
+
+    /// Human-readable name of the reply type, as returned by `any::type_name`.
     fn reply_type_name(&self) -> &'static str;
 
-    /// Returns the input and output schemas of the query source.
+    /// Returns the request and reply schemas of the query source, in this
+    /// order.
     ///
-    /// The first element of the tuple being the input schema, the second one
-    /// the output schema.
-    /// If the query was added via `add_raw` method, it returns an empty schema
+    /// If the query was added via the `add_raw` method, it returns empty schema
     /// strings.
     fn query_schema(&self) -> (MessageSchema, MessageSchema);
 
@@ -202,12 +218,15 @@ where
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg: T| Box::new(arg) as Box<dyn Any>)
     }
-
-    #[cfg(feature = "server")]
+    fn request_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
     fn request_type_name(&self) -> &'static str {
         any::type_name::<T>()
     }
-    #[cfg(feature = "server")]
+    fn reply_type_id(&self) -> TypeId {
+        TypeId::of::<R>()
+    }
     fn reply_type_name(&self) -> &'static str {
         any::type_name::<R>()
     }
@@ -227,14 +246,14 @@ where
 }
 
 #[cfg(feature = "server")]
-/// A type-erased `ReplySender`
+/// A type-erased reply writer.
 pub(crate) trait ReplyWriterAny: Any + Send {}
 
 #[cfg(feature = "server")]
 impl<R: Send + 'static> ReplyWriterAny for ReplyWriter<R> {}
 
 #[cfg(feature = "server")]
-/// A type-erased `ReplyReader` that returns CBOR-encoded replies.
+/// A type-erased reply reader that returns CBOR-encoded replies.
 pub(crate) trait ReplyReaderAny {
     /// Take the replies, if any, encode them and collect them in a vector.
     fn take_collect(&mut self) -> Option<Result<Vec<Vec<u8>>, SerializationError>>;

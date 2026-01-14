@@ -77,7 +77,8 @@ impl EventSinkRegistry {
 
                     return Err(EndpointError::InvalidEventSinkType {
                         path: entry.key().clone(),
-                        event_type: any::type_name::<T>(),
+                        found_event_type: any::type_name::<T>(),
+                        expected_event_type: inner.event_type_name(),
                     });
                 }
 
@@ -113,7 +114,7 @@ impl EventSinkRegistry {
     /// Extracts an entry, leaving its key in the registry.
     ///
     /// The entry is expected to be reinserted later with
-    /// [`EventSinkRegistry::return_entry`].
+    /// [`EventSinkRegistry::replace_entry`].
     #[cfg(feature = "server")]
     pub(crate) fn rent_entry(
         &mut self,
@@ -125,16 +126,19 @@ impl EventSinkRegistry {
             .ok_or_else(|| EndpointError::EventSinkNotFound { path: path.clone() })
     }
 
-    /// Re-inserts an entry under an already registered path, typically after
-    /// the entry was rented with [`EventSinkRegistry::rent_entry`].
+    /// Inserts an entry under an already registered path, typically after the
+    /// entry was rented with [`EventSinkRegistry::rent_entry`].
     ///
     /// If the key for the entry exists in the registry, the entry is always
-    /// inserted, whether or not the entry slot is already populated.
+    /// inserted, whether or not the entry slot is already populated. If the
+    /// entry to be inserted was obtained from `rent_entry`, it is therefore up
+    /// to the caller to ensure that the provided path is the one of the rented
+    /// entry.
     ///
     /// An [`EndpointError::EventSinkNotFound`] is returned if no sink was
     /// registered under this path.
     #[cfg(feature = "server")]
-    pub(crate) fn return_entry(
+    pub(crate) fn replace_entry(
         &mut self,
         path: &Path,
         entry: Box<dyn EventSinkReaderEntryAny>,
@@ -185,6 +189,9 @@ pub(crate) trait EventSinkReaderEntryAny {
     /// The `TypeId` of the event.
     fn event_type_id(&self) -> TypeId;
 
+    /// Human-readable name of the event type, as returned by `any::type_name`.
+    fn event_type_name(&self) -> &'static str;
+
     /// Consumes this item and returns a `Box<Box<dyn EventSinkReader<T>>>`
     /// (yes, the double-box is needed) cast to a `Box<dyn Any>`.
     fn into_event_sink_reader(self: Box<Self>) -> Box<dyn Any>;
@@ -222,7 +229,6 @@ where
     fn event_type_id(&self) -> TypeId {
         TypeId::of::<T>()
     }
-    #[cfg(feature = "server")]
     fn event_type_name(&self) -> &'static str {
         any::type_name::<T>()
     }
