@@ -65,7 +65,12 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&request.cfg).map(|sim_init| sim_init.init_with_registry(start_time))
+            (self.sim_gen)(&request.cfg).map(|mut bench| {
+                let endpoints = bench.take_endpoints();
+                bench
+                    .init(start_time)
+                    .map(|simulation| (simulation, endpoints))
+            })
         }))
         .map_err(map_panic)
         .and_then(map_init_error);
@@ -109,7 +114,12 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&cfg).map(|sim_init| sim_init.restore(&request.state[..]))
+            (self.sim_gen)(&cfg).map(|mut bench| {
+                let endpoints = bench.take_endpoints();
+                bench
+                    .restore(&request.state[..])
+                    .map(|simulation| (simulation, endpoints))
+            })
         }))
         .map_err(map_panic)
         .and_then(map_init_error);
@@ -173,17 +183,21 @@ where
     F: FnMut(I) -> SimInit + Send + 'static,
     I: DeserializeOwned,
 {
-    sim_gen(cfg).init_with_registry(start_time)
+    let mut bench = sim_gen(cfg);
+    let endpoints = bench.take_endpoints();
+
+    bench
+        .init(start_time)
+        .map(|simulation| (simulation, endpoints))
 }
 
-/// Allows restoring a previously saved server simulation and continuing it's
-/// execution directly from Rust.
+/// Restores a previously saved simulation and returns its endpoints.
 ///
-/// It is possible to override the initial configuration that the simulation
-/// has been started with. The override should not modify bench nor model
-/// layout, otherwise unexpected side effects might happen.
-/// If no additional configuration is provided, simulation will be restored with
-/// it's initial config value.
+/// It is possible to provide a different bench generation function that the one
+/// used originally and/or to provide an alternate bench configuration. It is
+/// crucial, however, that this does not modify the set of models and their
+/// paths. If no configuration is provided, the simulation is restored using the
+/// previous initial configuration.
 pub fn restore_bench<F, I>(
     mut sim_gen: F,
     state: &[u8],
@@ -201,6 +215,10 @@ where
             ciborium::from_reader(&serialized_cfg[..]).unwrap()
         }
     };
+    let mut bench = sim_gen(cfg);
+    let endpoints = bench.take_endpoints();
 
-    sim_gen(cfg).restore(state)
+    bench
+        .restore(state)
+        .map(|simulation| (simulation, endpoints))
 }

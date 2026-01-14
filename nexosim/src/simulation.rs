@@ -469,11 +469,11 @@ impl Simulation {
         })
     }
 
-    /// Advances simulation time to that of the next scheduled action if its
+    /// Advances simulation time to that of the next scheduled event if its
     /// scheduling time does not exceed the specified bound, processing that
-    /// action as well as all other actions scheduled for the same time.
+    /// event as well as all other event scheduled for the same time.
     ///
-    /// If at least one action was found that satisfied the time bound, the
+    /// If at least one event was found that satisfied the time bound, the
     /// corresponding new simulation time is returned.
     fn step_to_next(
         &mut self,
@@ -487,7 +487,7 @@ impl Simulation {
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
 
         // Closure returning the next key which time stamp is no older than the
-        // upper bound, if any. Cancelled actions are pulled and discarded.
+        // upper bound, if any. Cancelled events are pulled and discarded.
         let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
             loop {
                 match scheduler_queue.peek() {
@@ -499,7 +499,7 @@ impl Simulation {
                         if !is_cancelled {
                             break Some(key);
                         }
-                        // Discard cancelled actions.
+                        // Discard cancelled events.
                         scheduler_queue.pull();
                     }
                     _ => break None,
@@ -518,10 +518,10 @@ impl Simulation {
         loop {
             let mut next_key;
 
-            // TODO if there is a single event consider firing immediately
+            // TODO: if there is a single event consider firing immediately
             // instead of allocating SeqFuture, although the perf vs. complexity
-            // might be not worth it.
-            let mut action_seq = SeqFuture::new();
+            // might not be worth it.
+            let mut event_seq = SeqFuture::new();
             loop {
                 let ((time, channel_id), item) = scheduler_queue.pull().unwrap();
 
@@ -548,22 +548,23 @@ impl Simulation {
                     }
                 };
 
-                action_seq.push(fut);
+                event_seq.push(fut);
                 next_key = peek_next_key(&mut scheduler_queue);
                 if next_key != Some(current_key) {
                     break;
                 }
             }
 
-            // Spawn a compound future that sequentially polls all actions
+            // Spawn a compound future that sequentially polls all events
             // targeting the same mailbox.
-            self.executor.spawn_and_forget(action_seq);
+            self.executor.spawn_and_forget(event_seq);
 
             current_key = match next_key {
-                // If the next action is scheduled at the same time, update the
+                // If the next event is scheduled at the same time, update the
                 // key and continue.
                 Some(k) if k.0 == current_key.0 => k,
-                // Otherwise wait until all actions have completed and return.
+                // Otherwise wait until all actions triggered by the events have
+                // completed and return.
                 _ => {
                     drop(scheduler_queue); // make sure the queue's mutex is released.
 
@@ -585,10 +586,10 @@ impl Simulation {
         }
     }
 
-    /// Iteratively advances simulation time and processes all actions scheduled
+    /// Iteratively advances simulation time and processes all events scheduled
     /// up to the specified target time.
     ///
-    /// Once the method returns it is guaranteed that (i) all actions scheduled
+    /// Once the method returns it is guaranteed that (i) all events scheduled
     /// up to the specified target time have completed and (ii) the final
     /// simulation time matches the target time.
     ///
@@ -602,7 +603,7 @@ impl Simulation {
             match self.step_to_next(target_time) {
                 // The target time was reached exactly.
                 Ok(time) if time == target_time => return Ok(()),
-                // No actions are scheduled before or at the target time.
+                // No events are scheduled before or at the target time.
                 Ok(None) => {
                     if let Some(target_time) = target_time {
                         // Update the simulation time.

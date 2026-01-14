@@ -1,8 +1,8 @@
 use std::error::Error;
-use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{fmt, mem};
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -289,11 +289,8 @@ impl SimInit {
     /// executing the [`Model::init`](crate::model::Model::init) method on all
     /// model initializers.
     ///
-    /// The simulation object and endpoints registry are returned upon success.
-    pub fn init_with_registry(
-        mut self,
-        start_time: MonotonicTime,
-    ) -> Result<(Simulation, Endpoints), SimulationError> {
+    /// The simulation object is returned upon success.
+    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
@@ -304,22 +301,13 @@ impl SimInit {
         }
 
         let callback = self.post_init_callback.take();
-        let (mut simulation, endpoint_registry) = self.build();
+        let mut simulation = self.build();
         if let Some(callback) = callback {
             callback(&mut simulation)?;
         }
         simulation.run()?;
 
-        Ok((simulation, endpoint_registry))
-    }
-
-    /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`](crate::model::Model::init) method on all
-    /// model initializers.
-    ///
-    /// The simulation object is returned upon success.
-    pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
-        Ok(self.init_with_registry(start_time)?.0)
+        Ok(simulation)
     }
 
     /// Restores a simulation from a previously persisted state, executing the
@@ -327,14 +315,12 @@ impl SimInit {
     /// registered models.
     ///
     /// The simulation object is returned upon success.
-    pub fn restore<R: std::io::Read>(
-        mut self,
-        state: R,
-    ) -> Result<(Simulation, Endpoints), SimulationError> {
+    pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();
-        let (mut simulation, endpoint_registry) = self.build();
+
+        let mut simulation = self.build();
 
         simulation.restore(state)?;
 
@@ -344,7 +330,7 @@ impl SimInit {
         // TODO should run?
         simulation.run()?;
 
-        Ok((simulation, endpoint_registry))
+        Ok(simulation)
     }
 
     /// Adds an event source to the endpoint registry under the provided path.
@@ -424,9 +410,21 @@ impl SimInit {
             .map_err(|(path, source)| DuplicateQuerySourceError { path, source })
     }
 
+    /// Take ownership of the current endpoint directory.
+    ///
+    /// This leaves the `SimInit` instance with an empty endpoint directory.
+    pub fn take_endpoints(&mut self) -> Endpoints {
+        Endpoints::new(
+            mem::take(&mut self.event_sink_registry),
+            mem::take(&mut self.event_sink_info_registry),
+            mem::take(&mut self.event_source_registry),
+            mem::take(&mut self.query_source_registry),
+        )
+    }
+
     /// Builds a [`Simulation`] from this [`SimInit`] instance.
-    fn build(self) -> (Simulation, Endpoints) {
-        let simulation = Simulation::new(
+    fn build(self) -> Simulation {
+        Simulation::new(
             self.executor,
             self.scheduler_queue,
             self.scheduler_registry,
@@ -437,15 +435,7 @@ impl SimInit {
             self.observers,
             self.registered_models,
             self.is_halted,
-        );
-        let endpoint_registry = Endpoints::new(
-            self.event_sink_registry,
-            self.event_sink_info_registry,
-            self.event_source_registry,
-            self.query_source_registry,
-        );
-
-        (simulation, endpoint_registry)
+        )
     }
 }
 
