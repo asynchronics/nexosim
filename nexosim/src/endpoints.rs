@@ -175,23 +175,23 @@ pub enum EndpointError {
     InvalidEventSourceType {
         /// Path to the event source.
         path: Path,
-        /// Path to the event type.
+        /// The event type.
         event_type: &'static str,
     },
     /// The type of the requested query source is invalid.
     InvalidQuerySourceType {
         /// Path to the query source.
         path: Path,
-        /// Path to the request type.
+        /// The request type.
         request_type: &'static str,
-        /// Path to the reply type.
+        /// The reply type.
         reply_type: &'static str,
     },
     /// The type of the requested event sink is invalid.
     InvalidEventSinkType {
         /// Path to the event sink.
         path: Path,
-        /// Path to the event type.
+        /// The event type.
         event_type: &'static str,
     },
 }

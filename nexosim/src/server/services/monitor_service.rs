@@ -233,7 +233,7 @@ pub(crate) async fn monitor_service_read_event(
         MonitorService::Started {
             event_sink_registry,
         } => {
-            event_sink_registry.return_entry(sink_path, sink).unwrap(); // always succeed: the sink name is registered
+            event_sink_registry.replace_entry(sink_path, sink).unwrap(); // always succeed: the sink name is registered
         }
         MonitorService::Halted => return Err(simulation_halted_error()),
     };

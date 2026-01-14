@@ -1,9 +1,9 @@
-#[cfg(feature = "server")]
 use std::any;
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
+use std::marker::PhantomData;
 #[cfg(feature = "server")]
 use std::time::Duration;
 
@@ -98,15 +98,24 @@ impl EventSourceRegistry {
             .ok_or_else(|| EndpointError::EventSourceNotFound { path: path.clone() })
     }
 
-    /// Returns the [`EventId`] of the requested event source if it is in the
-    /// registry.
+    /// Returns the event identifier of the requested event source if it is in
+    /// the registry and is of the proper type.
     pub(crate) fn get_source_id<T>(&self, path: &Path) -> Result<EventId<T>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        let event_id = self.get(path)?.get_event_id();
+        let event_id = self.get(path).and_then(|entry| {
+            if entry.event_type_id() == TypeId::of::<T>() {
+                Ok(entry.get_event_id())
+            } else {
+                Err(EndpointError::InvalidEventSourceType {
+                    path: path.clone(),
+                    event_type: entry.event_type_name(),
+                })
+            }
+        })?;
 
-        Ok(EventId(event_id.0, std::marker::PhantomData))
+        Ok(EventId(event_id.0, PhantomData))
     }
 
     /// Returns an iterator over the paths of all registered event sources.
@@ -134,31 +143,28 @@ impl fmt::Debug for EventSourceRegistry {
     }
 }
 
-/// A type-erased `EventSource` that operates on CBOR-encoded serialized events.
+/// A type-erased event source that operates on CBOR-encoded serialized events.
 pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
-    /// Returns a type erased deserialized event argument.
+    /// Returns a type-erased deserialized event argument.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError>;
 
-    /// Returns an event which, when processed, is broadcast to all
-    /// connected input ports.
+    /// Returns an event.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
     fn event(&self, serialized_arg: &[u8]) -> Result<Event, DeserializationError>;
 
-    /// Returns a cancellable event and a cancellation key; when processed, the
-    /// it is broadcast to all connected input ports.
+    /// Returns a cancellable event and a cancellation key.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
     fn keyed_event(&self, serialized_arg: &[u8])
     -> Result<(Event, EventKey), DeserializationError>;
 
-    /// Returns a periodically recurring event which, when processed,
-    /// broadcast to all connected input ports.
+    /// Returns a periodically recurring event.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
@@ -169,8 +175,7 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
     ) -> Result<Event, DeserializationError>;
 
     /// Returns a cancellable, periodically recurring event and a cancellation
-    /// key; when processed, it is broadcast to all connected
-    /// input ports.
+    /// key.
     ///
     /// The argument is expected to conform to the serde CBOR encoding.
     #[cfg(feature = "server")]
@@ -180,17 +185,19 @@ pub(crate) trait EventSourceEntryAny: Any + Send + Sync + 'static {
         serialized_arg: &[u8],
     ) -> Result<(Event, EventKey), DeserializationError>;
 
-    /// Human-readable name of the event type, as returned by
-    /// `any::type_name`.
-    #[cfg(feature = "server")]
+    /// The `TypeId` of the event.
+    fn event_type_id(&self) -> TypeId;
+
+    /// Human-readable name of the event type, as returned by `any::type_name`.
     fn event_type_name(&self) -> &'static str;
 
     /// Returns the schema of the event type.
+    ///
     /// If the source was added via `add_raw` method, it returns an empty
     /// schema string.
     fn event_schema(&self) -> MessageSchema;
 
-    /// Returns ErasedEventId reference.
+    /// Returns an erased event identifier.
     fn get_event_id(&self) -> EventIdErased;
 }
 
@@ -251,7 +258,9 @@ where
             )
         })
     }
-    #[cfg(feature = "server")]
+    fn event_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
     fn event_type_name(&self) -> &'static str {
         any::type_name::<T>()
     }
