@@ -175,24 +175,32 @@ pub enum EndpointError {
     InvalidEventSourceType {
         /// Path to the event source.
         path: Path,
-        /// The event type.
-        event_type: &'static str,
+        /// The user-requested event type.
+        found_event_type: &'static str,
+        /// The actual event type.
+        expected_event_type: &'static str,
     },
     /// The type of the requested query source is invalid.
     InvalidQuerySourceType {
         /// Path to the query source.
         path: Path,
-        /// The request type.
-        request_type: &'static str,
-        /// The reply type.
-        reply_type: &'static str,
+        /// The user-requested request type.
+        found_request_type: &'static str,
+        /// The user-requested reply type.
+        found_reply_type: &'static str,
+        /// The actual request type.
+        expected_request_type: &'static str,
+        /// The actual reply type.
+        expected_reply_type: &'static str,
     },
     /// The type of the requested event sink is invalid.
     InvalidEventSinkType {
         /// Path to the event sink.
         path: Path,
-        /// The event type.
-        event_type: &'static str,
+        /// The user-requested event type.
+        found_event_type: &'static str,
+        /// The actual event type.
+        expected_event_type: &'static str,
     },
 }
 
@@ -217,26 +225,36 @@ impl std::fmt::Display for EndpointError {
                     "event sink '{path}' was not found in the endpoint directory"
                 )
             }
-            Self::InvalidEventSourceType { path, event_type } => {
+            Self::InvalidEventSourceType {
+                path,
+                found_event_type,
+                expected_event_type,
+            } => {
                 write!(
                     f,
-                    "event type '{event_type}' is not valid for event source '{path}'"
+                    "event type '{found_event_type}' was specified for event source '{path}' but the expected type is {expected_event_type}"
                 )
             }
             Self::InvalidQuerySourceType {
                 path,
-                request_type,
-                reply_type,
+                found_request_type,
+                found_reply_type,
+                expected_request_type,
+                expected_reply_type,
             } => {
                 write!(
                     f,
-                    "the request-reply type pair ('{request_type}', '{reply_type}') is not valid for query source '{path}'"
+                    "the request-reply type pair ('{found_request_type}', '{found_reply_type}') was specified for query source '{path}' but the expected types are ('{expected_request_type}', '{expected_reply_type}')"
                 )
             }
-            Self::InvalidEventSinkType { path, event_type } => {
+            Self::InvalidEventSinkType {
+                path,
+                found_event_type,
+                expected_event_type,
+            } => {
                 write!(
                     f,
-                    "event type '{event_type}' is not valid for event sink '{path}'"
+                    "event type '{found_event_type}' was specified for event sink '{path}' but the expected type is {expected_event_type}"
                 )
             }
         }

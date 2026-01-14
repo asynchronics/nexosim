@@ -118,8 +118,10 @@ impl QuerySourceRegistry {
             } else {
                 Err(EndpointError::InvalidQuerySourceType {
                     path: path.clone(),
-                    request_type: entry.request_type_name(),
-                    reply_type: entry.reply_type_name(),
+                    found_request_type: any::type_name::<T>(),
+                    found_reply_type: any::type_name::<R>(),
+                    expected_request_type: entry.request_type_name(),
+                    expected_reply_type: entry.reply_type_name(),
                 })
             }
         })?;

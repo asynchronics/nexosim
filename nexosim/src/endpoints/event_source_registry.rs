@@ -110,7 +110,8 @@ impl EventSourceRegistry {
             } else {
                 Err(EndpointError::InvalidEventSourceType {
                     path: path.clone(),
-                    event_type: entry.event_type_name(),
+                    found_event_type: any::type_name::<T>(),
+                    expected_event_type: entry.event_type_name(),
                 })
             }
         })?;

@@ -77,7 +77,8 @@ impl EventSinkRegistry {
 
                     return Err(EndpointError::InvalidEventSinkType {
                         path: entry.key().clone(),
-                        event_type: any::type_name::<T>(),
+                        found_event_type: any::type_name::<T>(),
+                        expected_event_type: inner.event_type_name(),
                     });
                 }
 
@@ -188,6 +189,9 @@ pub(crate) trait EventSinkReaderEntryAny {
     /// The `TypeId` of the event.
     fn event_type_id(&self) -> TypeId;
 
+    /// Human-readable name of the event type, as returned by `any::type_name`.
+    fn event_type_name(&self) -> &'static str;
+
     /// Consumes this item and returns a `Box<Box<dyn EventSinkReader<T>>>`
     /// (yes, the double-box is needed) cast to a `Box<dyn Any>`.
     fn into_event_sink_reader(self: Box<Self>) -> Box<dyn Any>;
@@ -225,7 +229,6 @@ where
     fn event_type_id(&self) -> TypeId {
         TypeId::of::<T>()
     }
-    #[cfg(feature = "server")]
     fn event_type_name(&self) -> &'static str {
         any::type_name::<T>()
     }
