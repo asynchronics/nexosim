@@ -84,7 +84,7 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
         .bind_endpoint(&mut bench, "fill")?;
     QuerySource::new()
         .connect(Tank::volume, &tank_mbox)
-        .add_endpoint(&mut bench, "volume")?;
+        .bind_endpoint(&mut bench, "volume")?;
 
     let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "pump_cmd")?;
     controller.pump_cmd.connect_sink(sink);

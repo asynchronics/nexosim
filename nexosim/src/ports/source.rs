@@ -10,6 +10,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::model::{Message, Model};
+use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
     Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, QueryId, SimInit,
@@ -117,34 +118,15 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     ///
     /// This is typically only of interest when controlling the simulation from
     /// Rust. For simulations controlled by a remote client, use
-    /// [`EventSource::bind_endpoint`] or [`EventSource::bind_raw_endpoint`].
+    /// [`EventSource::bind_endpoint`] or [`EventSource::bind_endpoint_raw`].
     pub fn register(self, sim_init: &mut SimInit) -> EventId<T> {
         sim_init.link_event_source(self)
     }
 
-    /// Adds an event source to the endpoint registry without requiring a
-    /// [`Message`] implementation for its item type.
+    /// Returns a future for a broadcast of the event provided in argument.
     ///
-    /// If the specified name is already used by another input or another event
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](crate::simulation::InitError).
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
-    /// In other cases, use [`EventSource::register`].
-    pub fn bind_raw_endpoint(
-        self,
-        sim_init: &mut SimInit,
-        name: impl Into<String>,
-    ) -> Result<(), DuplicateEventSourceError<T>> {
-        sim_init.add_event_source_raw(self, name)
-    }
-
-    /// Returns a ready to execute event future for the argument provided.
     /// This method can be e.g. used to spawn scheduled events from the queue.
-    ///
-    /// When processed, it broadcasts the event to all connected input
-    /// ports.
+    /// When processed, it broadcasts the event to all connected input ports.
     pub(crate) fn event_future(&self, arg: T) -> impl Future<Output = ()> + use<T> {
         let fut = self.broadcaster.broadcast(arg);
 
@@ -155,11 +137,11 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
 }
 
 impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
-    /// Adds this event source to the endpoint registry.
+    /// Adds this event source to the endpoint registry under the provided path.
     ///
-    /// If the specified name is already used by another input or another event
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](crate::simulation::InitError).
+    /// If the path is already used by another event source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
@@ -167,9 +149,29 @@ impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSo
     pub fn bind_endpoint(
         self,
         sim_init: &mut SimInit,
-        name: impl Into<String>,
+        path: impl Into<Path>,
     ) -> Result<(), DuplicateEventSourceError<T>> {
-        sim_init.add_event_source(self, name)
+        sim_init.bind_event_source(self, path.into())
+    }
+}
+
+impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
+    /// Adds an event source to the endpoint registry under the provided path,
+    /// without requiring a [`Message`] implementation for its item type.
+    ///
+    /// If the path is already used by another event source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`](crate::simulation::InitError).
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
+    /// In other cases, use [`EventSource::register`].
+    pub fn bind_endpoint_raw(
+        self,
+        sim_init: &mut SimInit,
+        path: impl Into<Path>,
+    ) -> Result<(), DuplicateEventSourceError<T>> {
+        sim_init.bind_event_source_raw(self, path.into())
     }
 }
 
@@ -305,7 +307,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
     ///
     /// This is typically only of interest when controlling the simulation from
     /// Rust. For simulations controlled by a remote client, use
-    /// [`QuerySource::add_endpoint`] or [`QuerySource::add_endpoint_raw`].
+    /// [`QuerySource::bind_endpoint`] or [`QuerySource::bind_endpoint_raw`].
     pub fn register(self, sim_init: &mut SimInit) -> QueryId<T, R> {
         sim_init.link_query_source(self)
     }
@@ -327,48 +329,48 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
     }
 }
 
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Send + 'static>
-    QuerySource<T, R>
-{
-    /// Adds a query source to the endpoint registry without requiring a
-    /// [`Message`] implementation for its item type.
-    ///
-    /// If the specified name is already used by another query
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](crate::simulation::InitError).
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// a remote client. For simulations controlled from Rust, use
-    /// [`QuerySource::register`].
-    pub fn add_endpoint_raw(
-        self,
-        name: impl Into<String>,
-        sim_init: &mut SimInit,
-    ) -> Result<(), DuplicateQuerySourceError<Self>> {
-        sim_init.add_query_source_raw(self, name)
-    }
-}
-
 impl<
     T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Message + Serialize + Send + 'static,
 > QuerySource<T, R>
 {
-    /// Adds a query source to the endpoint registry.
+    /// Adds a query source to the endpoint registry under the provided path.
     ///
-    /// If the specified name is already used by another query
-    /// source, the source provided as argument is returned in the error. The
-    /// error is convertible to an [`InitError`](crate::simulation::InitError).
+    /// If the path is already used by another query source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`](crate::simulation::InitError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
     /// [`QuerySource::register`].
-    pub fn add_endpoint(
+    pub fn bind_endpoint(
         self,
         sim_init: &mut SimInit,
-        name: impl Into<String>,
+        path: impl Into<Path>,
     ) -> Result<(), DuplicateQuerySourceError<Self>> {
-        sim_init.add_query_source(self, name)
+        sim_init.bind_query_source(self, path.into())
+    }
+}
+
+impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Send + 'static>
+    QuerySource<T, R>
+{
+    /// Adds a query source to the endpoint registry under the provided path,
+    /// without requiring a [`Message`] implementation for its item type.
+    ///
+    /// If the path is already used by another query source, the source provided
+    /// as argument is returned in the error. The error is convertible to an
+    /// [`InitError`](crate::simulation::InitError).
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// a remote client. For simulations controlled from Rust, use
+    /// [`QuerySource::register`].
+    pub fn bind_endpoint_raw(
+        self,
+        path: impl Into<Path>,
+        sim_init: &mut SimInit,
+    ) -> Result<(), DuplicateQuerySourceError<Self>> {
+        sim_init.bind_query_source_raw(self, path.into())
     }
 }
 

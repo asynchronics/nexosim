@@ -12,6 +12,7 @@ use ciborium;
 
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::path::Path;
 use crate::ports::EventSource;
 use crate::simulation::{EventId, EventIdErased, SchedulerRegistry};
 
@@ -23,59 +24,58 @@ use super::{EndpointError, Message, MessageSchema};
 #[cfg(feature = "server")]
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 
-/// A registry that holds all sources and sinks meant to be accessed through
-/// remote procedure calls.
+/// A registry that holds all event sources meant to be accessed through remote
+/// procedure calls.
 #[derive(Default)]
-pub(crate) struct EventSourceRegistry(HashMap<String, Box<dyn EventSourceEntryAny>>);
+pub(crate) struct EventSourceRegistry(HashMap<Path, Box<dyn EventSourceEntryAny>>);
 
 impl EventSourceRegistry {
     /// Adds an event source to the registry.
     ///
-    /// If the specified name is already used by another event source, the name
-    /// of the source and the event source itself are returned in the error.
+    /// If the specified path is already used by another event source, the path
+    /// to the source and the event source itself are returned in the error.
     pub(crate) fn add<T>(
         &mut self,
         source: EventSource<T>,
-        name: String,
+        path: Path,
         registry: &mut SchedulerRegistry,
-    ) -> Result<(), (String, EventSource<T>)>
+    ) -> Result<(), (Path, EventSource<T>)>
     where
         T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.add_any(source, name, T::schema, registry)
+        self.add_any(source, path, T::schema, registry)
     }
 
     /// Adds an event source without a schema definition to the registry.
     ///
-    /// If the specified name is already used by another event source, the name
-    /// of the source and the event source itself are returned in the error.
+    /// If the specified path is already used by another event source, the path
+    /// to the source and the event source itself are returned in the error.
     pub(crate) fn add_raw<T>(
         &mut self,
         source: EventSource<T>,
-        name: String,
+        path: Path,
         registry: &mut SchedulerRegistry,
-    ) -> Result<(), (String, EventSource<T>)>
+    ) -> Result<(), (Path, EventSource<T>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.add_any(source, name, String::new, registry)
+        self.add_any(source, path, String::new, registry)
     }
 
-    // FIXME error type
     /// Adds an event source to the registry, possibly with an empty schema
     /// definition.
     fn add_any<T, F>(
         &mut self,
         source: EventSource<T>,
-        name: String,
+        path: Path,
         schema_gen: F,
         registry: &mut SchedulerRegistry,
-    ) -> Result<(), (String, EventSource<T>)>
+    ) -> Result<(), (Path, EventSource<T>)>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         F: Fn() -> MessageSchema + Send + Sync + 'static,
     {
-        match self.0.entry(name) {
+        match self.0.entry(path) {
             Entry::Vacant(s) => {
                 let event_id = registry.add_event_source(source);
                 let entry = EventSourceEntry {
@@ -91,34 +91,40 @@ impl EventSourceRegistry {
 
     /// Returns a reference to a type-erased event source if it is in the
     /// registry.
-    pub(crate) fn get(&self, name: &str) -> Result<&dyn EventSourceEntryAny, EndpointError> {
+    pub(crate) fn get(&self, path: &Path) -> Result<&dyn EventSourceEntryAny, EndpointError> {
         self.0
-            .get(name)
+            .get(path)
             .map(|s| s.as_ref())
-            .ok_or_else(|| EndpointError::EventSourceNotFound {
-                name: name.to_string(),
-            })
+            .ok_or_else(|| EndpointError::EventSourceNotFound { path: path.clone() })
     }
 
-    /// Returns a typed SourceId of the requested EventSource.
-    pub(crate) fn get_source_id<T>(&self, name: &str) -> Result<EventId<T>, EndpointError>
+    /// Returns the [`EventId`] of the requested event source if it is in the
+    /// registry.
+    pub(crate) fn get_source_id<T>(&self, path: &Path) -> Result<EventId<T>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        let event_id = self.get(name)?.get_event_id();
+        let event_id = self.get(path)?.get_event_id();
+
         Ok(EventId(event_id.0, std::marker::PhantomData))
     }
 
-    /// Returns an iterator over the names (keys) of the registered event
-    /// sources.
-    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &str> {
-        self.0.keys().map(|s| s.as_str())
+    /// Returns an iterator over the paths of all registered event sources.
+    pub(crate) fn list_sources(&self) -> impl Iterator<Item = &Path> {
+        self.0.keys()
     }
 
     /// Returns the schema of the specified event source if it is in the
     /// registry.
-    pub(crate) fn get_source_schema(&self, name: &str) -> Result<MessageSchema, EndpointError> {
-        Ok(self.get(name)?.event_schema())
+    pub(crate) fn get_source_schema(&self, path: &Path) -> Result<MessageSchema, EndpointError> {
+        Ok(self.get(path)?.event_schema())
+    }
+
+    /// Returns an iterator over the paths and schemas of all registered event
+    /// sources.
+    #[cfg(feature = "server")]
+    pub(crate) fn list_schemas(&self) -> impl Iterator<Item = (&Path, MessageSchema)> {
+        self.0.iter().map(|(path, src)| (path, src.event_schema()))
     }
 }
 

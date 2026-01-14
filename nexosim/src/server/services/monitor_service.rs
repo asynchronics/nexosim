@@ -5,6 +5,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::time as tokio_time;
 
 use crate::endpoints::EventSinkRegistry;
+use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
 use super::{simulation_halted_error, to_error, to_positive_duration};
@@ -30,20 +31,24 @@ impl MonitorService {
             Self::Started {
                 event_sink_registry,
             } => {
-                let sink_name = &request.sink_name;
+                let sink_path: &NexosimPath = &request
+                    .sink
+                    .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event sink path"))?
+                    .segments
+                    .into();
 
-                let sink = match event_sink_registry.get_entry_mut(sink_name) {
+                let sink = match event_sink_registry.get_entry_mut(sink_path) {
                     Ok(sink) => sink,
                     Err(_) => {
-                        return Err(if event_sink_registry.has_sink(sink_name) {
+                        return Err(if event_sink_registry.has_sink(sink_path) {
                             to_error(
                                 ErrorCode::SinkReadRace,
                                 format!(
-                                    "attempting concurrent read operation on sink '{sink_name}'"
+                                    "attempting concurrent read operation on sink '{sink_path}'"
                                 ),
                             )
                         } else {
-                            sink_not_found_error(sink_name)
+                            sink_not_found_error(sink_path)
                         });
                     }
                 };
@@ -56,7 +61,7 @@ impl MonitorService {
                             return Err(to_error(
                                 ErrorCode::InvalidMessage,
                                 format!(
-                                    "the event from sink '{sink_name}' could not be serialized from type '{}': {e}",
+                                    "the event from sink '{sink_path}' could not be serialized from type '{}': {e}",
                                     sink.event_type_name(),
                                 ),
                             ));
@@ -76,22 +81,26 @@ impl MonitorService {
             Self::Started {
                 event_sink_registry,
             } => {
-                let sink_name = &request.sink_name;
+                let sink_path: &NexosimPath = &request
+                    .sink
+                    .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event sink path"))?
+                    .segments
+                    .into();
 
-                if let Ok(sink) = event_sink_registry.get_entry_mut(sink_name) {
+                if let Ok(sink) = event_sink_registry.get_entry_mut(sink_path) {
                     sink.enable();
 
                     Ok(())
                 } else {
-                    Err(if event_sink_registry.has_sink(sink_name) {
+                    Err(if event_sink_registry.has_sink(sink_path) {
                         to_error(
                             ErrorCode::SinkReadRace,
                             format!(
-                                "attempting to enable sink '{sink_name}' while a read operation is ongoing"
+                                "attempting to enable sink '{sink_path}' while a read operation is ongoing"
                             ),
                         )
                     } else {
-                        sink_not_found_error(sink_name)
+                        sink_not_found_error(sink_path)
                     })
                 }
             }
@@ -105,22 +114,26 @@ impl MonitorService {
             Self::Started {
                 event_sink_registry,
             } => {
-                let sink_name = &request.sink_name;
+                let sink_path: &NexosimPath = &request
+                    .sink
+                    .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event sink path"))?
+                    .segments
+                    .into();
 
-                if let Ok(sink) = event_sink_registry.get_entry_mut(sink_name) {
+                if let Ok(sink) = event_sink_registry.get_entry_mut(sink_path) {
                     sink.disable();
 
                     Ok(())
                 } else {
-                    Err(if event_sink_registry.has_sink(sink_name) {
+                    Err(if event_sink_registry.has_sink(sink_path) {
                         to_error(
                             ErrorCode::SinkReadRace,
                             format!(
-                                "attempting to disable sink '{sink_name}' while a read operation is ongoing"
+                                "attempting to disable sink '{sink_path}' while a read operation is ongoing"
                             ),
                         )
                     } else {
-                        sink_not_found_error(sink_name)
+                        sink_not_found_error(sink_path)
                     })
                 }
             }
@@ -145,7 +158,11 @@ pub(crate) async fn monitor_service_read_event(
     service: &TokioMutex<MonitorService>,
     request: ReadEventRequest,
 ) -> Result<Vec<u8>, Error> {
-    let sink_name = &request.sink_name;
+    let sink_path: &NexosimPath = &request
+        .sink
+        .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event sink path"))?
+        .segments
+        .into();
 
     // Very important: the lock is released immediately after renting the
     // sink so we do not block concurrent `MonitorService` requests.
@@ -154,16 +171,16 @@ pub(crate) async fn monitor_service_read_event(
             event_sink_registry,
         } => {
             // Rent the sink.
-            match event_sink_registry.rent_entry(sink_name) {
+            match event_sink_registry.rent_entry(sink_path) {
                 Ok(sink) => sink,
                 Err(_) => {
-                    return Err(if event_sink_registry.has_sink(sink_name) {
+                    return Err(if event_sink_registry.has_sink(sink_path) {
                         to_error(
                             ErrorCode::SinkReadRace,
-                            format!("attempting concurrent read operation on sink '{sink_name}'"),
+                            format!("attempting concurrent read operation on sink '{sink_path}'"),
                         )
                     } else {
-                        sink_not_found_error(sink_name)
+                        sink_not_found_error(sink_path)
                     });
                 }
             }
@@ -186,7 +203,7 @@ pub(crate) async fn monitor_service_read_event(
                 .map_err(|_| {
                     to_error(
                         ErrorCode::SinkReadTimeout,
-                        format!("the read operation on sink '{sink_name}' timed out",),
+                        format!("the read operation on sink '{sink_path}' timed out",),
                     )
                 })?
         }
@@ -197,7 +214,7 @@ pub(crate) async fn monitor_service_read_event(
         .ok_or_else(|| {
             to_error(
                 ErrorCode::SinkTerminated,
-                format!("sink '{sink_name}' has not sender"),
+                format!("sink '{sink_path}' has not sender"),
             )
         })
         .and_then(|s| {
@@ -205,7 +222,7 @@ pub(crate) async fn monitor_service_read_event(
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event from sink '{sink_name}' could not be serialized from type '{}': {e}",
+                    "the event from sink '{sink_path}' could not be serialized from type '{}': {e}",
                     sink.event_type_name(),
                 ),
             ))
@@ -216,7 +233,7 @@ pub(crate) async fn monitor_service_read_event(
         MonitorService::Started {
             event_sink_registry,
         } => {
-            event_sink_registry.return_entry(sink_name, sink).unwrap(); // always succeed: the sink name is registered
+            event_sink_registry.return_entry(sink_path, sink).unwrap(); // always succeed: the sink name is registered
         }
         MonitorService::Halted => return Err(simulation_halted_error()),
     };
@@ -226,9 +243,9 @@ pub(crate) async fn monitor_service_read_event(
 
 /// An error returned when a the simulation time is out of the range supported
 /// by gRPC.
-fn sink_not_found_error(sink_name: &str) -> Error {
+fn sink_not_found_error(sink: &NexosimPath) -> Error {
     to_error(
         ErrorCode::SinkNotFound,
-        format!("no sink is registered with the name '{sink_name}'"),
+        format!("no sink is registered with the name '{sink}'"),
     )
 }

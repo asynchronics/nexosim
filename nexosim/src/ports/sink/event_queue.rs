@@ -11,6 +11,7 @@ use pin_project::pin_project;
 use serde::Serialize;
 
 use crate::model::Message;
+use crate::path::Path;
 use crate::simulation::{DuplicateEventSinkError, SimInit};
 
 use super::{EventSinkReader, EventSinkWriter, SinkState};
@@ -33,7 +34,7 @@ pub fn event_queue<T: Send>(state: SinkState) -> (EventQueueWriter<T>, EventQueu
 }
 
 /// Creates an event queue with an unbounded size, adding it as a simulation
-/// endpoint sink.
+/// endpoint sink under the provided path.
 ///
 /// This is a convenience function and is equivalent to calling [`event_queue`]
 /// and immediately registering the reader as an endpoint with
@@ -41,16 +42,16 @@ pub fn event_queue<T: Send>(state: SinkState) -> (EventQueueWriter<T>, EventQueu
 pub fn event_queue_endpoint<T: Message + Serialize + Send + 'static>(
     sim_init: &mut SimInit,
     state: SinkState,
-    name: impl Into<String>,
+    path: impl Into<Path>,
 ) -> Result<EventQueueWriter<T>, DuplicateEventSinkError> {
     let (writer, reader) = event_queue(state);
 
-    sim_init.bind_event_sink(reader, name).map(|()| writer)
+    sim_init.bind_event_sink(reader, path).map(|()| writer)
 }
 
 /// Creates an event queue with an unbounded size, adding it as a simulation
-/// endpoint sink without requiring a [`Message`] implementation for its item
-/// type.
+/// endpoint sink under the provided path without requiring a [`Message`]
+/// implementation for its item type.
 ///
 /// This is a convenience function and is equivalent to calling [`event_queue`]
 /// and immediately registering the reader as an endpoint with
@@ -58,11 +59,11 @@ pub fn event_queue_endpoint<T: Message + Serialize + Send + 'static>(
 pub fn event_queue_endpoint_raw<T: Serialize + Send + 'static>(
     sim_init: &mut SimInit,
     state: SinkState,
-    name: impl Into<String>,
+    path: impl Into<Path>,
 ) -> Result<EventQueueWriter<T>, DuplicateEventSinkError> {
     let (writer, reader) = event_queue(state);
 
-    sim_init.bind_event_sink_raw(reader, name).map(|()| writer)
+    sim_init.bind_event_sink_raw(reader, path).map(|()| writer)
 }
 
 /// The unique consumer handle of an event queue.

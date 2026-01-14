@@ -7,6 +7,10 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
 
+//--------
+// Errors 
+//--------
+
 enum ErrorCode {
   // Generic errors.
   INTERNAL_ERROR = 0;
@@ -20,9 +24,9 @@ enum ErrorCode {
 
   // Bench initialization errors.
   INITIALIZER_PANIC = 30;
-  DUPLICATE_EVENT_NAME = 60;
-  DUPLICATE_QUERY_NAME = 61;
-  DUPLICATE_SINK_NAME = 62;
+  DUPLICATE_EVENT_SOURCE = 60;
+  DUPLICATE_QUERY_SOURCE = 61;
+  DUPLICATE_EVENT_SINK = 62;
   DESERIALIZATION_ERROR = 63;
   
   // Simulation runtime error.
@@ -58,10 +62,39 @@ message Error {
   string message = 2;
 }
 
+
+//------------
+// Leaf types 
+//------------
+
+message Path {
+  repeated string segments = 1;
+}
+
+message EventSourceSchema {
+  Path source = 1;
+  string event = 2;
+}
+
+message QuerySourceSchema {
+  Path source = 1;
+  string request = 2;
+  string reply = 3;
+}
+
+message EventSinkSchema {
+  Path sink = 1;
+  string event = 2;
+}
+
 message EventKey {
   uint64 subkey1 = 1;
   uint64 subkey2 = 2;
 }
+
+//----------------------
+// Requests and replies
+//----------------------
 
 message InitRequest {
   google.protobuf.Timestamp time = 1;
@@ -149,8 +182,8 @@ message StepUnboundedReply {
 message ListEventSourcesRequest {}
 message ListEventSourcesReply {
   // This field is hoisted because protobuf3 does not support `repeated` within
-  // a `oneof`. It is Always empty if an error is returned
-  repeated string source_names = 1;
+  // a `oneof`. It is Always empty if an error is returned.
+  repeated Path sources = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
@@ -158,12 +191,12 @@ message ListEventSourcesReply {
 }
 
 message GetEventSourceSchemasRequest {
-  repeated string source_names = 1;
+  repeated Path sources = 1;
 }
 message GetEventSourceSchemasReply {
-  // This field is hoisted because protobuf3 does not support `map` within
-  // a `oneof`. It is Always empty if an error is returned
-  map<string, string> schemas = 1;
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned.
+  repeated EventSourceSchema schemas = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
@@ -174,25 +207,20 @@ message ListQuerySourcesRequest {}
 message ListQuerySourcesReply {
   // This field is hoisted because protobuf3 does not support `repeated` within
   // a `oneof`. It is Always empty if an error is returned
-  repeated string source_names = 1;
+  repeated Path sources = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
   }
 }
 
-message QuerySchema {
-  string request = 1;
-  string reply = 2;
-}
-
 message GetQuerySourceSchemasRequest {
-  repeated string source_names = 1;
+  repeated Path sources = 1;
 }
 message GetQuerySourceSchemasReply {
-  // This field is hoisted because protobuf3 does not support `map` within
-  // a `oneof`. It is Always empty if an error is returned
-  map<string, QuerySchema> schemas = 1;
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned.
+  repeated QuerySourceSchema schemas = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
@@ -202,8 +230,8 @@ message GetQuerySourceSchemasReply {
 message ListEventSinksRequest {}
 message ListEventSinksReply {
   // This field is hoisted because protobuf3 does not support `repeated` within
-  // a `oneof`. It is Always empty if an error is returned
-  repeated string sink_names = 1;
+  // a `oneof`. It is Always empty if an error is returned.
+  repeated Path sinks = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
@@ -211,12 +239,12 @@ message ListEventSinksReply {
 }
 
 message GetEventSinkSchemasRequest {
-  repeated string sink_names = 1;
+  repeated Path sinks = 1;
 }
 message GetEventSinkSchemasReply {
-  // This field is hoisted because protobuf3 does not support `map` within
-  // a `oneof`. It is Always empty if an error is returned
-  map<string, string> schemas = 1;
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned.
+  repeated EventSinkSchema schemas = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
     Error error = 100;
@@ -228,7 +256,7 @@ message ScheduleEventRequest {
     google.protobuf.Timestamp time = 1;
     google.protobuf.Duration duration = 2;
   }
-  string source_name = 3;
+  Path source = 3;
   bytes event = 4;
   google.protobuf.Duration period = 5;
   bool with_key = 6;
@@ -241,7 +269,9 @@ message ScheduleEventReply {
   }
 }
 
-message CancelEventRequest { EventKey key = 1; }
+message CancelEventRequest {
+  EventKey key = 1;
+}
 message CancelEventReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
@@ -250,7 +280,7 @@ message CancelEventReply {
 }
 
 message ProcessEventRequest {
-  string source_name = 1;
+  Path source = 1;
   bytes event = 2;
 }
 message ProcessEventReply {
@@ -261,7 +291,7 @@ message ProcessEventReply {
 }
 
 message ProcessQueryRequest {
-  string source_name = 1;
+  Path source = 1;
   bytes request = 2;
 }
 message ProcessQueryReply {
@@ -274,7 +304,9 @@ message ProcessQueryReply {
   }
 }
 
-message TryReadEventsRequest { string sink_name = 1; }
+message TryReadEventsRequest {
+  Path sink = 1;
+}
 message TryReadEventsReply {
   // This field is hoisted because protobuf3 does not support `repeated` within
   // a `oneof`. It is Always empty if an error is returned
@@ -286,7 +318,7 @@ message TryReadEventsReply {
 }
 
 message ReadEventRequest {
-  string sink_name = 1;
+  Path sink = 1;
   google.protobuf.Duration timeout = 2;
 }
 message ReadEventReply {
@@ -296,7 +328,9 @@ message ReadEventReply {
   }
 }
 
-message EnableSinkRequest { string sink_name = 1; }
+message EnableSinkRequest {
+  Path sink = 1;
+}
 message EnableSinkReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
@@ -304,7 +338,9 @@ message EnableSinkReply {
   }
 }
 
-message DisableSinkRequest { string sink_name = 1; }
+message DisableSinkRequest {
+  Path sink = 1;
+}
 message DisableSinkReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
@@ -312,34 +348,9 @@ message DisableSinkReply {
   }
 }
 
-// A convenience message type for custom transport implementation.
-message AnyRequest {
-  oneof request { // Expects exactly 1 variant.
-    InitRequest init_request = 1;
-    HaltRequest halt_request = 2;
-    TerminateRequest terminate_request = 3;
-    SaveRequest save_request = 4;
-    RestoreRequest restore_request = 5;
-    TimeRequest time_request = 6;
-    StepRequest step_request = 7;
-    StepUntilRequest step_until_request = 8;
-    StepUnboundedRequest step_unbounded_request = 9;
-    ListEventSourcesRequest list_event_sources = 10;
-    GetEventSourceSchemasRequest get_event_source_schemas = 11;
-    ListQuerySourcesRequest list_query_sources = 12;
-    GetQuerySourceSchemasRequest get_query_source_schemas = 13;
-    ListEventSinksRequest list_event_sinks = 14;
-    GetEventSinkSchemasRequest get_event_sink_schemas = 15;
-    ScheduleEventRequest schedule_event_request = 16;
-    CancelEventRequest cancel_event_request = 17;
-    ProcessEventRequest process_event_request = 18;
-    ProcessQueryRequest process_query_request = 19;
-    TryReadEventsRequest try_read_events_request = 20;
-    ReadEventRequest read_event_request = 21;
-    EnableSinkRequest enable_sink_request = 22;
-    DisableSinkRequest disable_sink_request = 23;
-  }
-}
+//---------
+// Service
+//---------
 
 service Simulation {
   rpc Init(InitRequest) returns (InitReply);

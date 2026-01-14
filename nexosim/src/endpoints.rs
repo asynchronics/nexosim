@@ -1,8 +1,7 @@
 //! Registry for sinks and sources.
 //!
-//! This module provides the `EndpointRegistry` object which associates each
-//! event sink, event source and query source in a simulation bench to a unique
-//! name.
+//! This module provides the [`Endpoints`] object which associates each event
+//! sink, event source and query source in a simulation bench to a unique name.
 
 use std::fmt::Debug;
 
@@ -15,6 +14,7 @@ mod event_source_registry;
 mod query_source_registry;
 
 use crate::model::{Message, MessageSchema};
+use crate::path::Path;
 use crate::ports::EventSinkReader;
 use crate::simulation::{EventId, QueryId};
 
@@ -74,71 +74,80 @@ impl Endpoints {
     /// endpoint directory.
     pub fn take_event_sink<T>(
         &mut self,
-        name: &str,
+        path: impl Into<Path>,
     ) -> Result<Box<dyn EventSinkReader<T>>, EndpointError>
     where
         T: Clone + Send + 'static,
     {
-        self.event_sink_registry.take(name)
+        self.event_sink_registry.take(path.into())
     }
 
-    /// Returns a typed EventId for an
+    /// Returns the [`EventId`] corresponding to an
     /// [`EventSource`](crate::ports::EventSource)`.
     ///
-    /// SourceId can be used to schedule events on the Scheduler instance.
-    pub fn get_event_source_id<T>(&self, name: &str) -> Result<EventId<T>, EndpointError>
+    /// The [`EventId`] can be used to process or schedule events.
+    pub fn get_event_source_id<T>(&self, path: impl Into<Path>) -> Result<EventId<T>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        self.event_source_registry.get_source_id(name)
+        self.event_source_registry.get_source_id(&path.into())
     }
 
-    /// Returns an iterator over the names (keys) of the registered event
-    /// sources.
-    pub fn list_event_sources(&self) -> impl Iterator<Item = &str> {
+    /// Returns an iterator over the paths of all registered event sources.
+    pub fn list_event_sources(&self) -> impl Iterator<Item = &Path> {
         self.event_source_registry.list_sources()
     }
 
-    /// Returns the schema of the specified event source if it is in the
-    /// registry.
-    pub fn get_event_source_schema(&self, name: &str) -> Result<MessageSchema, EndpointError> {
-        self.event_source_registry.get_source_schema(name)
+    /// Returns the event schema of the specified event source if it is in the
+    /// endpoint directory.
+    pub fn get_event_source_schema(
+        &self,
+        path: impl Into<Path>,
+    ) -> Result<MessageSchema, EndpointError> {
+        self.event_source_registry.get_source_schema(&path.into())
     }
 
-    /// Returns an iterator over the names of the registered query sources.
-    pub fn list_query_sources(&self) -> impl Iterator<Item = &str> {
+    /// Returns an iterator over the paths of all registered query sources.
+    pub fn list_query_sources(&self) -> impl Iterator<Item = &Path> {
         self.query_source_registry.list_sources()
     }
 
-    /// Returns the input and output schemas of the specified query source if it
-    /// is in the registry.
+    /// Returns the request and reply schemas of the specified query source if
+    /// it is in the endpoint directory.
     pub fn get_query_source_schema(
         &self,
-        name: &str,
+        path: impl Into<Path>,
     ) -> Result<(MessageSchema, MessageSchema), EndpointError> {
-        self.query_source_registry.get_source_schema(name)
+        self.query_source_registry.get_source_schema(&path.into())
     }
 
-    /// Returns a typed QueryId for an
+    /// Returns the [`QueryId`] corresponding to a
     /// [`QuerySource`](crate::ports::QuerySource)`.
     ///
-    /// SourceId can be used to schedule events on the Scheduler instance.
-    pub fn get_query_source_id<T, R>(&self, name: &str) -> Result<QueryId<T, R>, EndpointError>
+    /// The [`QueryId`] can be used to process or schedule queries.
+    pub fn get_query_source_id<T, R>(
+        &self,
+        path: impl Into<Path>,
+    ) -> Result<QueryId<T, R>, EndpointError>
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
-        self.query_source_registry.get_source_id(name)
+        self.query_source_registry.get_source_id(&path.into())
     }
 
-    /// Returns an iterator over the names of all sinks in the registry.
-    pub fn list_event_sinks(&self) -> impl Iterator<Item = &str> {
-        self.event_sink_info_registry.list_all()
+    /// Returns an iterator over the paths of all registered event sinks.
+    pub fn list_event_sinks(&self) -> impl Iterator<Item = &Path> {
+        self.event_sink_info_registry.list_sinks()
     }
 
-    /// Returns the schema of the specified sink if it is in the registry.
-    pub fn get_event_sink_schema(&self, name: &str) -> Result<MessageSchema, EndpointError> {
-        self.event_sink_info_registry.event_schema(name)
+    /// Returns the event schema of the specified event sink if it is in the
+    /// endpoint directory.
+    pub fn get_event_sink_schema(
+        &self,
+        path: impl Into<Path>,
+    ) -> Result<MessageSchema, EndpointError> {
+        self.event_sink_info_registry.get_sink_schema(&path.into())
     }
 }
 
@@ -149,40 +158,40 @@ impl Endpoints {
 pub enum EndpointError {
     /// The requested event source has not been found.
     EventSourceNotFound {
-        /// Name of the event source.
-        name: String,
+        /// Path to the event source.
+        path: Path,
     },
     /// The requested query source has not been found.
     QuerySourceNotFound {
-        /// Name of the query source.
-        name: String,
+        /// Path to the query source.
+        path: Path,
     },
     /// The requested event sink has not been found.
     EventSinkNotFound {
-        /// Name of the event sink.
-        name: String,
+        /// Path to the event sink.
+        path: Path,
     },
     /// The type of the requested event source is invalid.
     InvalidEventSourceType {
-        /// Name of the event source.
-        name: String,
-        /// Name of the event type.
+        /// Path to the event source.
+        path: Path,
+        /// Path to the event type.
         event_type: &'static str,
     },
     /// The type of the requested query source is invalid.
     InvalidQuerySourceType {
-        /// Name of the query source.
-        name: String,
-        /// Name of the request type.
+        /// Path to the query source.
+        path: Path,
+        /// Path to the request type.
         request_type: &'static str,
-        /// Name of the reply type.
+        /// Path to the reply type.
         reply_type: &'static str,
     },
     /// The type of the requested event sink is invalid.
     InvalidEventSinkType {
-        /// Name of the event sink.
-        name: String,
-        /// Name of the event type.
+        /// Path to the event sink.
+        path: Path,
+        /// Path to the event type.
         event_type: &'static str,
     },
 }
@@ -190,44 +199,44 @@ pub enum EndpointError {
 impl std::fmt::Display for EndpointError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::EventSourceNotFound { name } => {
+            Self::EventSourceNotFound { path } => {
                 write!(
                     f,
-                    "event source '{name}' was not found in the endpoint registry"
+                    "event source '{path}' was not found in the endpoint directory"
                 )
             }
-            Self::QuerySourceNotFound { name } => {
+            Self::QuerySourceNotFound { path } => {
                 write!(
                     f,
-                    "query source '{name}' was not found in the endpoint registry"
+                    "query source '{path}' was not found in the endpoint directory"
                 )
             }
-            Self::EventSinkNotFound { name } => {
+            Self::EventSinkNotFound { path } => {
                 write!(
                     f,
-                    "event sink '{name}' was not found in the endpoint registry"
+                    "event sink '{path}' was not found in the endpoint directory"
                 )
             }
-            Self::InvalidEventSourceType { name, event_type } => {
+            Self::InvalidEventSourceType { path, event_type } => {
                 write!(
                     f,
-                    "event type '{event_type}' is not valid for event source '{name}'"
+                    "event type '{event_type}' is not valid for event source '{path}'"
                 )
             }
             Self::InvalidQuerySourceType {
-                name,
+                path,
                 request_type,
                 reply_type,
             } => {
                 write!(
                     f,
-                    "the request-reply type pair ('{request_type}', '{reply_type}') is not valid for query source '{name}'"
+                    "the request-reply type pair ('{request_type}', '{reply_type}') is not valid for query source '{path}'"
                 )
             }
-            Self::InvalidEventSinkType { name, event_type } => {
+            Self::InvalidEventSinkType { path, event_type } => {
                 write!(
                     f,
-                    "event type '{event_type}' is not valid for event sink '{name}'"
+                    "event type '{event_type}' is not valid for event sink '{path}'"
                 )
             }
         }

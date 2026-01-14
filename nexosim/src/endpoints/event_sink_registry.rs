@@ -15,6 +15,7 @@ use ciborium;
 use futures_core::Stream;
 use serde::Serialize;
 
+use crate::path::Path;
 use crate::ports::EventSinkReader;
 
 use super::EndpointError;
@@ -25,19 +26,19 @@ type SerializationError = ciborium::ser::Error<std::io::Error>;
 /// A registry that holds all sinks meant to be accessed through remote
 /// procedure calls.
 #[derive(Default)]
-pub(crate) struct EventSinkRegistry(HashMap<String, Option<Box<dyn EventSinkReaderEntryAny>>>);
+pub(crate) struct EventSinkRegistry(HashMap<Path, Option<Box<dyn EventSinkReaderEntryAny>>>);
 
 impl EventSinkRegistry {
     /// Adds a sink to the registry.
     ///
-    /// If the specified name is already used by another sink, the name of the
+    /// If the specified path is already used by another sink, the path to the
     /// sink and the event sink are returned in the error.
-    pub(crate) fn add<S, T>(&mut self, sink: S, name: String) -> Result<(), (String, S)>
+    pub(crate) fn add<S, T>(&mut self, sink: S, path: Path) -> Result<(), (Path, S)>
     where
         S: EventSinkReader<T> + Send + Sync + 'static,
         T: Serialize + 'static,
     {
-        match self.0.entry(name) {
+        match self.0.entry(path) {
             Entry::Vacant(s) => {
                 s.insert(Some(Box::new(EventSinkReaderEntry {
                     sink,
@@ -53,96 +54,97 @@ impl EventSinkRegistry {
     /// Removes and returns an event sink reader.
     pub(crate) fn take<T>(
         &mut self,
-        name: &str,
+        path: Path,
     ) -> Result<Box<dyn EventSinkReader<T>>, EndpointError>
     where
         T: Clone + Send + 'static,
     {
-        if let Entry::Occupied(entry) = self.0.entry(name.to_string())
-            && let Some(inner) = entry.get()
-        {
-            if inner.event_type_id() == TypeId::of::<T>() {
-                // We now know that the downcast will succeed and can safely unwrap.
-                let sink = entry
-                    .remove_entry()
-                    .1
-                    .unwrap()
-                    .into_event_sink_reader()
-                    .downcast::<Box<dyn EventSinkReader<T>>>()
-                    .unwrap();
+        match self.0.entry(path) {
+            Entry::Occupied(entry) => {
+                if let Some(inner) = entry.get() {
+                    if inner.event_type_id() == TypeId::of::<T>() {
+                        // We now know that the downcast will succeed and can safely unwrap.
+                        let sink = entry
+                            .remove_entry()
+                            .1
+                            .unwrap()
+                            .into_event_sink_reader()
+                            .downcast::<Box<dyn EventSinkReader<T>>>()
+                            .unwrap();
 
-                return Ok(*sink);
+                        return Ok(*sink);
+                    }
+
+                    return Err(EndpointError::InvalidEventSinkType {
+                        path: entry.key().clone(),
+                        event_type: any::type_name::<T>(),
+                    });
+                }
+
+                Err(EndpointError::EventSinkNotFound {
+                    path: entry.key().clone(),
+                })
             }
-
-            return Err(EndpointError::InvalidEventSinkType {
-                name: name.to_string(),
-                event_type: any::type_name::<T>(),
-            });
+            Entry::Vacant(entry) => Err(EndpointError::EventSinkNotFound {
+                path: entry.key().clone(),
+            }),
         }
-
-        Err(EndpointError::EventSinkNotFound {
-            name: name.to_string(),
-        })
     }
 
-    /// Returns `true` if a sink under this name is registered, whether or not
+    /// Returns `true` if a sink is registered under this path, whether or not
     /// it is currently rented.
     #[cfg(feature = "server")]
-    pub(crate) fn has_sink(&mut self, name: &str) -> bool {
-        self.0.contains_key(name)
+    pub(crate) fn has_sink(&mut self, path: &Path) -> bool {
+        self.0.contains_key(path)
     }
 
     /// Returns a mutable handle to an entry.
     #[cfg(feature = "server")]
     pub(crate) fn get_entry_mut(
         &mut self,
-        name: &str,
+        path: &Path,
     ) -> Result<&mut Box<dyn EventSinkReaderEntryAny>, EndpointError> {
         self.0
-            .get_mut(name)
+            .get_mut(path)
             .and_then(|s| s.as_mut())
-            .ok_or_else(|| EndpointError::EventSinkNotFound {
-                name: name.to_string(),
-            })
+            .ok_or_else(|| EndpointError::EventSinkNotFound { path: path.clone() })
     }
 
-    /// Extracts an entry, leaving its name in the registry.
+    /// Extracts an entry, leaving its key in the registry.
     ///
-    /// The entry is expected to be reinserted later with `insert_entry`.
+    /// The entry is expected to be reinserted later with
+    /// [`EventSinkRegistry::return_entry`].
     #[cfg(feature = "server")]
     pub(crate) fn rent_entry(
         &mut self,
-        name: &str,
+        path: &Path,
     ) -> Result<Box<dyn EventSinkReaderEntryAny>, EndpointError> {
-        self.0.get_mut(name).and_then(|s| s.take()).ok_or_else(|| {
-            EndpointError::EventSinkNotFound {
-                name: name.to_string(),
-            }
-        })
+        self.0
+            .get_mut(path)
+            .and_then(|s| s.take())
+            .ok_or_else(|| EndpointError::EventSinkNotFound { path: path.clone() })
     }
 
-    /// Re-inserts an entry under an already registered name, typically after
-    /// the entry was rented with `rent_entry`.
+    /// Re-inserts an entry under an already registered path, typically after
+    /// the entry was rented with [`EventSinkRegistry::rent_entry`].
     ///
-    /// If the name exists in the registry, the entry is always inserted,
-    /// whether or not the entry slot is already populated.
+    /// If the key for the entry exists in the registry, the entry is always
+    /// inserted, whether or not the entry slot is already populated.
     ///
     /// An [`EndpointError::EventSinkNotFound`] is returned if no sink was
-    /// registered under this name.
+    /// registered under this path.
     #[cfg(feature = "server")]
     pub(crate) fn return_entry(
         &mut self,
-        name: &str,
+        path: &Path,
         entry: Box<dyn EventSinkReaderEntryAny>,
     ) -> Result<(), EndpointError> {
         self.0
-            .get_mut(name)
+            .get_mut(path)
             .map(|s| {
                 *s = Some(entry);
             })
-            .ok_or_else(|| EndpointError::EventSinkNotFound {
-                name: name.to_string(),
-            })
+            .ok_or_else(|| EndpointError::EventSinkNotFound { path: path.clone() })
     }
 }
 
