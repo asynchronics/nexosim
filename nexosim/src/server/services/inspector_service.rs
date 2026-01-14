@@ -265,13 +265,13 @@ mod tests {
     use crate::simulation::SchedulerRegistry;
 
     #[derive(Default)]
-    struct TestParams<'a> {
-        event_sources: Vec<&'a str>,
-        raw_event_sources: Vec<&'a str>,
-        query_sources: Vec<&'a str>,
-        raw_query_sources: Vec<&'a str>,
-        event_sinks: Vec<&'a str>,
-        raw_event_sinks: Vec<&'a str>,
+    struct TestParams {
+        event_sources: Vec<NexosimPath>,
+        raw_event_sources: Vec<NexosimPath>,
+        query_sources: Vec<NexosimPath>,
+        raw_query_sources: Vec<NexosimPath>,
+        event_sinks: Vec<NexosimPath>,
+        raw_event_sinks: Vec<NexosimPath>,
     }
 
     fn get_service(params: TestParams) -> InspectorService {
@@ -279,53 +279,33 @@ mod tests {
         let mut event_source_registry = EventSourceRegistry::default();
         for source in params.event_sources {
             event_source_registry
-                .add::<()>(
-                    EventSource::new(),
-                    NexosimPath::from(source),
-                    &mut scheduler_registry,
-                )
+                .add::<()>(EventSource::new(), source, &mut scheduler_registry)
                 .unwrap();
         }
         for source in params.raw_event_sources {
             event_source_registry
-                .add_raw::<()>(
-                    EventSource::new(),
-                    NexosimPath::from(source),
-                    &mut scheduler_registry,
-                )
+                .add_raw::<()>(EventSource::new(), source, &mut scheduler_registry)
                 .unwrap();
         }
 
         let mut query_source_registry = QuerySourceRegistry::default();
         for source in params.query_sources {
             query_source_registry
-                .add::<(), ()>(
-                    QuerySource::new(),
-                    NexosimPath::from(source),
-                    &mut scheduler_registry,
-                )
+                .add::<(), ()>(QuerySource::new(), source, &mut scheduler_registry)
                 .unwrap();
         }
         for source in params.raw_query_sources {
             query_source_registry
-                .add_raw::<(), ()>(
-                    QuerySource::new(),
-                    NexosimPath::from(source),
-                    &mut scheduler_registry,
-                )
+                .add_raw::<(), ()>(QuerySource::new(), source, &mut scheduler_registry)
                 .unwrap();
         }
 
         let mut event_sink_info_registry = EventSinkInfoRegistry::default();
         for sink in params.event_sinks {
-            event_sink_info_registry
-                .register::<()>(NexosimPath::from(sink))
-                .unwrap();
+            event_sink_info_registry.register::<()>(sink).unwrap();
         }
         for sink in params.raw_event_sinks {
-            event_sink_info_registry
-                .register_raw(NexosimPath::from(sink))
-                .unwrap();
+            event_sink_info_registry.register_raw(sink).unwrap();
         }
 
         InspectorService::Started {
@@ -339,9 +319,9 @@ mod tests {
     #[test]
     fn get_single_schemas() {
         let service = get_service(TestParams {
-            event_sources: vec!["event", "other"],
-            query_sources: vec!["query", "other"],
-            event_sinks: vec!["sink", "other"],
+            event_sources: vec!["event".into(), "other".into()],
+            query_sources: vec!["query".into(), "other".into()],
+            event_sinks: vec!["sink".into(), "other".into()],
             ..Default::default()
         });
 
@@ -394,9 +374,9 @@ mod tests {
     #[test]
     fn get_multiple_schemas() {
         let service = get_service(TestParams {
-            event_sources: vec!["event", "secondary", "other"],
-            query_sources: vec!["query", "secondary", "other"],
-            event_sinks: vec!["sink", "secondary", "other"],
+            event_sources: vec!["event".into(), "secondary".into(), "other".into()],
+            query_sources: vec!["query".into(), "secondary".into(), "other".into()],
+            event_sinks: vec!["sink".into(), "secondary".into(), "other".into()],
             ..Default::default()
         });
 
@@ -470,12 +450,12 @@ mod tests {
     #[test]
     fn get_all_schemas() {
         let service = get_service(TestParams {
-            event_sources: vec!["event", "other"],
-            raw_event_sources: vec!["raw"],
-            query_sources: vec!["query", "other"],
-            raw_query_sources: vec!["raw"],
-            event_sinks: vec!["sink", "secondary"],
-            raw_event_sinks: vec!["raw"],
+            event_sources: vec!["event".into(), "other".into()],
+            raw_event_sources: vec!["raw".into()],
+            query_sources: vec!["query".into(), "other".into()],
+            raw_query_sources: vec!["raw".into()],
+            event_sinks: vec!["sink".into(), "secondary".into()],
+            raw_event_sinks: vec!["raw".into()],
         });
         let event_reply =
             service.get_event_source_schemas(GetEventSourceSchemasRequest { sources: vec![] });
@@ -496,12 +476,12 @@ mod tests {
     #[test]
     fn get_empty_schemas() {
         let service = get_service(TestParams {
-            event_sources: vec!["event", "other"],
-            raw_event_sources: vec!["raw"],
-            query_sources: vec!["query", "other"],
-            raw_query_sources: vec!["raw"],
-            event_sinks: vec!["sink", "other"],
-            raw_event_sinks: vec!["raw"],
+            event_sources: vec!["event".into(), "other".into()],
+            raw_event_sources: vec!["raw".into()],
+            query_sources: vec!["query".into(), "other".into()],
+            raw_query_sources: vec!["raw".into()],
+            event_sinks: vec!["sink".into(), "other".into()],
+            raw_event_sinks: vec!["raw".into()],
         });
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
             sources: vec![Path {
@@ -562,9 +542,9 @@ mod tests {
     #[test]
     fn get_missing_schemas() {
         let service = get_service(TestParams {
-            event_sources: vec!["event", "other"],
-            query_sources: vec!["query", "other"],
-            event_sinks: vec!["sink", "other"],
+            event_sources: vec!["event".into(), "other".into()],
+            query_sources: vec!["query".into(), "other".into()],
+            event_sinks: vec!["sink".into(), "other".into()],
             ..Default::default()
         });
         let event_reply = service.get_event_source_schemas(GetEventSourceSchemasRequest {
@@ -592,15 +572,15 @@ mod tests {
     #[test]
     fn list_event_sources() {
         let service = get_service(TestParams {
-            event_sources: vec!["main", "other"],
-            raw_event_sources: vec!["raw"],
+            event_sources: vec!["main".into(), ["other", "path"].into()],
+            raw_event_sources: vec!["".into()],
             ..Default::default()
         });
         let reply = service.list_event_sources(ListEventSourcesRequest {});
         let expected: HashSet<Vec<String>> = HashSet::from_iter([
             vec!["main".to_string()],
-            vec!["other".to_string()],
-            vec!["raw".to_string()],
+            vec!["other".to_string(), "path".to_string()],
+            vec!["".to_string()],
         ]);
         assert!(reply.is_ok());
         assert_eq!(
@@ -612,15 +592,15 @@ mod tests {
     #[test]
     fn list_query_sources() {
         let service = get_service(TestParams {
-            query_sources: vec!["main", "other"],
-            raw_query_sources: vec!["raw"],
+            query_sources: vec!["main".into(), ["other", "path"].into()],
+            raw_query_sources: vec!["".into()],
             ..Default::default()
         });
         let reply = service.list_query_sources(ListQuerySourcesRequest {});
         let expected: HashSet<Vec<String>> = HashSet::from_iter([
             vec!["main".to_string()],
-            vec!["other".to_string()],
-            vec!["raw".to_string()],
+            vec!["other".to_string(), "path".to_string()],
+            vec!["".to_string()],
         ]);
         assert!(reply.is_ok());
         assert_eq!(
@@ -632,16 +612,16 @@ mod tests {
     #[test]
     fn list_event_sinks() {
         let service = get_service(TestParams {
-            event_sinks: vec!["main", "other"],
-            raw_event_sinks: vec!["raw"],
+            event_sinks: vec!["main".into(), ["other", "path"].into()],
+            raw_event_sinks: vec!["".into()],
             ..Default::default()
         });
 
         let reply = service.list_event_sinks(ListEventSinksRequest {});
         let expected: HashSet<Vec<String>> = HashSet::from_iter([
             vec!["main".to_string()],
-            vec!["other".to_string()],
-            vec!["raw".to_string()],
+            vec!["other".to_string(), "path".to_string()],
+            vec!["".to_string()],
         ]);
         assert!(reply.is_ok());
         assert_eq!(
