@@ -1,16 +1,15 @@
-use std::fmt;
 use std::sync::Arc;
 
 use prost_types::Timestamp;
 
 use crate::endpoints::{EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
-use crate::server::services::map_endpoint_error;
+use crate::server::services::from_endpoint_error;
 use crate::simulation::Simulation;
 
 use super::super::codegen::simulation::*;
 use super::{
-    map_execution_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
+    from_execution_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
     to_error, to_positive_duration,
 };
 
@@ -44,7 +43,7 @@ impl ControllerService {
 
         simulation
             .step()
-            .map_err(map_execution_error)
+            .map_err(from_execution_error)
             .and_then(|()| {
                 monotonic_to_timestamp(simulation.time()).ok_or_else(final_simulation_time_error)
             })
@@ -73,7 +72,7 @@ impl ControllerService {
                     to_error(ErrorCode::InvalidTime, "out-of-range nanosecond field")
                 })?;
 
-                simulation.step_until(time).map_err(map_execution_error)?;
+                simulation.step_until(time).map_err(from_execution_error)?;
             }
             step_until_request::Deadline::Duration(duration) => {
                 let duration = to_positive_duration(duration).ok_or_else(|| {
@@ -85,7 +84,7 @@ impl ControllerService {
 
                 simulation
                     .step_until(duration)
-                    .map_err(map_execution_error)?;
+                    .map_err(from_execution_error)?;
             }
         };
 
@@ -105,7 +104,7 @@ impl ControllerService {
             return Err(simulation_halted_error());
         };
 
-        simulation.step_unbounded().map_err(map_execution_error)?;
+        simulation.step_unbounded().map_err(from_execution_error)?;
 
         monotonic_to_timestamp(simulation.time()).ok_or_else(final_simulation_time_error)
     }
@@ -133,7 +132,7 @@ impl ControllerService {
 
         let source = event_source_registry
             .get(source_path)
-            .map_err(map_endpoint_error)?;
+            .map_err(from_endpoint_error)?;
 
         let arg = source.deserialize_arg(event).map_err(|e| {
             to_error(
@@ -148,7 +147,7 @@ impl ControllerService {
 
         simulation
             .process_event_erased(source, arg)
-            .map_err(map_execution_error)
+            .map_err(from_execution_error)
     }
 
     /// Broadcasts a query from a query source immediately, blocking until
@@ -177,7 +176,7 @@ impl ControllerService {
 
         let source = query_source_registry
             .get(source_path)
-            .map_err(map_endpoint_error)?;
+            .map_err(from_endpoint_error)?;
 
         let arg = source.deserialize_arg(request).map_err(|e| {
             to_error(
@@ -192,7 +191,7 @@ impl ControllerService {
 
         let mut rx = simulation
             .process_query_erased(source, arg)
-            .map_err(map_execution_error)?;
+            .map_err(from_execution_error)?;
 
         let replies = rx.take_collect().ok_or_else(|| to_error(
             ErrorCode::SimulationBadQuery,
@@ -223,14 +222,8 @@ impl ControllerService {
         let mut state = Vec::new();
         simulation
             .save_with_serialized_cfg(cfg.clone(), &mut state)
-            .map_err(map_execution_error)
+            .map_err(from_execution_error)
             .map(|_| state)
-    }
-}
-
-impl fmt::Debug for ControllerService {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ControllerService").finish_non_exhaustive()
     }
 }
 

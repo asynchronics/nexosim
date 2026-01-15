@@ -1,4 +1,3 @@
-use std::fmt;
 use std::sync::Mutex;
 
 use futures_util::StreamExt;
@@ -139,12 +138,6 @@ impl MonitorService {
             }
             Self::Halted => Err(simulation_halted_error()),
         }
-    }
-}
-
-impl fmt::Debug for MonitorService {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SimulationService").finish_non_exhaustive()
     }
 }
 

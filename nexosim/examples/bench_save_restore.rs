@@ -35,7 +35,7 @@ use std::time::Duration;
 use nexosim::endpoints::Endpoints;
 use nexosim::ports::{EventSinkReader, EventSource, QuerySource, SinkState, event_queue_endpoint};
 use nexosim::simulation::{
-    EventId, InitError, Mailbox, QueryId, SimInit, Simulation, SimulationError,
+    BenchError, EventId, Mailbox, QueryId, SimInit, Simulation, SimulationError,
 };
 use nexosim::time::MonotonicTime;
 
@@ -52,9 +52,10 @@ const INIT_TANK_VOLUME: f64 = 1.5e-3;
 
 /// Build a simulation bench using the bench API.
 ///
-/// The same function could be used to build a gRPC server (see the `server`
-/// feature) and manage the simulation from a gRPC Python client.
-pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<SimInit, InitError> {
+/// If the `BenchError` was mapped to `Box<dyn Error>`, the same function could
+/// be used to build a gRPC server and manage the simulation from a gRPC Python
+/// client (see the `server` feature).
+pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<SimInit, BenchError> {
     // Models.
     let mut pump = Pump::new(pump_flow_rate);
     let mut controller = Controller::new();

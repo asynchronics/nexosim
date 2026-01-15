@@ -4,6 +4,7 @@ mod inspector_service;
 mod monitor_service;
 mod scheduler_service;
 
+use std::error;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -16,7 +17,7 @@ use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
 use crate::endpoints::{EndpointError, Endpoints};
 use crate::simulation::{
-    ExecutionError, InitError, SchedulingError, SimInit, Simulation, SimulationError,
+    BenchError, ExecutionError, SchedulingError, SimInit, Simulation, SimulationError,
 };
 
 pub use init_service::{init_bench, restore_bench};
@@ -29,7 +30,7 @@ pub(crate) use scheduler_service::SchedulerService;
 
 /// The global gRPC service.
 ///
-/// In order to allow concurrent non-mutating requests, all such requests are
+/// In order to allow concurrent non-mutating requests, most such requests are
 /// routed to an `InspectorService` which is under an RW lock. The only time it
 /// is accessed in writing mode is during initialization and termination.
 ///
@@ -59,7 +60,7 @@ impl GrpcSimulationService {
     /// the public event and query interface.
     pub(crate) fn new<F, I>(sim_gen: F) -> Self
     where
-        F: FnMut(I) -> SimInit + Send + 'static,
+        F: FnMut(I) -> Result<SimInit, Box<dyn error::Error>> + Send + 'static,
         I: DeserializeOwned,
     {
         Self {
@@ -135,11 +136,11 @@ fn to_error(code: ErrorCode, message: impl Into<String>) -> Error {
 
 /// An error returned when a simulation is halted.
 fn simulation_halted_error() -> Error {
-    to_error(ErrorCode::SimulationNotStarted, "the simulation is halted")
+    to_error(ErrorCode::SimulationHalted, "the simulation is halted")
 }
 
-/// Map an `ExecutionError` to a Protobuf error.
-fn map_execution_error(error: ExecutionError) -> Error {
+/// Transform an `ExecutionError` into a Protobuf error.
+fn from_execution_error(error: ExecutionError) -> Error {
     let error_code = match error {
         ExecutionError::Deadlock(_) => ErrorCode::SimulationDeadlock,
         ExecutionError::MessageLoss(_) => ErrorCode::SimulationMessageLoss,
@@ -162,8 +163,8 @@ fn map_execution_error(error: ExecutionError) -> Error {
     to_error(error_code, error_message)
 }
 
-/// Map a `SchedulingError` to a Protobuf error.
-fn map_scheduling_error(error: SchedulingError) -> Error {
+/// Transform a `SchedulingError` into a Protobuf error.
+fn from_scheduling_error(error: SchedulingError) -> Error {
     let error_code = match error {
         SchedulingError::InvalidScheduledTime => ErrorCode::InvalidDeadline,
         SchedulingError::NullRepetitionPeriod => ErrorCode::InvalidPeriod,
@@ -174,12 +175,12 @@ fn map_scheduling_error(error: SchedulingError) -> Error {
     to_error(error_code, error_message)
 }
 
-/// Map an `InitError` to a Protobuf error.
-fn map_init_error(error: InitError) -> Error {
+/// Transform a `BenchError` into a Protobuf error.
+fn from_bench_error(error: BenchError) -> Error {
     let error_code = match error {
-        InitError::DuplicateEventSource(_) => ErrorCode::DuplicateEventSource,
-        InitError::DuplicateQuerySource(_) => ErrorCode::DuplicateQuerySource,
-        InitError::DuplicateEventSink(_) => ErrorCode::DuplicateEventSink,
+        BenchError::DuplicateEventSource(_) => ErrorCode::DuplicateEventSource,
+        BenchError::DuplicateQuerySource(_) => ErrorCode::DuplicateQuerySource,
+        BenchError::DuplicateEventSink(_) => ErrorCode::DuplicateEventSink,
     };
 
     let error_message = error.to_string();
@@ -187,16 +188,16 @@ fn map_init_error(error: InitError) -> Error {
     to_error(error_code, error_message)
 }
 
-/// Map a `SimulationError` to a Protobuf error.
-fn map_simulation_error(error: SimulationError) -> Error {
+/// Transform a `SimulationError` into a Protobuf error.
+fn from_simulation_error(error: SimulationError) -> Error {
     match error {
-        SimulationError::ExecutionError(e) => map_execution_error(e),
-        SimulationError::SchedulingError(e) => map_scheduling_error(e),
-        SimulationError::InitError(e) => map_init_error(e),
+        SimulationError::ExecutionError(e) => from_execution_error(e),
+        SimulationError::SchedulingError(e) => from_scheduling_error(e),
+        SimulationError::BenchError(e) => from_bench_error(e),
     }
 }
 
-fn map_endpoint_error(error: EndpointError) -> Error {
+fn from_endpoint_error(error: EndpointError) -> Error {
     let error_code = match error {
         EndpointError::EventSourceNotFound { .. } => ErrorCode::EventSourceNotFound,
         EndpointError::QuerySourceNotFound { .. } => ErrorCode::QuerySourceNotFound,

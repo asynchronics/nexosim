@@ -234,7 +234,7 @@ impl SimInit {
     /// preferred in all other cases.
     ///
     /// An error is returned if the path is already used by another event sink.
-    /// The error is convertible to an [`InitError`].
+    /// The error is convertible to an [`BenchError`].
     pub fn bind_event_sink<S, T>(
         &mut self,
         sink: S,
@@ -264,7 +264,7 @@ impl SimInit {
     /// preferred in all other cases.
     ///
     /// An error is returned if the path is already used by another event sink.
-    /// The error is convertible to an [`InitError`].
+    /// The error is convertible to an [`BenchError`].
     pub fn bind_event_sink_raw<S, T>(
         &mut self,
         sink: S,
@@ -337,7 +337,7 @@ impl SimInit {
     ///
     /// If the path is already used by another event source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_event_source<T>(
         &mut self,
         source: EventSource<T>,
@@ -356,7 +356,7 @@ impl SimInit {
     ///
     /// If the path is already used by another event source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
@@ -374,7 +374,7 @@ impl SimInit {
     ///
     /// If the path is already used by another query source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -395,7 +395,7 @@ impl SimInit {
     ///
     /// If the path is already used by another query source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -451,10 +451,10 @@ impl fmt::Debug for SimInit {
     }
 }
 
-/// Error returned when the initialization of a simulation fails.
+/// Error returned when the construction of a simulation bench fails.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum InitError {
+pub enum BenchError {
     /// An attempt to add an input or event source failed because the provided
     /// path is already in use by another event source.
     DuplicateEventSource(Path),
@@ -466,7 +466,7 @@ pub enum InitError {
     DuplicateEventSink(Path),
 }
 
-impl fmt::Display for InitError {
+impl fmt::Display for BenchError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateEventSource(path) => write!(
@@ -484,7 +484,7 @@ impl fmt::Display for InitError {
         }
     }
 }
-impl Error for InitError {}
+impl Error for BenchError {}
 
 /// Error returned when attempting to bind an event source to an existing path.
 pub struct DuplicateEventSourceError<T>
@@ -525,7 +525,7 @@ impl<T> Error for DuplicateEventSourceError<T> where
 }
 
 impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> From<DuplicateEventSourceError<T>>
-    for InitError
+    for BenchError
 {
     fn from(e: DuplicateEventSourceError<T>) -> Self {
         Self::DuplicateEventSource(e.path)
@@ -558,7 +558,7 @@ impl<S> fmt::Debug for DuplicateQuerySourceError<S> {
 }
 impl<S> Error for DuplicateQuerySourceError<S> {}
 
-impl<S> From<DuplicateQuerySourceError<S>> for InitError {
+impl<S> From<DuplicateQuerySourceError<S>> for BenchError {
     fn from(e: DuplicateQuerySourceError<S>) -> Self {
         Self::DuplicateQuerySource(e.path)
     }
@@ -581,7 +581,7 @@ impl fmt::Display for DuplicateEventSinkError {
 }
 impl Error for DuplicateEventSinkError {}
 
-impl From<DuplicateEventSinkError> for InitError {
+impl From<DuplicateEventSinkError> for BenchError {
     fn from(e: DuplicateEventSinkError) -> Self {
         Self::DuplicateEventSink(e.path)
     }

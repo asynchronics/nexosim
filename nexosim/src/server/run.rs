@@ -1,5 +1,6 @@
 //! Simulation server.
 
+use std::error;
 use std::future::Future;
 use std::net::SocketAddr;
 #[cfg(unix)]
@@ -22,7 +23,7 @@ use super::codegen::simulation::simulation_server;
 /// public event and query interface.
 pub fn run<F, I>(sim_gen: F, addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> SimInit + Send + 'static,
+    F: FnMut(I) -> Result<SimInit, Box<dyn error::Error>> + Send + 'static,
     I: DeserializeOwned,
 {
     run_service(GrpcSimulationService::new(sim_gen), addr, None)
@@ -42,7 +43,7 @@ pub fn run_with_shutdown<F, I, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> SimInit + Send + 'static,
+    F: FnMut(I) -> Result<SimInit, Box<dyn error::Error>> + Send + 'static,
     I: DeserializeOwned,
     for<'a> S: Future<Output = ()> + 'a,
 {
@@ -89,7 +90,7 @@ fn run_service(
 #[cfg(unix)]
 pub fn run_local<F, I, P>(sim_gen: F, path: P) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> SimInit + Send + 'static,
+    F: FnMut(I) -> Result<SimInit, Box<dyn error::Error>> + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
 {
@@ -113,7 +114,7 @@ pub fn run_local_with_shutdown<F, I, P, S>(
     signal: S,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    F: FnMut(I) -> SimInit + Send + 'static,
+    F: FnMut(I) -> Result<SimInit, Box<dyn error::Error>> + Send + 'static,
     I: DeserializeOwned,
     P: AsRef<Path>,
     for<'a> S: Future<Output = ()> + 'a,

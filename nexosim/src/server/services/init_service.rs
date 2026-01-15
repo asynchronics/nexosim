@@ -1,19 +1,27 @@
 use std::any::Any;
+use std::error;
 use std::panic::{self, AssertUnwindSafe};
 
 use ciborium;
 use serde::de::DeserializeOwned;
 
 use crate::endpoints::Endpoints;
-use crate::simulation::{ExecutionError, RestoreError, SimInit, Simulation, SimulationError};
+use crate::server::services::from_bench_error;
+use crate::simulation::{
+    BenchError, ExecutionError, RestoreError, SimInit, Simulation, SimulationError,
+};
 use crate::time::MonotonicTime;
 
-use super::{map_simulation_error, timestamp_to_monotonic, to_error};
+use super::{from_simulation_error, timestamp_to_monotonic, to_error};
 
 use super::super::codegen::simulation::*;
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
-type SimGen = Box<dyn FnMut(&[u8]) -> Result<SimInit, DeserializationError> + Send + 'static>;
+type SimGen = Box<
+    dyn FnMut(&[u8]) -> Result<Result<SimInit, Box<dyn error::Error>>, DeserializationError>
+        + Send
+        + 'static,
+>;
 
 /// Protobuf-based simulation initializer.
 ///
@@ -32,11 +40,14 @@ impl InitService {
     /// registry that exposes the public event and query interface.
     pub(crate) fn new<F, I>(mut sim_gen: F) -> Self
     where
-        F: FnMut(I) -> SimInit + Send + 'static,
+        F: FnMut(I) -> Result<SimInit, Box<dyn error::Error>> + Send + 'static,
         I: DeserializeOwned,
     {
         // Wrap `sim_gen` so it accepts a serialized init configuration.
-        let sim_gen = move |serialized_cfg: &[u8]| -> Result<SimInit, DeserializationError> {
+        let sim_gen = move |serialized_cfg: &[u8]| -> Result<
+            Result<SimInit, Box<dyn error::Error>>,
+            DeserializationError,
+        > {
             let cfg = ciborium::from_reader(serialized_cfg)?;
 
             Ok(sim_gen(cfg))
@@ -65,15 +76,19 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&request.cfg).map(|mut bench| {
-                let endpoints = bench.take_endpoints();
-                bench
-                    .init(start_time)
-                    .map(|simulation| (simulation, endpoints))
-            })
+            (self.sim_gen)(&request.cfg)
+                .map_err(from_config_deserialization_error)
+                .and_then(|bench_result| bench_result.map_err(from_general_bench_error))
+                .and_then(|mut bench| {
+                    let endpoints = bench.take_endpoints();
+                    bench
+                        .init(start_time)
+                        .map_err(from_simulation_error)
+                        .map(|simulation| (simulation, endpoints))
+                })
         }))
-        .map_err(map_panic)
-        .and_then(map_init_error);
+        .map_err(from_panic)
+        .and_then(|reply| reply);
 
         let (reply, bench) = match reply {
             Ok((simulation, registry)) => (
@@ -114,15 +129,19 @@ impl InitService {
         };
 
         let reply = panic::catch_unwind(AssertUnwindSafe(|| {
-            (self.sim_gen)(&cfg).map(|mut bench| {
-                let endpoints = bench.take_endpoints();
-                bench
-                    .restore(&request.state[..])
-                    .map(|simulation| (simulation, endpoints))
-            })
+            (self.sim_gen)(&cfg)
+                .map_err(from_config_deserialization_error)
+                .and_then(|bench_result| bench_result.map_err(from_general_bench_error))
+                .and_then(|mut bench| {
+                    let endpoints = bench.take_endpoints();
+                    bench
+                        .restore(&request.state[..])
+                        .map_err(from_simulation_error)
+                        .map(|simulation| (simulation, endpoints))
+                })
         }))
-        .map_err(map_panic)
-        .and_then(map_init_error);
+        .map_err(from_panic)
+        .and_then(|reply| reply);
 
         let (reply, bench) = match reply {
             Ok((simulation, registry)) => (
@@ -141,7 +160,7 @@ impl InitService {
     }
 }
 
-fn map_panic(payload: Box<dyn Any + Send>) -> Error {
+fn from_panic(payload: Box<dyn Any + Send>) -> Error {
     let panic_msg: Option<&str> = if let Some(s) = payload.downcast_ref::<&str>() {
         Some(s)
     } else if let Some(s) = payload.downcast_ref::<String>() {
@@ -151,25 +170,31 @@ fn map_panic(payload: Box<dyn Any + Send>) -> Error {
     };
 
     let error_msg = if let Some(panic_msg) = panic_msg {
-        format!("the simulation initializer has panicked with the message `{panic_msg}`",)
+        format!(
+            "the simulation bench builder has panicked with the following message: `{panic_msg}`",
+        )
     } else {
-        String::from("the simulation initializer has panicked")
+        String::from("the simulation bench builder has panicked")
     };
 
-    to_error(ErrorCode::InitializerPanic, error_msg)
+    to_error(ErrorCode::BenchPanic, error_msg)
 }
 
-fn map_init_error(
-    payload: Result<Result<(Simulation, Endpoints), SimulationError>, DeserializationError>,
-) -> Result<(Simulation, Endpoints), Error> {
-    payload
-        .map_err(|e| {
-            to_error(
-                ErrorCode::InvalidMessage,
-                format!("the initializer configuration could not be deserialized: {e}",),
-            )
-        })
-        .and_then(|init_result| init_result.map_err(map_simulation_error))
+fn from_config_deserialization_error(error: DeserializationError) -> Error {
+    to_error(
+        ErrorCode::InvalidMessage,
+        format!("the simulation bench configuration could not be deserialized: {error}",),
+    )
+}
+
+fn from_general_bench_error(error: Box<dyn error::Error>) -> Error {
+    match error.downcast::<BenchError>() {
+        Ok(bench_err) => from_bench_error(*bench_err),
+        Err(error) => to_error(
+            ErrorCode::UnknownBenchError,
+            format!("simulation bench building has failed with the following error: {error}",),
+        ),
+    }
 }
 
 /// Allows running a server targeted simulation directly from Rust. (e.g.

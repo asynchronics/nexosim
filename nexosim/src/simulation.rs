@@ -12,8 +12,8 @@
 //! 1. instantiation of models and their [`Mailbox`]es,
 //! 2. connection of the models' output/requestor ports to input/replier ports
 //!    using the [`Address`]es of the target models,
-//! 3. instantiation of a [`SimInit`] simulation builder and migration of all
-//!    models and mailboxes to the builder with [`SimInit::add_model`],
+//! 3. instantiation of a [`SimInit`] simulation bench builder and migration of
+//!    all models and mailboxes to the builder with [`SimInit::add_model`],
 //! 4. initialization of a [`Simulation`] instance with [`SimInit::init`],
 //!    possibly preceded by the setup of a custom clock with
 //!    [`SimInit::set_clock`],
@@ -84,7 +84,7 @@ pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{
-    DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError, InitError,
+    BenchError, DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError,
     SimInit,
 };
 
@@ -133,7 +133,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 /// Simulation environment.
 ///
 /// A `Simulation` is created by calling
-/// [`SimInit::init`](crate::simulation::SimInit::init) on a simulation
+/// [`SimInit::init`](crate::simulation::SimInit::init) on a simulation bench
 /// initializer. It contains an asynchronous executor that runs all simulation
 /// models added beforehand to [`SimInit`].
 ///
@@ -1211,24 +1211,24 @@ impl From<RestoreError> for ExecutionError {
     }
 }
 
-/// An error returned upon simulation execution or scheduling failure.
+/// An error returned upon bench building, simulation execution or scheduling failure.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum SimulationError {
-    /// The execution of the simulation failed.
+    /// Simulation bench building has failed.
+    BenchError(BenchError),
+    /// The execution of the simulation has failed.
     ExecutionError(ExecutionError),
-    /// An attempt to schedule an item failed.
+    /// An attempt to schedule an item has failed.
     SchedulingError(SchedulingError),
-    /// Simulation bench building failed.
-    InitError(InitError),
 }
 
 impl fmt::Display for SimulationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::BenchError(e) => e.fmt(f),
             Self::ExecutionError(e) => e.fmt(f),
             Self::SchedulingError(e) => e.fmt(f),
-            Self::InitError(e) => e.fmt(f),
         }
     }
 }
@@ -1236,10 +1236,16 @@ impl fmt::Display for SimulationError {
 impl Error for SimulationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::BenchError(e) => Some(e),
             Self::ExecutionError(e) => Some(e),
             Self::SchedulingError(e) => Some(e),
-            Self::InitError(e) => Some(e),
         }
+    }
+}
+
+impl From<BenchError> for SimulationError {
+    fn from(e: BenchError) -> Self {
+        Self::BenchError(e)
     }
 }
 
@@ -1252,12 +1258,6 @@ impl From<ExecutionError> for SimulationError {
 impl From<SchedulingError> for SimulationError {
     fn from(e: SchedulingError) -> Self {
         Self::SchedulingError(e)
-    }
-}
-
-impl From<InitError> for SimulationError {
-    fn from(e: InitError) -> Self {
-        Self::InitError(e)
     }
 }
 

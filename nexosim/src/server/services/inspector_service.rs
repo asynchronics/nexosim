@@ -4,7 +4,7 @@ use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRe
 use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
-use super::{map_endpoint_error, simulation_halted_error};
+use super::{from_endpoint_error, simulation_halted_error};
 
 /// Protobuf-based simulation inspector.
 ///
@@ -84,7 +84,7 @@ impl InspectorService {
                     .collect()
             };
 
-        schemas.map_err(map_endpoint_error)
+        schemas.map_err(from_endpoint_error)
     }
 
     /// Returns a list of names of all the registered query sources.
@@ -155,7 +155,7 @@ impl InspectorService {
                 .collect()
         };
 
-        schema.map_err(map_endpoint_error)
+        schema.map_err(from_endpoint_error)
     }
 
     /// Returns a list of names of all the registered event sinks.
@@ -218,7 +218,7 @@ impl InspectorService {
                 .collect()
         };
 
-        schemas.map_err(map_endpoint_error)
+        schemas.map_err(from_endpoint_error)
     }
 }
 

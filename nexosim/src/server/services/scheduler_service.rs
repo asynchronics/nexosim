@@ -1,4 +1,3 @@
-use std::fmt;
 use std::sync::Arc;
 
 use prost_types::Timestamp;
@@ -6,12 +5,12 @@ use prost_types::Timestamp;
 use crate::endpoints::EventSourceRegistry;
 use crate::path::Path as NexosimPath;
 use crate::server::key_registry::{KeyRegistry, KeyRegistryId};
-use crate::server::services::map_endpoint_error;
+use crate::server::services::from_endpoint_error;
 use crate::simulation::Scheduler;
 
 use super::super::codegen::simulation::*;
 use super::{
-    map_scheduling_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
+    from_scheduling_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
     to_error, to_strictly_positive_duration,
 };
 
@@ -93,7 +92,7 @@ impl SchedulerService {
 
         let source = event_source_registry
             .get(source_path)
-            .map_err(map_endpoint_error)?;
+            .map_err(from_endpoint_error)?;
 
         let (event, event_key) = match (with_key, period) {
             (false, None) => source.event(event).map(|action| (action, None)),
@@ -149,7 +148,7 @@ impl SchedulerService {
 
         scheduler
             .schedule(deadline, event)
-            .map_err(map_scheduling_error)?;
+            .map_err(from_scheduling_error)?;
 
         Ok(key_id)
     }
@@ -184,11 +183,5 @@ impl SchedulerService {
         key.cancel();
 
         Ok(())
-    }
-}
-
-impl fmt::Debug for SchedulerService {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SchedulerService").finish_non_exhaustive()
     }
 }
