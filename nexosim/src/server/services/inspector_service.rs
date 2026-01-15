@@ -1,22 +1,18 @@
 use std::sync::Arc;
 
-use prost_types::Timestamp;
-
 use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
-use crate::simulation::Scheduler;
 
 use super::super::codegen::simulation::*;
-use super::{map_endpoint_error, monotonic_to_timestamp, simulation_halted_error, to_error};
+use super::{map_endpoint_error, simulation_halted_error};
 
 /// Protobuf-based simulation inspector.
 ///
 /// The `InspectorService` handles all requests that only involve immutable
-/// resources.
+/// access to endpoints.
 pub(crate) enum InspectorService {
     Halted,
     Started {
-        scheduler: Scheduler,
         event_sink_info_registry: EventSinkInfoRegistry,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
@@ -24,35 +20,6 @@ pub(crate) enum InspectorService {
 }
 
 impl InspectorService {
-    /// Returns the current simulation time.
-    pub(crate) fn time(&self, _request: TimeRequest) -> Result<Timestamp, Error> {
-        match self {
-            Self::Started { scheduler, .. } => {
-                if let Some(timestamp) = monotonic_to_timestamp(scheduler.time()) {
-                    Ok(timestamp)
-                } else {
-                    Err(to_error(
-                        ErrorCode::SimulationTimeOutOfRange,
-                        "the final simulation time is out of range",
-                    ))
-                }
-            }
-            Self::Halted => Err(simulation_halted_error()),
-        }
-    }
-
-    /// Requests an interruption of the simulation at the earliest opportunity.
-    pub(crate) fn halt(&self, _request: HaltRequest) -> Result<(), Error> {
-        match self {
-            Self::Started { scheduler, .. } => {
-                scheduler.halt();
-
-                Ok(())
-            }
-            Self::Halted => Err(simulation_halted_error()),
-        }
-    }
-
     /// Returns a list of the paths of all registered event sources.
     pub(crate) fn list_event_sources(
         &self,
@@ -309,7 +276,6 @@ mod tests {
         }
 
         InspectorService::Started {
-            scheduler: Scheduler::dummy(),
             event_sink_info_registry,
             event_source_registry: Arc::new(event_source_registry),
             query_source_registry: Arc::new(query_source_registry),

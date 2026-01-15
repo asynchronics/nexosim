@@ -1,6 +1,8 @@
 use std::fmt;
 use std::sync::Arc;
 
+use prost_types::Timestamp;
+
 use crate::endpoints::EventSourceRegistry;
 use crate::path::Path as NexosimPath;
 use crate::server::key_registry::{KeyRegistry, KeyRegistryId};
@@ -9,8 +11,8 @@ use crate::simulation::Scheduler;
 
 use super::super::codegen::simulation::*;
 use super::{
-    map_scheduling_error, simulation_halted_error, timestamp_to_monotonic, to_error,
-    to_strictly_positive_duration,
+    map_scheduling_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
+    to_error, to_strictly_positive_duration,
 };
 
 /// Protobuf-based simulation scheduler.
@@ -27,6 +29,35 @@ pub(crate) enum SchedulerService {
 }
 
 impl SchedulerService {
+    /// Returns the current simulation time.
+    pub(crate) fn time(&self, _request: TimeRequest) -> Result<Timestamp, Error> {
+        match self {
+            Self::Started { scheduler, .. } => {
+                if let Some(timestamp) = monotonic_to_timestamp(scheduler.time()) {
+                    Ok(timestamp)
+                } else {
+                    Err(to_error(
+                        ErrorCode::SimulationTimeOutOfRange,
+                        "the final simulation time is out of range",
+                    ))
+                }
+            }
+            Self::Halted => Err(simulation_halted_error()),
+        }
+    }
+
+    /// Requests an interruption of the simulation at the earliest opportunity.
+    pub(crate) fn halt(&self, _request: HaltRequest) -> Result<(), Error> {
+        match self {
+            Self::Started { scheduler, .. } => {
+                scheduler.halt();
+
+                Ok(())
+            }
+            Self::Halted => Err(simulation_halted_error()),
+        }
+    }
+
     /// Schedules an event at a future time.
     pub(crate) fn schedule_event(
         &mut self,

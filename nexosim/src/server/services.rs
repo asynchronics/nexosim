@@ -4,15 +4,12 @@ mod inspector_service;
 mod monitor_service;
 mod scheduler_service;
 
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use prost_types::Timestamp;
 use serde::de::DeserializeOwned;
 use tai_time::MonotonicTime;
-use tokio::sync::Mutex as TokioMutex;
-use tokio::sync::RwLock as TokioRwLock;
 use tonic::{Request, Response, Status};
 
 use super::codegen::simulation::*;
@@ -33,25 +30,24 @@ pub(crate) use scheduler_service::SchedulerService;
 /// The global gRPC service.
 ///
 /// In order to allow concurrent non-mutating requests, all such requests are
-/// routed to an `InspectorService` which is under an async RW lock. The only
-/// time it is accessed in writing mode is during initialization and
-/// termination.
+/// routed to an `InspectorService` which is under an RW lock. The only time it
+/// is accessed in writing mode is during initialization and termination.
 ///
 /// Mutable resources that can be managed through non-blocking or async calls,
 /// namely the `KeyRegistry` (held by `SchedulerService`) and the
 /// `EventSinkRegistry` (held by `MonitorService`), are bundled with all
-/// necessary immutable resources in a service object held under an async mutex.
+/// necessary immutable resources in a service object held under a mutex.
 ///
 /// In the case of the `Simulation` instance, managed by `ControllerService`, a
-/// standard mutex is used and wrapped in an `Arc`. This allows mutating
-/// blocking requests to the simulation object to be spawned on a separate
-/// thread with `tokio::task::spawn_blocking`.
+/// mutex is wrapped in an `Arc`. This allows mutating blocking requests to the
+/// simulation object to be spawned on a separate thread with
+/// `tokio::task::spawn_blocking`.
 pub(crate) struct GrpcSimulationService {
-    init_service: TokioMutex<InitService>,
+    init_service: Mutex<InitService>,
     controller_service: Arc<Mutex<ControllerService>>,
-    scheduler_service: TokioMutex<SchedulerService>,
-    monitor_service: TokioMutex<MonitorService>,
-    inspector_service: TokioRwLock<InspectorService>,
+    scheduler_service: Mutex<SchedulerService>,
+    monitor_service: Mutex<MonitorService>,
+    inspector_service: RwLock<InspectorService>,
 }
 
 impl GrpcSimulationService {
@@ -67,11 +63,11 @@ impl GrpcSimulationService {
         I: DeserializeOwned,
     {
         Self {
-            init_service: TokioMutex::new(InitService::new(sim_gen)),
+            init_service: Mutex::new(InitService::new(sim_gen)),
             controller_service: Arc::new(Mutex::new(ControllerService::Halted)),
-            scheduler_service: TokioMutex::new(SchedulerService::Halted),
-            monitor_service: TokioMutex::new(MonitorService::Halted),
-            inspector_service: TokioRwLock::new(InspectorService::Halted),
+            scheduler_service: Mutex::new(SchedulerService::Halted),
+            monitor_service: Mutex::new(MonitorService::Halted),
+            inspector_service: RwLock::new(InspectorService::Halted),
         }
     }
 
@@ -113,16 +109,15 @@ impl GrpcSimulationService {
             event_source_registry: event_source_registry.clone(),
             query_source_registry: query_source_registry.clone(),
         };
-        *self.inspector_service.write().await = InspectorService::Started {
-            scheduler: scheduler.clone(),
+        *self.inspector_service.write().unwrap() = InspectorService::Started {
             event_sink_info_registry,
             event_source_registry: event_source_registry.clone(),
             query_source_registry,
         };
-        *self.monitor_service.lock().await = MonitorService::Started {
+        *self.monitor_service.lock().unwrap() = MonitorService::Started {
             event_sink_registry,
         };
-        *self.scheduler_service.lock().await = SchedulerService::Started {
+        *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
             scheduler,
             event_source_registry,
             key_registry: KeyRegistry::default(),
@@ -289,9 +284,9 @@ impl simulation_server::Simulation for GrpcSimulationService {
         _request: Request<TerminateRequest>,
     ) -> Result<Response<TerminateReply>, Status> {
         *self.controller_service.lock().unwrap() = ControllerService::Halted;
-        *self.inspector_service.write().await = InspectorService::Halted;
-        *self.monitor_service.lock().await = MonitorService::Halted;
-        *self.scheduler_service.lock().await = SchedulerService::Halted;
+        *self.inspector_service.write().unwrap() = InspectorService::Halted;
+        *self.monitor_service.lock().unwrap() = MonitorService::Halted;
+        *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
 
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
@@ -301,7 +296,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     // Init service.
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
-        let (reply, bench) = self.init_service.lock().await.init(request);
+        let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
         if let Some((simulation, endpoint_registry, cfg)) = bench {
             self.start_services(simulation, endpoint_registry, cfg)
@@ -315,7 +310,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<RestoreRequest>,
     ) -> Result<Response<RestoreReply>, Status> {
         let request = request.into_inner();
-        let (reply, bench) = self.init_service.lock().await.restore(request);
+        let (reply, bench) = self.init_service.lock().unwrap().restore(request);
 
         if let Some((simulation, endpoint_registry, cfg)) = bench {
             self.start_services(simulation, endpoint_registry, cfg)
@@ -422,12 +417,36 @@ impl simulation_server::Simulation for GrpcSimulationService {
     }
 
     // Scheduler service.
+    async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
+        let request = request.into_inner();
+
+        Ok(Response::new(TimeReply {
+            result: Some(match self.scheduler_service.lock().unwrap().time(request) {
+                Ok(timestamp) => time_reply::Result::Time(timestamp),
+                Err(e) => time_reply::Result::Error(e),
+            }),
+        }))
+    }
+    async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
+        let request = request.into_inner();
+
+        Ok(Response::new(HaltReply {
+            result: Some(match self.scheduler_service.lock().unwrap().halt(request) {
+                Ok(()) => halt_reply::Result::Empty(()),
+                Err(e) => halt_reply::Result::Error(e),
+            }),
+        }))
+    }
     async fn schedule_event(
         &self,
         request: Request<ScheduleEventRequest>,
     ) -> Result<Response<ScheduleEventReply>, Status> {
         let request = request.into_inner();
-        let reply = self.scheduler_service.lock().await.schedule_event(request);
+        let reply = self
+            .scheduler_service
+            .lock()
+            .unwrap()
+            .schedule_event(request);
 
         Ok(Response::new(ScheduleEventReply {
             result: Some(match reply {
@@ -450,7 +469,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<CancelEventRequest>,
     ) -> Result<Response<CancelEventReply>, Status> {
         let request = request.into_inner();
-        let reply = self.scheduler_service.lock().await.cancel_event(request);
+        let reply = self.scheduler_service.lock().unwrap().cancel_event(request);
 
         Ok(Response::new(CancelEventReply {
             result: Some(match reply {
@@ -461,26 +480,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
     }
 
     // Inspector service.
-    async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
-        let request = request.into_inner();
-
-        Ok(Response::new(TimeReply {
-            result: Some(match self.inspector_service.read().await.time(request) {
-                Ok(timestamp) => time_reply::Result::Time(timestamp),
-                Err(e) => time_reply::Result::Error(e),
-            }),
-        }))
-    }
-    async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
-        let request = request.into_inner();
-
-        Ok(Response::new(HaltReply {
-            result: Some(match self.inspector_service.read().await.halt(request) {
-                Ok(()) => halt_reply::Result::Empty(()),
-                Err(e) => halt_reply::Result::Error(e),
-            }),
-        }))
-    }
     async fn list_event_sources(
         &self,
         request: Request<ListEventSourcesRequest>,
@@ -489,7 +488,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let reply = self
             .inspector_service
             .read()
-            .await
+            .unwrap()
             .list_event_sources(request);
 
         Ok(Response::new(match reply {
@@ -511,7 +510,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let reply = self
             .inspector_service
             .read()
-            .await
+            .unwrap()
             .get_event_source_schemas(request);
 
         Ok(Response::new(match reply {
@@ -533,7 +532,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let reply = self
             .inspector_service
             .read()
-            .await
+            .unwrap()
             .list_query_sources(request);
 
         Ok(Response::new(match reply {
@@ -555,7 +554,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let reply = self
             .inspector_service
             .read()
-            .await
+            .unwrap()
             .get_query_source_schemas(request);
 
         Ok(Response::new(match reply {
@@ -577,7 +576,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let reply = self
             .inspector_service
             .read()
-            .await
+            .unwrap()
             .list_event_sinks(request);
 
         Ok(Response::new(match reply {
@@ -599,7 +598,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let reply = self
             .inspector_service
             .read()
-            .await
+            .unwrap()
             .get_event_sink_schemas(request);
 
         Ok(Response::new(match reply {
@@ -621,7 +620,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<TryReadEventsReply>, Status> {
         let request = request.into_inner();
 
-        let reply = self.monitor_service.lock().await.try_read_events(request);
+        let reply = self
+            .monitor_service
+            .lock()
+            .unwrap()
+            .try_read_events(request);
 
         Ok(Response::new(match reply {
             Ok(events) => TryReadEventsReply {
@@ -654,7 +657,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<EnableSinkRequest>,
     ) -> Result<Response<EnableSinkReply>, Status> {
         let request = request.into_inner();
-        let reply = self.monitor_service.lock().await.enable_sink(request);
+        let reply = self.monitor_service.lock().unwrap().enable_sink(request);
 
         Ok(Response::new(EnableSinkReply {
             result: Some(match reply {
@@ -668,7 +671,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<DisableSinkRequest>,
     ) -> Result<Response<DisableSinkReply>, Status> {
         let request = request.into_inner();
-        let reply = self.monitor_service.lock().await.disable_sink(request);
+        let reply = self.monitor_service.lock().unwrap().disable_sink(request);
 
         Ok(Response::new(DisableSinkReply {
             result: Some(match reply {

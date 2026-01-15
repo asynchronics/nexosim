@@ -1,7 +1,7 @@
 use std::fmt;
+use std::sync::Mutex;
 
 use futures_util::StreamExt;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::time as tokio_time;
 
 use crate::endpoints::EventSinkRegistry;
@@ -155,7 +155,7 @@ impl fmt::Debug for MonitorService {
 /// needs `MonitorService` to be under a mutex so it can be locked twice: once
 /// to rent the sink and once to return it.
 pub(crate) async fn monitor_service_read_event(
-    service: &TokioMutex<MonitorService>,
+    service: &Mutex<MonitorService>,
     request: ReadEventRequest,
 ) -> Result<Vec<u8>, Error> {
     let sink_path: &NexosimPath = &request
@@ -166,7 +166,7 @@ pub(crate) async fn monitor_service_read_event(
 
     // Very important: the lock is released immediately after renting the
     // sink so we do not block concurrent `MonitorService` requests.
-    let mut sink = match &mut *service.lock().await {
+    let mut sink = match &mut *service.lock().unwrap() {
         MonitorService::Started {
             event_sink_registry,
         } => {
@@ -229,7 +229,7 @@ pub(crate) async fn monitor_service_read_event(
         });
 
     // Return the sink to the registry
-    match &mut *service.lock().await {
+    match &mut *service.lock().unwrap() {
         MonitorService::Started {
             event_sink_registry,
         } => {
