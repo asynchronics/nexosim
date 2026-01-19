@@ -267,7 +267,7 @@ use std::sync::Mutex;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::path::Path;
-use crate::ports::PORT_REG;
+use crate::ports::{PORT_REG, Requestor, UniRequestor};
 use crate::simulation::{
     Address, EVENT_KEY_REG, EventKeyReg, ExecutionError, RestoreError, SaveError, Simulation,
 };
@@ -337,12 +337,8 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     ///     }
     /// }
     /// ```
-    fn init(
-        self,
-        _: &Context<Self>,
-        _: &mut Self::Env,
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
-        async { self.into() }
+    fn init(&mut self, _: &Context<Self>, _: &mut Self::Env) -> impl Future<Output = ()> + Send {
+        async {}
     }
 
     /// Reinitialization method called after model has been restored from a
@@ -355,12 +351,8 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     ///
     /// The default implementation simply converts the model to an
     /// `InitializedModel` without any side effect.
-    fn restore(
-        self,
-        _: &Context<Self>,
-        _: &mut Self::Env,
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
-        async { self.into() }
+    fn restore(&mut self, _: &Context<Self>, _: &mut Self::Env) -> impl Future<Output = ()> + Send {
+        async {}
     }
 
     /// Creates model's internal input registry used for self-scheduling.
@@ -421,39 +413,102 @@ impl<M: Model<Env = E>, E: Default> ProtoModel for M {
     }
 }
 
-/// An internal helper struct used to handle (de)serialization of the models.
+#[derive(Clone)]
 pub(crate) struct RegisteredModel {
-    pub path: Path,
-    #[allow(clippy::type_complexity)]
-    pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>, ExecutionError> + Send>,
-    #[allow(clippy::type_complexity)]
-    pub deserialize:
-        Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(), ExecutionError> + Send>,
+    pub(crate) path: Path,
+    init_requestor: UniRequestor<(), ()>,
+    restore_requestor: UniRequestor<(), ()>,
+    ser_requestor: UniRequestor<Path, Result<Vec<u8>, ExecutionError>>,
+    de_requestor: UniRequestor<(Vec<u8>, EventKeyReg, Path), Result<(), ExecutionError>>,
 }
 impl RegisteredModel {
-    pub(crate) fn new<M: Model>(path: Path, address: Address<M>) -> Self {
-        let ser_address = address.clone();
-        let de_address = address.clone();
-        let ser_path = path.clone();
-        let de_path = path.clone();
+    pub(crate) fn new<M: Model + Send>(path: Path, address: Address<M>) -> Self {
+        let fi = async |model: &mut M, _: (), cx: &Context<M>, env: &mut M::Env| {
+            M::init(model, cx, env).await
+        };
+        let init_requestor = UniRequestor::new(fi, address.clone());
 
-        let serialize = Box::new(move |sim: &mut Simulation| {
-            sim.process_replier_fn(serialize_model, ser_path.clone(), &ser_address)?
-        });
-        let deserialize = Box::new(move |sim: &mut Simulation, state: (Vec<u8>, EventKeyReg)| {
-            sim.process_replier_fn(
-                deserialize_model,
-                (state.0, state.1, de_path.clone()),
-                &de_address,
-            )?
-        });
+        let fr = async |model: &mut M, _: (), cx: &Context<M>, env: &mut M::Env| {
+            M::restore(model, cx, env).await
+        };
+        let restore_requestor = UniRequestor::new(fr, address.clone());
+
+        let ser_requestor = UniRequestor::new(serialize_model, address.clone());
+        let de_requestor = UniRequestor::new(deserialize_model, address);
+
         Self {
             path,
-            serialize,
-            deserialize,
+            init_requestor,
+            restore_requestor,
+            ser_requestor,
+            de_requestor,
         }
     }
+    pub(crate) async fn init(&mut self) {
+        self.init_requestor.send(()).await;
+    }
+    pub(crate) async fn restore(&mut self) {
+        self.restore_requestor.send(()).await;
+    }
+    // pub(crate) fn serialize(&mut self) -> Result<Vec<u8>, ExecutionError> {
+    pub(crate) fn serialize(
+        &mut self,
+    ) -> (
+        impl Future<Output = ()> + use<'_> + 'static,
+        crate::util::slot::SlotReader<Result<Vec<u8>, ExecutionError>>,
+    ) {
+        let (reply_writer, reply_reader) = crate::util::slot::slot();
+        let path = self.path.clone();
+        let mut req = self.ser_requestor.clone();
+        let fut = async move {
+            let reply = req.send(path).await;
+            let _ = reply_writer.write(reply);
+        };
+        (fut, reply_reader)
+    }
+    pub(crate) fn deserialize(
+        &mut self,
+        state: (Vec<u8>, EventKeyReg),
+    ) -> impl Future<Output = Result<(), ExecutionError>> + 'static {
+        let mut req = self.de_requestor.clone();
+        let path = self.path.clone();
+        async move { req.send((state.0, state.1, path)).await }
+    }
 }
+
+// An internal helper struct used to handle (de)serialization of the models.
+// pub(crate) struct RegisteredModel {
+//     pub path: Path,
+//     #[allow(clippy::type_complexity)]
+//     pub serialize: Box<dyn Fn(&mut Simulation) -> Result<Vec<u8>,
+// ExecutionError> + Send>,     #[allow(clippy::type_complexity)]
+//     pub deserialize:
+//         Box<dyn Fn(&mut Simulation, (Vec<u8>, EventKeyReg)) -> Result<(),
+// ExecutionError> + Send>, }
+// impl RegisteredModel {
+//     pub(crate) fn new<M: Model>(path: Path, address: Address<M>) -> Self {
+//         let ser_address = address.clone();
+//         let de_address = address.clone();
+//         let ser_path = path.clone();
+//         let de_path = path.clone();
+
+//         let serialize = Box::new(move |sim: &mut Simulation| {
+//             sim.process_replier_fn(serialize_model, ser_path.clone(),
+// &ser_address)?         });
+//         let deserialize = Box::new(move |sim: &mut Simulation, state:
+// (Vec<u8>, EventKeyReg)| {             sim.process_replier_fn(
+//                 deserialize_model,
+//                 (state.0, state.1, de_path.clone()),
+//                 &de_address,
+//             )?
+//         });
+//         Self {
+//             path,
+//             serialize,
+//             deserialize,
+//         }
+//     }
+// }
 
 impl std::fmt::Debug for RegisteredModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -502,7 +557,8 @@ pub(crate) async fn deserialize_model<M: Model>(
             })
         })?
         .0;
-    let restored = restored.restore(cx, env).await.0;
+    println!("DESERIALIZED");
+    // let restored = restored.restore(cx, env).await.0;
     let _ = std::mem::replace(model, restored);
     Ok(())
 }

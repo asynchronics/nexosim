@@ -376,48 +376,48 @@ impl Simulation {
         Ok(rx)
     }
 
-    // TODO used for serialization / deserialization only - find a way to remove it
-    pub(crate) fn process_replier_fn<M, F, T, R, S>(
-        &mut self,
-        func: F,
-        arg: T,
-        address: impl Into<Address<M>>,
-    ) -> Result<R, ExecutionError>
-    where
-        M: Model,
-        F: for<'a> ReplierFn<'a, M, T, R, S>,
-        T: Send + Clone + 'static,
-        R: Send + 'static,
-    {
-        let (reply_writer, mut reply_reader) = slot::slot();
-        let sender = address.into().0;
+    // TODO used for serialization / deserialization only - find a way to remove
+    // it pub(crate) fn process_replier_fn<M, F, T, R, S>(
+    //     &mut self,
+    //     func: F,
+    //     arg: T,
+    //     address: impl Into<Address<M>>,
+    // ) -> Result<R, ExecutionError>
+    // where
+    //     M: Model,
+    //     F: for<'a> ReplierFn<'a, M, T, R, S>,
+    //     T: Send + Clone + 'static,
+    //     R: Send + 'static,
+    // {
+    //     let (reply_writer, mut reply_reader) = slot::slot();
+    //     let sender = address.into().0;
 
-        let fut = async move {
-            // Ignore send errors.
-            let _ = sender
-                .send(
-                    move |model: &mut M,
-                          scheduler,
-                          env,
-                          recycle_box: RecycleBox<()>|
-                          -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                        let fut = async move {
-                            let reply = func.call(model, arg, scheduler, env).await;
-                            let _ = reply_writer.write(reply);
-                        };
+    //     let fut = async move {
+    //         // Ignore send errors.
+    //         let _ = sender
+    //             .send(
+    //                 move |model: &mut M,
+    //                       scheduler,
+    //                       env,
+    //                       recycle_box: RecycleBox<()>|
+    //                       -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
+    //                     let fut = async move {
+    //                         let reply = func.call(model, arg, scheduler,
+    // env).await;                         let _ = reply_writer.write(reply);
+    //                     };
 
-                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
-                    },
-                )
-                .await;
-        };
+    //                     coerce_box!(RecycleBox::recycle(recycle_box, fut))
+    //                 },
+    //             )
+    //             .await;
+    //     };
 
-        self.process_future(fut)?;
+    //     self.process_future(fut)?;
 
-        reply_reader
-            .try_read()
-            .map_err(|_| ExecutionError::BadQuery)
-    }
+    //     reply_reader
+    //         .try_read()
+    //         .map_err(|_| ExecutionError::BadQuery)
+    // }
 
     /// Runs the executor.
     fn run(&mut self) -> Result<(), ExecutionError> {
@@ -649,14 +649,19 @@ impl Simulation {
 
     /// Requests and stores serialized state from each of the models.
     fn save_models(&mut self) -> Result<Vec<Vec<u8>>, ExecutionError> {
-        // Temporarily move out of the simulation object.
-        let models = self.registered_models.drain(..).collect::<Vec<_>>();
-        let mut values = Vec::new();
-        for model in models.iter() {
-            values.push((model.serialize)(self)?);
-        }
-        self.registered_models = models;
-        Ok(values)
+        self.take_halt_flag();
+        let mut readers = self
+            .registered_models
+            .iter_mut()
+            .map(|m| {
+                let (fut, reader) = m.serialize();
+                self.executor.spawn_and_forget(fut);
+                reader
+            })
+            .collect::<Vec<_>>();
+
+        self.run();
+        readers.iter_mut().map(|r| r.try_read()).flatten().collect()
     }
 
     /// Restore models' state.
@@ -665,12 +670,13 @@ impl Simulation {
         model_state: Vec<Vec<u8>>,
         event_key_reg: &EventKeyReg,
     ) -> Result<(), ExecutionError> {
-        // Temporarily move out of the simulation object.
-        let models = self.registered_models.drain(..).collect::<Vec<_>>();
-        for (model, state) in models.iter().zip(model_state) {
-            (model.deserialize)(self, (state, event_key_reg.clone()))?;
+        self.take_halt_flag();
+        // FIXME handle deserialization errors
+        for (model, state) in self.registered_models.iter_mut().zip(model_state) {
+            self.executor
+                .spawn_and_forget(model.deserialize((state, event_key_reg.clone())));
         }
-        self.registered_models = models;
+        self.run();
         Ok(())
     }
 
@@ -1300,11 +1306,11 @@ pub(crate) fn add_model<P>(
 
     let cx = Context::new(path, scheduler, address, model_id.0, model_registry);
     let fut = async move {
-        let mut model = if !is_resumed.load(Ordering::Relaxed) {
-            model.init(&cx, &mut env).await.0
-        } else {
-            model
-        };
+        // let mut model = if !is_resumed.load(Ordering::Relaxed) {
+        //     model.init(&cx, &mut env).await.0
+        // } else {
+        //     model
+        // };
         while !abort_signal.is_set() && receiver.recv(&mut model, &cx, &mut env).await.is_ok() {}
     };
 

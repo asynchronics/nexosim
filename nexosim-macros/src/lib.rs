@@ -225,8 +225,8 @@ fn parse_tagged_methods(
     let init = init.and_then(|init| {
         quote! {
             fn init(
-                self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env,
-            ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+                &mut self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env,
+            ) -> impl std::future::Future<Output = ()> + Send {
                 #init
             }
         }
@@ -236,8 +236,8 @@ fn parse_tagged_methods(
     let restore = restore.and_then(|restore| {
         quote! {
             fn restore(
-                self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env
-            ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
+                &mut self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env
+            ) -> impl std::future::Future<Output = ()> + Send {
                 #restore
             }
         }
