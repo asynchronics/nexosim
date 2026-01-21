@@ -1,5 +1,5 @@
+mod build_service;
 mod controller_service;
-mod init_service;
 mod inspector_service;
 mod monitor_service;
 mod scheduler_service;
@@ -20,10 +20,8 @@ use crate::simulation::{
     BenchError, ExecutionError, SchedulingError, SimInit, Simulation, SimulationError,
 };
 
-pub use init_service::{init_bench, restore_bench};
-
+pub(crate) use build_service::BuildService;
 pub(crate) use controller_service::ControllerService;
-pub(crate) use init_service::InitService;
 pub(crate) use inspector_service::InspectorService;
 pub(crate) use monitor_service::{MonitorService, monitor_service_read_event};
 pub(crate) use scheduler_service::SchedulerService;
@@ -44,7 +42,7 @@ pub(crate) use scheduler_service::SchedulerService;
 /// simulation object to be spawned on a separate thread with
 /// `tokio::task::spawn_blocking`.
 pub(crate) struct GrpcSimulationService {
-    init_service: Mutex<InitService>,
+    build_service: Mutex<BuildService>,
     controller_service: Arc<Mutex<ControllerService>>,
     scheduler_service: Mutex<SchedulerService>,
     monitor_service: Mutex<MonitorService>,
@@ -64,7 +62,7 @@ impl GrpcSimulationService {
         I: DeserializeOwned,
     {
         Self {
-            init_service: Mutex::new(InitService::new(sim_gen)),
+            build_service: Mutex::new(BuildService::new(sim_gen)),
             controller_service: Arc::new(Mutex::new(ControllerService::Halted)),
             scheduler_service: Mutex::new(SchedulerService::Halted),
             monitor_service: Mutex::new(MonitorService::Halted),
@@ -87,12 +85,7 @@ impl GrpcSimulationService {
             .unwrap()
     }
 
-    async fn start_services(
-        &self,
-        simulation: Simulation,
-        endpoint_registry: Endpoints,
-        cfg: Vec<u8>,
-    ) {
+    fn start_services(&self, simulation: Simulation, endpoint_registry: Endpoints) {
         let scheduler = simulation.scheduler();
 
         let (
@@ -105,7 +98,6 @@ impl GrpcSimulationService {
         let query_source_registry = Arc::new(query_source_registry);
 
         *self.controller_service.lock().unwrap() = ControllerService::Started {
-            cfg,
             simulation,
             event_source_registry: event_source_registry.clone(),
             query_source_registry: query_source_registry.clone(),
@@ -134,9 +126,13 @@ fn to_error(code: ErrorCode, message: impl Into<String>) -> Error {
     }
 }
 
-/// An error returned when a simulation is halted.
-fn simulation_halted_error() -> Error {
-    to_error(ErrorCode::SimulationHalted, "the simulation is halted")
+/// An error returned when no simulation has been initialized/restored or the
+/// simulation is halted.
+fn simulation_not_started_error() -> Error {
+    to_error(
+        ErrorCode::SimulationNotStarted,
+        "the simulation has not been started",
+    )
 }
 
 /// Transform an `ExecutionError` into a Protobuf error.
@@ -149,7 +145,7 @@ fn from_execution_error(error: ExecutionError) -> Error {
         ExecutionError::Timeout => ErrorCode::SimulationTimeout,
         ExecutionError::OutOfSync(_) => ErrorCode::SimulationOutOfSync,
         ExecutionError::BadQuery => ErrorCode::SimulationBadQuery,
-        ExecutionError::Halted => ErrorCode::SimulationHalted,
+        ExecutionError::Halted => ErrorCode::SimulationNotStarted,
         ExecutionError::Terminated => ErrorCode::SimulationTerminated,
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
         ExecutionError::InvalidEventId(_) => ErrorCode::EventSourceNotFound,
@@ -279,7 +275,10 @@ pub(crate) fn to_strictly_positive_duration(duration: prost_types::Duration) -> 
 
 #[tonic::async_trait]
 impl simulation_server::Simulation for GrpcSimulationService {
+    //-----------
     // Terminate.
+    //-----------
+
     async fn terminate(
         &self,
         _request: Request<TerminateRequest>,
@@ -294,34 +293,143 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }))
     }
 
+    //--------------
+    // Build service.
+    //--------------
+
+    async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildReply>, Status> {
+        let request = request.into_inner();
+
+        let reply = self.build_service.lock().unwrap().build(request);
+
+        Ok(Response::new(BuildReply {
+            result: Some(match reply {
+                Ok(()) => build_reply::Result::Empty(()),
+                Err(e) => build_reply::Result::Error(e),
+            }),
+        }))
+    }
+
+    //--------------
     // Init service.
+    //--------------
+
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
-        let (reply, bench) = self.init_service.lock().unwrap().init(request);
 
-        if let Some((simulation, endpoint_registry, cfg)) = bench {
-            self.start_services(simulation, endpoint_registry, cfg)
-                .await;
-        }
+        let reply =
+            self.build_service
+                .lock()
+                .unwrap()
+                .init(request)
+                .map(|(simulation, endpoints)| {
+                    self.start_services(simulation, endpoints);
+                });
 
-        Ok(Response::new(reply))
+        Ok(Response::new(InitReply {
+            result: Some(match reply {
+                Ok(()) => init_reply::Result::Empty(()),
+                Err(e) => init_reply::Result::Error(e),
+            }),
+        }))
+    }
+    async fn init_and_run(
+        &self,
+        request: Request<InitAndRunRequest>,
+    ) -> Result<Response<InitAndRunReply>, Status> {
+        // This is a composite request that is splitted into 2 sub-requests.
+        let request = request.into_inner();
+        let init_request = InitRequest { time: request.time };
+
+        let reply =
+            self.build_service
+                .lock()
+                .unwrap()
+                .init(init_request)
+                .map(|(simulation, endpoints)| {
+                    self.start_services(simulation, endpoints);
+                });
+
+        // Important: release the lock on the build service before calling
+        // `run``, as `run` is blocking.
+        let reply = match reply {
+            Ok(()) => {
+                self.execute_controller_fn(RunRequest {}, ControllerService::run)
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        Ok(Response::new(InitAndRunReply {
+            result: Some(match reply {
+                Ok(timestamp) => init_and_run_reply::Result::Time(timestamp),
+                Err(e) => init_and_run_reply::Result::Error(e),
+            }),
+        }))
     }
     async fn restore(
         &self,
         request: Request<RestoreRequest>,
     ) -> Result<Response<RestoreReply>, Status> {
         let request = request.into_inner();
-        let (reply, bench) = self.init_service.lock().unwrap().restore(request);
 
-        if let Some((simulation, endpoint_registry, cfg)) = bench {
-            self.start_services(simulation, endpoint_registry, cfg)
-                .await;
-        }
+        let reply =
+            self.build_service
+                .lock()
+                .unwrap()
+                .restore(request)
+                .map(|(simulation, endpoints)| {
+                    self.start_services(simulation, endpoints);
+                });
 
-        Ok(Response::new(reply))
+        Ok(Response::new(RestoreReply {
+            result: Some(match reply {
+                Ok(()) => restore_reply::Result::Empty(()),
+                Err(e) => restore_reply::Result::Error(e),
+            }),
+        }))
+    }
+    async fn restore_and_run(
+        &self,
+        request: Request<RestoreAndRunRequest>,
+    ) -> Result<Response<RestoreAndRunReply>, Status> {
+        // This is a composite request that is splitted into 2 sub-requests.
+        let request = request.into_inner();
+        let restore_request = RestoreRequest {
+            state: request.state,
+        };
+
+        let reply = self
+            .build_service
+            .lock()
+            .unwrap()
+            .restore(restore_request)
+            .map(|(simulation, endpoints)| {
+                self.start_services(simulation, endpoints);
+            });
+
+        // Important: release the lock on the build service before calling
+        // `run``, as `run` is blocking.
+        let reply = match reply {
+            Ok(()) => {
+                self.execute_controller_fn(RunRequest {}, ControllerService::run)
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+
+        Ok(Response::new(RestoreAndRunReply {
+            result: Some(match reply {
+                Ok(timestamp) => restore_and_run_reply::Result::Time(timestamp),
+                Err(e) => restore_and_run_reply::Result::Error(e),
+            }),
+        }))
     }
 
+    //--------------------
     // Controller service.
+    //--------------------
+
     async fn save(&self, request: Request<SaveRequest>) -> Result<Response<SaveReply>, Status> {
         let request = request.into_inner();
         let reply = self
@@ -364,19 +472,16 @@ impl simulation_server::Simulation for GrpcSimulationService {
             }),
         }))
     }
-    async fn step_unbounded(
-        &self,
-        request: Request<StepUnboundedRequest>,
-    ) -> Result<Response<StepUnboundedReply>, Status> {
+    async fn run(&self, request: Request<RunRequest>) -> Result<Response<RunReply>, Status> {
         let request = request.into_inner();
         let reply = self
-            .execute_controller_fn(request, ControllerService::step_unbounded)
+            .execute_controller_fn(request, ControllerService::run)
             .await;
 
-        Ok(Response::new(StepUnboundedReply {
+        Ok(Response::new(RunReply {
             result: Some(match reply {
-                Ok(timestamp) => step_unbounded_reply::Result::Time(timestamp),
-                Err(error) => step_unbounded_reply::Result::Error(error),
+                Ok(timestamp) => run_reply::Result::Time(timestamp),
+                Err(error) => run_reply::Result::Error(error),
             }),
         }))
     }
@@ -417,7 +522,10 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }))
     }
 
+    //-------------------
     // Scheduler service.
+    //-------------------
+
     async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
         let request = request.into_inner();
 
@@ -480,7 +588,10 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }))
     }
 
+    //-------------------
     // Inspector service.
+    //-------------------
+
     async fn list_event_sources(
         &self,
         request: Request<ListEventSourcesRequest>,
@@ -614,7 +725,10 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }))
     }
 
+    //-----------------
     // Monitor service.
+    //-----------------
+
     async fn try_read_events(
         &self,
         request: Request<TryReadEventsRequest>,

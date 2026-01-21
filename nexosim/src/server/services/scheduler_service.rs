@@ -10,8 +10,8 @@ use crate::simulation::Scheduler;
 
 use super::super::codegen::simulation::*;
 use super::{
-    from_scheduling_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
-    to_error, to_strictly_positive_duration,
+    from_scheduling_error, monotonic_to_timestamp, simulation_not_started_error,
+    timestamp_to_monotonic, to_error, to_strictly_positive_duration,
 };
 
 /// Protobuf-based simulation scheduler.
@@ -41,7 +41,7 @@ impl SchedulerService {
                     ))
                 }
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -53,7 +53,7 @@ impl SchedulerService {
 
                 Ok(())
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -68,7 +68,7 @@ impl SchedulerService {
             key_registry,
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let source_path: &NexosimPath = &request
@@ -161,7 +161,7 @@ impl SchedulerService {
             ..
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let key = request

@@ -270,7 +270,7 @@ impl Simulation {
     ///
     /// This method blocks until the simulation is halted or all scheduled
     /// events have completed.
-    pub fn step_unbounded(&mut self) -> Result<(), ExecutionError> {
+    pub fn run(&mut self) -> Result<(), ExecutionError> {
         self.step_until_unchecked(None)
     }
 
@@ -281,7 +281,7 @@ impl Simulation {
     ) -> Result<(), ExecutionError> {
         self.take_halt_flag()?;
         self.executor.spawn_and_forget(fut);
-        self.run()
+        self.run_executor()
     }
 
     /// Processes an event immediately, blocking until completion.
@@ -420,7 +420,7 @@ impl Simulation {
     }
 
     /// Runs the executor.
-    fn run(&mut self) -> Result<(), ExecutionError> {
+    fn run_executor(&mut self) -> Result<(), ExecutionError> {
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
         }
@@ -578,7 +578,7 @@ impl Simulation {
                             }
                         }
                     }
-                    self.run()?;
+                    self.run_executor()?;
 
                     return Ok(Some(current_time));
                 }
@@ -719,42 +719,9 @@ impl Simulation {
             models: self.save_models()?,
             scheduler_queue: self.save_queue()?,
             time: self.time(),
-            cfg: None,
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
             .map_err(|e| SaveError::SimulationStateSerializationError { cause: Box::new(e) }.into())
-    }
-
-    /// Serializes simulation state together with CBOR serialized SimGen
-    /// configuration.
-    #[cfg(feature = "server")]
-    pub(crate) fn save_with_serialized_cfg<W: std::io::Write>(
-        &mut self,
-        serialized_cfg: Vec<u8>,
-        writer: &mut W,
-    ) -> Result<usize, ExecutionError> {
-        let state = SimulationState {
-            models: self.save_models()?,
-            scheduler_queue: self.save_queue()?,
-            time: self.time(),
-            cfg: Some(serialized_cfg),
-        };
-        bincode::serde::encode_into_std_write(state, writer, serialization_config())
-            .map_err(|e| SaveError::SimulationStateSerializationError { cause: Box::new(e) }.into())
-    }
-
-    /// Persists a serialized simulation state together with a SimGen
-    /// configuration object.
-    #[cfg(feature = "server")]
-    pub fn save_with_cfg<W: std::io::Write, C: Serialize>(
-        &mut self,
-        cfg: C,
-        writer: &mut W,
-    ) -> Result<usize, ExecutionError> {
-        let mut serialized_cfg = Vec::new();
-        ciborium::into_writer(&cfg, &mut serialized_cfg)
-            .map_err(|e| SaveError::ConfigSerializationError { cause: Box::new(e) })?;
-        self.save_with_serialized_cfg(serialized_cfg, writer)
     }
 
     /// Restore simulation state from a serialized data.
@@ -773,18 +740,6 @@ impl Simulation {
         })?;
         Ok(())
     }
-
-    /// Extract bench builder cfg from the serialized simulation state.
-    #[cfg(feature = "server")]
-    pub(crate) fn restore_cfg<R: std::io::Read>(
-        mut state: R,
-    ) -> Result<Option<Vec<u8>>, ExecutionError> {
-        let state: SimulationState =
-            bincode::serde::decode_from_std_read(&mut state, serialization_config()).map_err(
-                |e| RestoreError::SimulationStateDeserializationError { cause: Box::new(e) },
-            )?;
-        Ok(state.cfg)
-    }
 }
 
 impl fmt::Debug for Simulation {
@@ -798,7 +753,6 @@ impl fmt::Debug for Simulation {
 /// Internal helper struct organizing parts of a persisted simulation state.
 #[derive(Serialize, Deserialize)]
 struct SimulationState {
-    cfg: Option<Vec<u8>>,
     models: Vec<Vec<u8>>,
     scheduler_queue: Vec<u8>,
     time: MonotonicTime,
@@ -1211,7 +1165,8 @@ impl From<RestoreError> for ExecutionError {
     }
 }
 
-/// An error returned upon bench building, simulation execution or scheduling failure.
+/// An error returned upon bench building, simulation execution or scheduling
+/// failure.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum SimulationError {

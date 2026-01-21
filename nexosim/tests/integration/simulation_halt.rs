@@ -58,8 +58,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
     let simulation = Arc::new(Mutex::new(simu));
     let spawned_simulation = simulation.clone();
 
-    let simulation_handle =
-        thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
+    let simulation_handle = thread::spawn(move || spawned_simulation.lock().unwrap().run());
 
     thread::sleep(Duration::from_millis(100)); // pause until t(sim) = t(wall clock) = t0 + delta
 
@@ -93,8 +92,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
         s.reset_clock(SystemClock::from_instant(t1, Instant::now()));
     }
     let spawned_simulation = simulation.clone();
-    let simulation_handle =
-        thread::spawn(move || spawned_simulation.lock().unwrap().step_unbounded());
+    let simulation_handle = thread::spawn(move || spawned_simulation.lock().unwrap().run());
 
     thread::sleep(Duration::from_millis(100)); // pause until t(sim) = t(wall clock) = t1 + delta
 

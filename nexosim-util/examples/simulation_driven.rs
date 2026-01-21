@@ -250,7 +250,7 @@ fn main() -> Result<(), SimulationError> {
         thread::spawn(move || {
             // ---------- Simulation.  ----------
             // Infinitely kept alive by the ticker model until halted.
-            simu.step_unbounded()
+            simu.run()
         }),
         move |_| {
             sim_scheduler.halt();

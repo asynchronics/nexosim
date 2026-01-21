@@ -9,8 +9,8 @@ use crate::simulation::Simulation;
 
 use super::super::codegen::simulation::*;
 use super::{
-    from_execution_error, monotonic_to_timestamp, simulation_halted_error, timestamp_to_monotonic,
-    to_error, to_positive_duration,
+    from_execution_error, monotonic_to_timestamp, simulation_not_started_error,
+    timestamp_to_monotonic, to_error, to_positive_duration,
 };
 
 /// Protobuf-based simulation controller.
@@ -21,7 +21,6 @@ use super::{
 pub(crate) enum ControllerService {
     Halted,
     Started {
-        cfg: Vec<u8>,
         simulation: Simulation,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
@@ -38,7 +37,7 @@ impl ControllerService {
     /// processed events have completed.
     pub(crate) fn step(&mut self, _request: StepRequest) -> Result<Timestamp, Error> {
         let Self::Started { simulation, .. } = self else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         simulation
@@ -59,7 +58,7 @@ impl ControllerService {
     /// time.
     pub(crate) fn step_until(&mut self, request: StepUntilRequest) -> Result<Timestamp, Error> {
         let Self::Started { simulation, .. } = self else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let deadline = request
@@ -96,15 +95,12 @@ impl ControllerService {
     ///
     /// This method blocks until the simulation is halted or all scheduled
     /// events have completed.
-    pub(crate) fn step_unbounded(
-        &mut self,
-        _request: StepUnboundedRequest,
-    ) -> Result<Timestamp, Error> {
+    pub(crate) fn run(&mut self, _request: RunRequest) -> Result<Timestamp, Error> {
         let Self::Started { simulation, .. } = self else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
-        simulation.step_unbounded().map_err(from_execution_error)?;
+        simulation.run().map_err(from_execution_error)?;
 
         monotonic_to_timestamp(simulation.time()).ok_or_else(final_simulation_time_error)
     }
@@ -120,7 +116,7 @@ impl ControllerService {
             ..
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let source_path: &NexosimPath = &request
@@ -164,7 +160,7 @@ impl ControllerService {
             ..
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let source_path: &NexosimPath = &request
@@ -212,16 +208,13 @@ impl ControllerService {
 
     /// Saves and returns current simulation state in a serialized form.
     pub(crate) fn save(&mut self, _: SaveRequest) -> Result<Vec<u8>, Error> {
-        let ControllerService::Started {
-            cfg, simulation, ..
-        } = self
-        else {
-            return Err(simulation_halted_error());
+        let ControllerService::Started { simulation, .. } = self else {
+            return Err(simulation_not_started_error());
         };
 
         let mut state = Vec::new();
         simulation
-            .save_with_serialized_cfg(cfg.clone(), &mut state)
+            .save(&mut state)
             .map_err(from_execution_error)
             .map(|_| state)
     }

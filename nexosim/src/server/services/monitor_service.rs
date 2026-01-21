@@ -7,7 +7,7 @@ use crate::endpoints::EventSinkRegistry;
 use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
-use super::{simulation_halted_error, to_error, to_positive_duration};
+use super::{simulation_not_started_error, to_error, to_positive_duration};
 
 /// Protobuf-based simulation monitor.
 ///
@@ -70,7 +70,7 @@ impl MonitorService {
 
                 Ok(encoded_events)
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -103,7 +103,7 @@ impl MonitorService {
                     })
                 }
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -136,7 +136,7 @@ impl MonitorService {
                     })
                 }
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 }
@@ -178,7 +178,7 @@ pub(crate) async fn monitor_service_read_event(
                 }
             }
         }
-        MonitorService::Halted => return Err(simulation_halted_error()),
+        MonitorService::Halted => return Err(simulation_not_started_error()),
     };
 
     // Await the event, possibly applying a timeout.
@@ -228,7 +228,7 @@ pub(crate) async fn monitor_service_read_event(
         } => {
             event_sink_registry.replace_entry(sink_path, sink).unwrap(); // always succeed: the sink name is registered
         }
-        MonitorService::Halted => return Err(simulation_halted_error()),
+        MonitorService::Halted => return Err(simulation_not_started_error()),
     };
 
     reply

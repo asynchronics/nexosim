@@ -22,25 +22,26 @@ enum ErrorCode {
   INVALID_KEY = 6;
   INVALID_TIMEOUT = 7;
 
-  // Bench initialization errors.
+  // Bench building and initialization errors.
   BENCH_PANIC = 20;
-  CONFIG_DESERIALIZATION_ERROR = 21;
-  UNKNOWN_BENCH_ERROR = 22;
+  BENCH_ERROR = 21;
+  BENCH_NOT_BUILT = 22;
   DUPLICATE_EVENT_SOURCE = 23;
   DUPLICATE_QUERY_SOURCE = 24;
   DUPLICATE_EVENT_SINK = 25;
+  INVALID_BENCH_CONFIG = 26;
   
   // Simulation runtime error.
   SIMULATION_PANIC = 40;
-  SIMULATION_HALTED = 41;
-  SIMULATION_TERMINATED = 42;
-  SIMULATION_DEADLOCK = 43;
-  SIMULATION_MESSAGE_LOSS = 44;
-  SIMULATION_NO_RECIPIENT = 45;
-  SIMULATION_TIMEOUT = 46;
-  SIMULATION_OUT_OF_SYNC = 47;
-  SIMULATION_BAD_QUERY = 48;
-  SIMULATION_TIME_OUT_OF_RANGE = 49;
+  SIMULATION_NOT_STARTED = 42;
+  SIMULATION_TERMINATED = 43;
+  SIMULATION_DEADLOCK = 44;
+  SIMULATION_MESSAGE_LOSS = 45;
+  SIMULATION_NO_RECIPIENT = 46;
+  SIMULATION_TIMEOUT = 47;
+  SIMULATION_OUT_OF_SYNC = 48;
+  SIMULATION_BAD_QUERY = 49;
+  SIMULATION_TIME_OUT_OF_RANGE = 50;
   
   // Monitoring errors.
   EVENT_SOURCE_NOT_FOUND = 60;
@@ -96,9 +97,18 @@ message EventKey {
 // Requests and replies
 //----------------------
 
+message BuildRequest {
+  bytes cfg = 1;
+}
+message BuildReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
 message InitRequest {
   google.protobuf.Timestamp time = 1;
-  bytes cfg = 2;
 }
 message InitReply {
   oneof result { // Always returns exactly 1 variant.
@@ -107,13 +117,32 @@ message InitReply {
   }
 }
 
+message InitAndRunRequest {
+  google.protobuf.Timestamp time = 1;
+}
+message InitAndRunReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Timestamp time = 1;
+    Error error = 100;
+  }
+}
+
 message RestoreRequest {
   bytes state = 1;
-  optional bytes cfg = 2;
 }
 message RestoreReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
+message RestoreAndRunRequest {
+  bytes state = 1;
+}
+message RestoreAndRunReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Timestamp time = 1;
     Error error = 100;
   }
 }
@@ -171,8 +200,8 @@ message StepUntilReply {
   }
 }
 
-message StepUnboundedRequest {}
-message StepUnboundedReply {
+message RunRequest {}
+message RunReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Timestamp time = 1;
     Error error = 100;
@@ -353,15 +382,18 @@ message DisableSinkReply {
 //---------
 
 service Simulation {
+  rpc Build(BuildRequest) returns (BuildReply);
   rpc Init(InitRequest) returns (InitReply);
+  rpc InitAndRun(InitAndRunRequest) returns (InitAndRunReply);
   rpc Halt(HaltRequest) returns (HaltReply);
   rpc Terminate(TerminateRequest) returns (TerminateReply);
   rpc Save(SaveRequest) returns (SaveReply);
   rpc Restore(RestoreRequest) returns (RestoreReply);
+  rpc RestoreAndRun(RestoreAndRunRequest) returns (RestoreAndRunReply);
   rpc Time(TimeRequest) returns (TimeReply);
   rpc Step(StepRequest) returns (StepReply);
   rpc StepUntil(StepUntilRequest) returns (StepUntilReply);
-  rpc StepUnbounded(StepUnboundedRequest) returns (StepUnboundedReply);
+  rpc Run(RunRequest) returns (RunReply);
   rpc ListEventSources(ListEventSourcesRequest) returns (ListEventSourcesReply);
   rpc GetEventSourceSchemas(GetEventSourceSchemasRequest) returns (GetEventSourceSchemasReply);
   rpc ListQuerySources(ListQuerySourcesRequest) returns (ListQuerySourcesReply);

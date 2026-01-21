@@ -47,7 +47,7 @@ use nexosim::model::{Context, InitializedModel, Model, schedulable};
 /// let simulation_handle = thread::spawn(move || {
 ///     //---------- Simulation.  ----------
 ///     //Infinitely kept alive by the ticker model until halted.
-///     simu.step_unbounded()
+///     simu.run()
 /// });
 ///
 /// // Do some job and wait for some condition.

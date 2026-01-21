@@ -4,7 +4,7 @@ use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRe
 use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
-use super::{from_endpoint_error, simulation_halted_error};
+use super::{from_endpoint_error, simulation_not_started_error};
 
 /// Protobuf-based simulation inspector.
 ///
@@ -35,7 +35,7 @@ impl InspectorService {
                     segments: path.to_vec_string(),
                 })
                 .collect()),
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -54,7 +54,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let schemas: Result<Vec<_>, _> =
@@ -102,7 +102,7 @@ impl InspectorService {
                     segments: path.to_vec_string(),
                 })
                 .collect()),
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -122,7 +122,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let schema: Result<Vec<_>, _> = if request.sources.is_empty() {
@@ -171,7 +171,7 @@ impl InspectorService {
                 })
                 .collect()),
 
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -190,7 +190,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_halted_error());
+            return Err(simulation_not_started_error());
         };
 
         let schemas: Result<Vec<_>, _> = if request.sinks.is_empty() {

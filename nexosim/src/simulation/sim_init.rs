@@ -24,7 +24,7 @@ use super::{
     Signal, Simulation, SimulationError, add_model,
 };
 
-type PostCallback = dyn FnOnce(&mut Simulation) -> Result<(), SimulationError> + 'static;
+type PostCallback = dyn FnOnce(&mut Simulation) -> Result<(), SimulationError> + Send + 'static;
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
@@ -146,7 +146,7 @@ impl SimInit {
     /// Initial event scheduling or input processing is possible at this stage.
     pub fn with_post_init(
         mut self,
-        callback: impl FnOnce(&mut Simulation) -> Result<(), SimulationError> + 'static,
+        callback: impl FnOnce(&mut Simulation) -> Result<(), SimulationError> + Send + 'static,
     ) -> Self {
         self.post_init_callback = Some(Box::new(callback));
         self
@@ -160,7 +160,7 @@ impl SimInit {
     /// are also possible.
     pub fn with_post_restore(
         mut self,
-        callback: impl FnOnce(&mut Simulation) -> Result<(), SimulationError> + 'static,
+        callback: impl FnOnce(&mut Simulation) -> Result<(), SimulationError> + Send + 'static,
     ) -> Self {
         self.post_restore_callback = Some(Box::new(callback));
         self
@@ -305,7 +305,7 @@ impl SimInit {
         if let Some(callback) = callback {
             callback(&mut simulation)?;
         }
-        simulation.run()?;
+        simulation.run_executor()?;
 
         Ok(simulation)
     }
@@ -328,7 +328,7 @@ impl SimInit {
             callback(&mut simulation)?;
         }
         // TODO should run?
-        simulation.run()?;
+        simulation.run_executor()?;
 
         Ok(simulation)
     }
