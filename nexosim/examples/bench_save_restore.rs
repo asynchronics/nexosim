@@ -35,7 +35,7 @@ use std::time::Duration;
 use nexosim::endpoints::Endpoints;
 use nexosim::ports::{EventSinkReader, EventSource, QuerySource, SinkState, event_queue_endpoint};
 use nexosim::simulation::{
-    EventId, InitError, Mailbox, QueryId, SimInit, Simulation, SimulationError,
+    BenchError, EventId, Mailbox, QueryId, SimInit, Simulation, SimulationError,
 };
 use nexosim::time::MonotonicTime;
 
@@ -52,9 +52,10 @@ const INIT_TANK_VOLUME: f64 = 1.5e-3;
 
 /// Build a simulation bench using the bench API.
 ///
-/// The same function could be used to build a gRPC server (see the `server`
-/// feature) and manage the simulation from a gRPC Python client.
-pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<SimInit, InitError> {
+/// If the `BenchError` was mapped to `Box<dyn Error>`, the same function could
+/// be used to build a gRPC server and manage the simulation from a gRPC Python
+/// client (see the `server` feature).
+pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<SimInit, BenchError> {
     // Models.
     let mut pump = Pump::new(pump_flow_rate);
     let mut controller = Controller::new();
@@ -179,16 +180,17 @@ fn run_simulation(
 }
 
 fn main() -> Result<(), SimulationError> {
-    let bench = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?;
+    let mut bench = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?;
 
     let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
-    let (mut simu, mut registry) = bench.init_with_registry(t0)?;
+    let mut endpoints = bench.take_endpoints();
+    let mut simu = bench.init(t0)?;
 
     // Sinks used in simulation.
-    let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
+    let mut flow_rate = endpoints.take_event_sink::<f64>("flow_rate").unwrap();
 
     // Sources used in simulation.
-    let brew_cmd: EventId<()> = registry.get_event_source_id("brew_cmd").unwrap();
+    let brew_cmd: EventId<()> = endpoints.get_event_source_id("brew_cmd").unwrap();
 
     // ----------
     // Simulation.
@@ -214,12 +216,14 @@ fn main() -> Result<(), SimulationError> {
 
     // Run the rest of the simulation twice: the second time from the saved
     // state.
-    run_simulation(simu, registry, t, &mut flow_rate)?;
+    run_simulation(simu, endpoints, t, &mut flow_rate)?;
 
-    let (simu, mut registry) =
-        build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?.restore(&state[..])?;
+    let mut bench = build_bench((PUMP_FLOW_RATE, INIT_TANK_VOLUME))?;
+    let mut endpoints = bench.take_endpoints();
+    let simu = bench.restore(&state[..])?;
+
     // Extract the sink again as the previous bench instance is dropped.
-    let mut flow_rate = registry.take_event_sink::<f64>("flow_rate").unwrap();
+    let mut flow_rate = endpoints.take_event_sink::<f64>("flow_rate").unwrap();
 
-    run_simulation(simu, registry, saved_time, &mut flow_rate)
+    run_simulation(simu, endpoints, saved_time, &mut flow_rate)
 }

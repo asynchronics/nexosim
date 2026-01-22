@@ -12,8 +12,8 @@
 //! 1. instantiation of models and their [`Mailbox`]es,
 //! 2. connection of the models' output/requestor ports to input/replier ports
 //!    using the [`Address`]es of the target models,
-//! 3. instantiation of a [`SimInit`] simulation builder and migration of all
-//!    models and mailboxes to the builder with [`SimInit::add_model`],
+//! 3. instantiation of a [`SimInit`] simulation bench builder and migration of
+//!    all models and mailboxes to the builder with [`SimInit::add_model`],
 //! 4. initialization of a [`Simulation`] instance with [`SimInit::init`],
 //!    possibly preceded by the setup of a custom clock with
 //!    [`SimInit::set_clock`],
@@ -84,7 +84,7 @@ pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{
-    DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError, InitError,
+    BenchError, DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError,
     SimInit,
 };
 
@@ -133,7 +133,7 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 /// Simulation environment.
 ///
 /// A `Simulation` is created by calling
-/// [`SimInit::init`](crate::simulation::SimInit::init) on a simulation
+/// [`SimInit::init`](crate::simulation::SimInit::init) on a simulation bench
 /// initializer. It contains an asynchronous executor that runs all simulation
 /// models added beforehand to [`SimInit`].
 ///
@@ -270,7 +270,7 @@ impl Simulation {
     ///
     /// This method blocks until the simulation is halted or all scheduled
     /// events have completed.
-    pub fn step_unbounded(&mut self) -> Result<(), ExecutionError> {
+    pub fn run(&mut self) -> Result<(), ExecutionError> {
         self.step_until_unchecked(None)
     }
 
@@ -281,7 +281,7 @@ impl Simulation {
     ) -> Result<(), ExecutionError> {
         self.take_halt_flag()?;
         self.executor.spawn_and_forget(fut);
-        self.run()
+        self.run_executor()
     }
 
     /// Processes an event immediately, blocking until completion.
@@ -420,7 +420,7 @@ impl Simulation {
     }
 
     /// Runs the executor.
-    fn run(&mut self) -> Result<(), ExecutionError> {
+    fn run_executor(&mut self) -> Result<(), ExecutionError> {
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
         }
@@ -469,11 +469,11 @@ impl Simulation {
         })
     }
 
-    /// Advances simulation time to that of the next scheduled action if its
+    /// Advances simulation time to that of the next scheduled event if its
     /// scheduling time does not exceed the specified bound, processing that
-    /// action as well as all other actions scheduled for the same time.
+    /// event as well as all other event scheduled for the same time.
     ///
-    /// If at least one action was found that satisfied the time bound, the
+    /// If at least one event was found that satisfied the time bound, the
     /// corresponding new simulation time is returned.
     fn step_to_next(
         &mut self,
@@ -487,7 +487,7 @@ impl Simulation {
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
 
         // Closure returning the next key which time stamp is no older than the
-        // upper bound, if any. Cancelled actions are pulled and discarded.
+        // upper bound, if any. Cancelled events are pulled and discarded.
         let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
             loop {
                 match scheduler_queue.peek() {
@@ -499,7 +499,7 @@ impl Simulation {
                         if !is_cancelled {
                             break Some(key);
                         }
-                        // Discard cancelled actions.
+                        // Discard cancelled events.
                         scheduler_queue.pull();
                     }
                     _ => break None,
@@ -518,10 +518,10 @@ impl Simulation {
         loop {
             let mut next_key;
 
-            // TODO if there is a single event consider firing immediately
+            // TODO: if there is a single event consider firing immediately
             // instead of allocating SeqFuture, although the perf vs. complexity
-            // might be not worth it.
-            let mut action_seq = SeqFuture::new();
+            // might not be worth it.
+            let mut event_seq = SeqFuture::new();
             loop {
                 let ((time, channel_id), item) = scheduler_queue.pull().unwrap();
 
@@ -548,22 +548,23 @@ impl Simulation {
                     }
                 };
 
-                action_seq.push(fut);
+                event_seq.push(fut);
                 next_key = peek_next_key(&mut scheduler_queue);
                 if next_key != Some(current_key) {
                     break;
                 }
             }
 
-            // Spawn a compound future that sequentially polls all actions
+            // Spawn a compound future that sequentially polls all events
             // targeting the same mailbox.
-            self.executor.spawn_and_forget(action_seq);
+            self.executor.spawn_and_forget(event_seq);
 
             current_key = match next_key {
-                // If the next action is scheduled at the same time, update the
+                // If the next event is scheduled at the same time, update the
                 // key and continue.
                 Some(k) if k.0 == current_key.0 => k,
-                // Otherwise wait until all actions have completed and return.
+                // Otherwise wait until all actions triggered by the events have
+                // completed and return.
                 _ => {
                     drop(scheduler_queue); // make sure the queue's mutex is released.
 
@@ -577,7 +578,7 @@ impl Simulation {
                             }
                         }
                     }
-                    self.run()?;
+                    self.run_executor()?;
 
                     return Ok(Some(current_time));
                 }
@@ -585,10 +586,10 @@ impl Simulation {
         }
     }
 
-    /// Iteratively advances simulation time and processes all actions scheduled
+    /// Iteratively advances simulation time and processes all events scheduled
     /// up to the specified target time.
     ///
-    /// Once the method returns it is guaranteed that (i) all actions scheduled
+    /// Once the method returns it is guaranteed that (i) all events scheduled
     /// up to the specified target time have completed and (ii) the final
     /// simulation time matches the target time.
     ///
@@ -602,7 +603,7 @@ impl Simulation {
             match self.step_to_next(target_time) {
                 // The target time was reached exactly.
                 Ok(time) if time == target_time => return Ok(()),
-                // No actions are scheduled before or at the target time.
+                // No events are scheduled before or at the target time.
                 Ok(None) => {
                     if let Some(target_time) = target_time {
                         // Update the simulation time.
@@ -718,42 +719,9 @@ impl Simulation {
             models: self.save_models()?,
             scheduler_queue: self.save_queue()?,
             time: self.time(),
-            cfg: None,
         };
         bincode::serde::encode_into_std_write(state, writer, serialization_config())
             .map_err(|e| SaveError::SimulationStateSerializationError { cause: Box::new(e) }.into())
-    }
-
-    /// Serializes simulation state together with CBOR serialized SimGen
-    /// configuration.
-    #[cfg(feature = "server")]
-    pub(crate) fn save_with_serialized_cfg<W: std::io::Write>(
-        &mut self,
-        serialized_cfg: Vec<u8>,
-        writer: &mut W,
-    ) -> Result<usize, ExecutionError> {
-        let state = SimulationState {
-            models: self.save_models()?,
-            scheduler_queue: self.save_queue()?,
-            time: self.time(),
-            cfg: Some(serialized_cfg),
-        };
-        bincode::serde::encode_into_std_write(state, writer, serialization_config())
-            .map_err(|e| SaveError::SimulationStateSerializationError { cause: Box::new(e) }.into())
-    }
-
-    /// Persists a serialized simulation state together with a SimGen
-    /// configuration object.
-    #[cfg(feature = "server")]
-    pub fn save_with_cfg<W: std::io::Write, C: Serialize>(
-        &mut self,
-        cfg: C,
-        writer: &mut W,
-    ) -> Result<usize, ExecutionError> {
-        let mut serialized_cfg = Vec::new();
-        ciborium::into_writer(&cfg, &mut serialized_cfg)
-            .map_err(|e| SaveError::ConfigSerializationError { cause: Box::new(e) })?;
-        self.save_with_serialized_cfg(serialized_cfg, writer)
     }
 
     /// Restore simulation state from a serialized data.
@@ -772,18 +740,6 @@ impl Simulation {
         })?;
         Ok(())
     }
-
-    /// Extract bench builder cfg from the serialized simulation state.
-    #[cfg(feature = "server")]
-    pub(crate) fn restore_cfg<R: std::io::Read>(
-        mut state: R,
-    ) -> Result<Option<Vec<u8>>, ExecutionError> {
-        let state: SimulationState =
-            bincode::serde::decode_from_std_read(&mut state, serialization_config()).map_err(
-                |e| RestoreError::SimulationStateDeserializationError { cause: Box::new(e) },
-            )?;
-        Ok(state.cfg)
-    }
 }
 
 impl fmt::Debug for Simulation {
@@ -797,7 +753,6 @@ impl fmt::Debug for Simulation {
 /// Internal helper struct organizing parts of a persisted simulation state.
 #[derive(Serialize, Deserialize)]
 struct SimulationState {
-    cfg: Option<Vec<u8>>,
     models: Vec<Vec<u8>>,
     scheduler_queue: Vec<u8>,
     time: MonotonicTime,
@@ -1210,24 +1165,25 @@ impl From<RestoreError> for ExecutionError {
     }
 }
 
-/// An error returned upon simulation execution or scheduling failure.
+/// An error returned upon bench building, simulation execution or scheduling
+/// failure.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum SimulationError {
-    /// The execution of the simulation failed.
+    /// Simulation bench building has failed.
+    BenchError(BenchError),
+    /// The execution of the simulation has failed.
     ExecutionError(ExecutionError),
-    /// An attempt to schedule an item failed.
+    /// An attempt to schedule an item has failed.
     SchedulingError(SchedulingError),
-    /// Simulation bench building failed.
-    InitError(InitError),
 }
 
 impl fmt::Display for SimulationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::BenchError(e) => e.fmt(f),
             Self::ExecutionError(e) => e.fmt(f),
             Self::SchedulingError(e) => e.fmt(f),
-            Self::InitError(e) => e.fmt(f),
         }
     }
 }
@@ -1235,10 +1191,16 @@ impl fmt::Display for SimulationError {
 impl Error for SimulationError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::BenchError(e) => Some(e),
             Self::ExecutionError(e) => Some(e),
             Self::SchedulingError(e) => Some(e),
-            Self::InitError(e) => Some(e),
         }
+    }
+}
+
+impl From<BenchError> for SimulationError {
+    fn from(e: BenchError) -> Self {
+        Self::BenchError(e)
     }
 }
 
@@ -1251,12 +1213,6 @@ impl From<ExecutionError> for SimulationError {
 impl From<SchedulingError> for SimulationError {
     fn from(e: SchedulingError) -> Self {
         Self::SchedulingError(e)
-    }
-}
-
-impl From<InitError> for SimulationError {
-    fn from(e: InitError) -> Self {
-        Self::InitError(e)
     }
 }
 

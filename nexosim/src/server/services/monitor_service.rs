@@ -1,14 +1,13 @@
-use std::fmt;
+use std::sync::Mutex;
 
 use futures_util::StreamExt;
-use tokio::sync::Mutex as TokioMutex;
 use tokio::time as tokio_time;
 
 use crate::endpoints::EventSinkRegistry;
 use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
-use super::{simulation_halted_error, to_error, to_positive_duration};
+use super::{simulation_not_started_error, to_error, to_positive_duration};
 
 /// Protobuf-based simulation monitor.
 ///
@@ -71,7 +70,7 @@ impl MonitorService {
 
                 Ok(encoded_events)
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -104,7 +103,7 @@ impl MonitorService {
                     })
                 }
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
     }
 
@@ -137,14 +136,8 @@ impl MonitorService {
                     })
                 }
             }
-            Self::Halted => Err(simulation_halted_error()),
+            Self::Halted => Err(simulation_not_started_error()),
         }
-    }
-}
-
-impl fmt::Debug for MonitorService {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SimulationService").finish_non_exhaustive()
     }
 }
 
@@ -155,7 +148,7 @@ impl fmt::Debug for MonitorService {
 /// needs `MonitorService` to be under a mutex so it can be locked twice: once
 /// to rent the sink and once to return it.
 pub(crate) async fn monitor_service_read_event(
-    service: &TokioMutex<MonitorService>,
+    service: &Mutex<MonitorService>,
     request: ReadEventRequest,
 ) -> Result<Vec<u8>, Error> {
     let sink_path: &NexosimPath = &request
@@ -166,7 +159,7 @@ pub(crate) async fn monitor_service_read_event(
 
     // Very important: the lock is released immediately after renting the
     // sink so we do not block concurrent `MonitorService` requests.
-    let mut sink = match &mut *service.lock().await {
+    let mut sink = match &mut *service.lock().unwrap() {
         MonitorService::Started {
             event_sink_registry,
         } => {
@@ -185,7 +178,7 @@ pub(crate) async fn monitor_service_read_event(
                 }
             }
         }
-        MonitorService::Halted => return Err(simulation_halted_error()),
+        MonitorService::Halted => return Err(simulation_not_started_error()),
     };
 
     // Await the event, possibly applying a timeout.
@@ -229,13 +222,13 @@ pub(crate) async fn monitor_service_read_event(
         });
 
     // Return the sink to the registry
-    match &mut *service.lock().await {
+    match &mut *service.lock().unwrap() {
         MonitorService::Started {
             event_sink_registry,
         } => {
             event_sink_registry.replace_entry(sink_path, sink).unwrap(); // always succeed: the sink name is registered
         }
-        MonitorService::Halted => return Err(simulation_halted_error()),
+        MonitorService::Halted => return Err(simulation_not_started_error()),
     };
 
     reply

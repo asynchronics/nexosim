@@ -1,8 +1,8 @@
 use std::error::Error;
-use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{fmt, mem};
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -24,7 +24,7 @@ use super::{
     Signal, Simulation, SimulationError, add_model,
 };
 
-type PostCallback = dyn FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static;
+type PostCallback = dyn FnOnce(&mut Simulation) -> Result<(), SimulationError> + Send + 'static;
 
 /// Builder for a multi-threaded, discrete-event simulation.
 pub struct SimInit {
@@ -146,7 +146,7 @@ impl SimInit {
     /// Initial event scheduling or input processing is possible at this stage.
     pub fn with_post_init(
         mut self,
-        callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
+        callback: impl FnOnce(&mut Simulation) -> Result<(), SimulationError> + Send + 'static,
     ) -> Self {
         self.post_init_callback = Some(Box::new(callback));
         self
@@ -160,7 +160,7 @@ impl SimInit {
     /// are also possible.
     pub fn with_post_restore(
         mut self,
-        callback: impl FnMut(&mut Simulation) -> Result<(), SimulationError> + 'static,
+        callback: impl FnOnce(&mut Simulation) -> Result<(), SimulationError> + Send + 'static,
     ) -> Self {
         self.post_restore_callback = Some(Box::new(callback));
         self
@@ -234,7 +234,7 @@ impl SimInit {
     /// preferred in all other cases.
     ///
     /// An error is returned if the path is already used by another event sink.
-    /// The error is convertible to an [`InitError`].
+    /// The error is convertible to an [`BenchError`].
     pub fn bind_event_sink<S, T>(
         &mut self,
         sink: S,
@@ -264,7 +264,7 @@ impl SimInit {
     /// preferred in all other cases.
     ///
     /// An error is returned if the path is already used by another event sink.
-    /// The error is convertible to an [`InitError`].
+    /// The error is convertible to an [`BenchError`].
     pub fn bind_event_sink_raw<S, T>(
         &mut self,
         sink: S,
@@ -289,11 +289,8 @@ impl SimInit {
     /// executing the [`Model::init`](crate::model::Model::init) method on all
     /// model initializers.
     ///
-    /// The simulation object and endpoints registry are returned upon success.
-    pub fn init_with_registry(
-        mut self,
-        start_time: MonotonicTime,
-    ) -> Result<(Simulation, Endpoints), SimulationError> {
+    /// The simulation object is returned upon success.
+    pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
         self.time.write(start_time);
         if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
             if let Some(tolerance) = &self.clock_tolerance {
@@ -304,22 +301,13 @@ impl SimInit {
         }
 
         let callback = self.post_init_callback.take();
-        let (mut simulation, endpoint_registry) = self.build();
-        if let Some(mut callback) = callback {
+        let mut simulation = self.build();
+        if let Some(callback) = callback {
             callback(&mut simulation)?;
         }
-        simulation.run()?;
+        simulation.run_executor()?;
 
-        Ok((simulation, endpoint_registry))
-    }
-
-    /// Builds a simulation initialized at the specified simulation time,
-    /// executing the [`Model::init`](crate::model::Model::init) method on all
-    /// model initializers.
-    ///
-    /// The simulation object is returned upon success.
-    pub fn init(self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
-        Ok(self.init_with_registry(start_time)?.0)
+        Ok(simulation)
     }
 
     /// Restores a simulation from a previously persisted state, executing the
@@ -327,31 +315,29 @@ impl SimInit {
     /// registered models.
     ///
     /// The simulation object is returned upon success.
-    pub fn restore<R: std::io::Read>(
-        mut self,
-        state: R,
-    ) -> Result<(Simulation, Endpoints), SimulationError> {
+    pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
         self.is_resumed.store(true, Ordering::Relaxed);
 
         let callback = self.post_restore_callback.take();
-        let (mut simulation, endpoint_registry) = self.build();
+
+        let mut simulation = self.build();
 
         simulation.restore(state)?;
 
-        if let Some(mut callback) = callback {
+        if let Some(callback) = callback {
             callback(&mut simulation)?;
         }
         // TODO should run?
-        simulation.run()?;
+        simulation.run_executor()?;
 
-        Ok((simulation, endpoint_registry))
+        Ok(simulation)
     }
 
     /// Adds an event source to the endpoint registry under the provided path.
     ///
     /// If the path is already used by another event source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_event_source<T>(
         &mut self,
         source: EventSource<T>,
@@ -370,7 +356,7 @@ impl SimInit {
     ///
     /// If the path is already used by another event source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_event_source_raw<T>(
         &mut self,
         source: EventSource<T>,
@@ -388,7 +374,7 @@ impl SimInit {
     ///
     /// If the path is already used by another query source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_query_source<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -409,7 +395,7 @@ impl SimInit {
     ///
     /// If the path is already used by another query source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`].
+    /// [`BenchError`].
     pub(crate) fn bind_query_source_raw<T, R>(
         &mut self,
         source: QuerySource<T, R>,
@@ -424,9 +410,21 @@ impl SimInit {
             .map_err(|(path, source)| DuplicateQuerySourceError { path, source })
     }
 
+    /// Take ownership of the current endpoint directory.
+    ///
+    /// This leaves the `SimInit` instance with an empty endpoint directory.
+    pub fn take_endpoints(&mut self) -> Endpoints {
+        Endpoints::new(
+            mem::take(&mut self.event_sink_registry),
+            mem::take(&mut self.event_sink_info_registry),
+            mem::take(&mut self.event_source_registry),
+            mem::take(&mut self.query_source_registry),
+        )
+    }
+
     /// Builds a [`Simulation`] from this [`SimInit`] instance.
-    fn build(self) -> (Simulation, Endpoints) {
-        let simulation = Simulation::new(
+    fn build(self) -> Simulation {
+        Simulation::new(
             self.executor,
             self.scheduler_queue,
             self.scheduler_registry,
@@ -437,15 +435,7 @@ impl SimInit {
             self.observers,
             self.registered_models,
             self.is_halted,
-        );
-        let endpoint_registry = Endpoints::new(
-            self.event_sink_registry,
-            self.event_sink_info_registry,
-            self.event_source_registry,
-            self.query_source_registry,
-        );
-
-        (simulation, endpoint_registry)
+        )
     }
 }
 
@@ -461,10 +451,10 @@ impl fmt::Debug for SimInit {
     }
 }
 
-/// Error returned when the initialization of a simulation fails.
+/// Error returned when the construction of a simulation bench fails.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum InitError {
+pub enum BenchError {
     /// An attempt to add an input or event source failed because the provided
     /// path is already in use by another event source.
     DuplicateEventSource(Path),
@@ -476,7 +466,7 @@ pub enum InitError {
     DuplicateEventSink(Path),
 }
 
-impl fmt::Display for InitError {
+impl fmt::Display for BenchError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateEventSource(path) => write!(
@@ -494,7 +484,7 @@ impl fmt::Display for InitError {
         }
     }
 }
-impl Error for InitError {}
+impl Error for BenchError {}
 
 /// Error returned when attempting to bind an event source to an existing path.
 pub struct DuplicateEventSourceError<T>
@@ -535,7 +525,7 @@ impl<T> Error for DuplicateEventSourceError<T> where
 }
 
 impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> From<DuplicateEventSourceError<T>>
-    for InitError
+    for BenchError
 {
     fn from(e: DuplicateEventSourceError<T>) -> Self {
         Self::DuplicateEventSource(e.path)
@@ -568,7 +558,7 @@ impl<S> fmt::Debug for DuplicateQuerySourceError<S> {
 }
 impl<S> Error for DuplicateQuerySourceError<S> {}
 
-impl<S> From<DuplicateQuerySourceError<S>> for InitError {
+impl<S> From<DuplicateQuerySourceError<S>> for BenchError {
     fn from(e: DuplicateQuerySourceError<S>) -> Self {
         Self::DuplicateQuerySource(e.path)
     }
@@ -591,7 +581,7 @@ impl fmt::Display for DuplicateEventSinkError {
 }
 impl Error for DuplicateEventSinkError {}
 
-impl From<DuplicateEventSinkError> for InitError {
+impl From<DuplicateEventSinkError> for BenchError {
     fn from(e: DuplicateEventSinkError) -> Self {
         Self::DuplicateEventSink(e.path)
     }

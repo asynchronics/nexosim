@@ -141,7 +141,7 @@ impl<T: Message + Serialize + DeserializeOwned + Clone + Send + 'static> EventSo
     ///
     /// If the path is already used by another event source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`](crate::simulation::InitError).
+    /// [`BenchError`](crate::simulation::BenchError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
@@ -161,7 +161,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     ///
     /// If the path is already used by another event source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`](crate::simulation::InitError).
+    /// [`BenchError`](crate::simulation::BenchError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client or via the [Endpoints](crate::endpoints::Endpoints) API.
@@ -338,7 +338,7 @@ impl<
     ///
     /// If the path is already used by another query source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`](crate::simulation::InitError).
+    /// [`BenchError`](crate::simulation::BenchError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use
@@ -360,7 +360,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Se
     ///
     /// If the path is already used by another query source, the source provided
     /// as argument is returned in the error. The error is convertible to an
-    /// [`InitError`](crate::simulation::InitError).
+    /// [`BenchError`](crate::simulation::BenchError).
     ///
     /// This is typically only of interest when controlling the simulation from
     /// a remote client. For simulations controlled from Rust, use

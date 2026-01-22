@@ -285,7 +285,7 @@
 //!    deadline with
 //!    [`Simulation::step_until`](simulation::Simulation::step_until), or until
 //!    there are no more scheduled events with
-//!    [`Simulation::step_unbounded`](simulation::Simulation::step_unbounded).
+//!    [`Simulation::run`](simulation::Simulation::run).
 //! 2. by sending events or queries without advancing simulation time, using
 //!    [`Simulation::process_event`](simulation::Simulation::process_event) or
 //!    [`Simulation::send_query`](simulation::Simulation::process_query),

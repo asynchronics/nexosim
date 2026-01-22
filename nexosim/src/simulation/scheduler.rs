@@ -199,9 +199,9 @@ impl Scheduler {
     ///
     /// If a multi-step method such as
     /// [`Simulation::step_until`](crate::simulation::Simulation::step_until) or
-    /// [`Simulation::step_unbounded`](crate::simulation::Simulation::step_unbounded)
-    /// is concurrently being executed, this will cause such method to return
-    /// before it steps to next scheduler deadline (if any) with
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is concurrently
+    /// being executed, this will cause such method to return before it steps to
+    /// next scheduler deadline (if any) with
     /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted).
     ///
     /// Otherwise, this will cause the next call to a `Simulation::step*` or
