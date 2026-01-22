@@ -16,6 +16,7 @@ on:
       - 'nexosim/src/util/cached_rw_lock.rs'
       - 'nexosim/src/util/slot.rs'
       - 'nexosim/src/util/sync_cell.rs'
+      - 'nexosim/src/util/shared_cell.rs'
   push:
     branches: [ main ]
     paths:
@@ -31,6 +32,7 @@ on:
       - 'nexosim/src/util/cached_rw_lock.rs'
       - 'nexosim/src/util/slot.rs'
       - 'nexosim/src/util/sync_cell.rs'
+      - 'nexosim/src/util/shared_cell.rs'
 
 jobs:
   loom:

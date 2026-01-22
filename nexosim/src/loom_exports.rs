@@ -48,6 +48,16 @@ pub(crate) mod cell {
     }
 }
 
+#[cfg(all(test, nexosim_loom))]
+pub(crate) fn loom_builder(default_preemption_bound: usize) -> loom::model::Builder {
+    let mut builder = loom::model::Builder::new();
+    if builder.preemption_bound.is_none() {
+        builder.preemption_bound = Some(default_preemption_bound);
+    }
+
+    builder
+}
+
 #[allow(unused_macros)]
 macro_rules! debug_or_loom_assert {
     ($($arg:tt)*) => (if cfg!(any(debug_assertions, nexosim_loom)) { assert!($($arg)*); })

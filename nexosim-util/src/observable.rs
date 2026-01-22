@@ -9,7 +9,7 @@
 //!
 //! ```rust
 //! use nexosim::model::{Context, InitializedModel, Model};
-//! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
+//! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::Observable;
@@ -70,7 +70,7 @@
 //!     .connect(Counter::pulse, &counter_mbox)
 //!     .register(&mut bench);
 //!
-//! let (sink, mut count) = event_queue(SinkState::Enabled);
+//! let (sink, mut count) = event_slot(SinkState::Enabled);
 //! counter.count.connect_sink(sink);
 //!
 //! // Assembly and initialization.
@@ -102,7 +102,7 @@
 //! use serde::{Serialize, Deserialize};
 //!
 //! use nexosim::model::{schedulable, Context, InitializedModel, Model};
-//! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
+//! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //! use nexosim_util::observable::{Observable, Observe};
@@ -212,7 +212,7 @@
 //!     .connect(Processor::process, &proc_mbox)
 //!     .register(&mut bench);
 //!
-//! let (sink, mut mode) = event_queue(SinkState::Enabled);
+//! let (sink, mut mode) = event_slot(SinkState::Enabled);
 //! proc.mode.connect_sink(sink);
 //!
 //! // Assembly and initialization.

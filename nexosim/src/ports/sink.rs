@@ -3,6 +3,7 @@ use std::fmt;
 use futures_core::stream::Stream;
 
 pub(crate) mod event_queue;
+pub(crate) mod event_slot;
 
 /// A writer handle to an event sink.
 pub trait EventSinkWriter<T>: Clone + Send + Sync + 'static {
