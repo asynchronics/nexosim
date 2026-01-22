@@ -69,8 +69,6 @@ impl BuildService {
     }
 
     /// Initializes the simulation.
-    ///
-    /// The bench is also built if necessary.
     pub(crate) fn init(&mut self, request: InitRequest) -> Result<(Simulation, Endpoints), Error> {
         let Some(mut bench) = self.bench.take() else {
             return Err(bench_not_built_error());
@@ -91,8 +89,6 @@ impl BuildService {
     }
 
     /// Restore the simulation from a serialized state.
-    ///
-    /// The bench is also built if necessary.
     pub(crate) fn restore(
         &mut self,
         request: RestoreRequest,
