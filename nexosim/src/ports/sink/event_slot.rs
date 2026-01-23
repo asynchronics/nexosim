@@ -204,3 +204,124 @@ impl<T: Send> fmt::Debug for EventSlotWriter<T> {
             .finish_non_exhaustive()
     }
 }
+
+//
+#[cfg(all(test, not(nexosim_loom)))]
+mod tests {
+    #[cfg(not(miri))]
+    use std::thread;
+    #[cfg(not(miri))]
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn event_slot_try_read_single_threaded() {
+        let (writer, mut reader) = event_slot(SinkState::Enabled);
+
+        assert!(reader.try_read().is_none());
+        writer.write(123);
+        assert_eq!(reader.try_read(), Some(123));
+        writer.write(7);
+        writer.write(42);
+        assert_eq!(reader.try_read(), Some(42));
+    }
+
+    #[test]
+    fn event_slot_read_drop_single_threaded() {
+        let (writer1, mut reader) = event_slot(SinkState::Enabled);
+        let writer2 = writer1.clone();
+
+        writer1.write(123);
+        drop(writer1);
+        drop(writer2);
+        assert_eq!(reader.read(), Some(123));
+        assert!(reader.read().is_none());
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn event_slot_try_read_multi_threaded() {
+        let (writer, mut reader) = event_slot(SinkState::Enabled);
+
+        assert!(reader.try_read().is_none());
+        let th = thread::spawn(move || {
+            writer.write(123);
+
+            // Keep the writer alive.
+            thread::sleep(Duration::from_millis(20));
+        });
+
+        // Give the writer enough time to write the value.
+        thread::sleep(Duration::from_millis(10));
+
+        assert_eq!(reader.try_read(), Some(123));
+
+        th.join().unwrap();
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn event_slot_read_multi_threaded() {
+        let (writer1, mut reader) = event_slot(SinkState::Enabled);
+        let writer2 = writer1.clone();
+
+        let th1 = thread::spawn(move || {
+            // Keep the reader waiting to check that it gets notified.
+            thread::sleep(Duration::from_millis(10));
+
+            writer1.write(123);
+
+            // Keep the writer alive.
+            thread::sleep(Duration::from_millis(30));
+        });
+
+        let th2 = thread::spawn(move || {
+            // Keep the reader waiting to check that it gets notified.
+            thread::sleep(Duration::from_millis(20));
+
+            writer2.write(42);
+
+            // Keep the writer alive.
+            thread::sleep(Duration::from_millis(20));
+        });
+
+        assert_eq!(reader.read(), Some(123));
+        assert_eq!(reader.read(), Some(42));
+        assert!(reader.try_read().is_none());
+
+        th1.join().unwrap();
+        th2.join().unwrap();
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn event_slot_drop_multi_threaded() {
+        let (writer1, mut reader) = event_slot(SinkState::Enabled);
+
+        let writer2 = writer1.clone();
+
+        let th1 = thread::spawn(move || drop(writer1));
+
+        let th2 = thread::spawn(move || {
+            // Keep the reader waiting to verify that it gets notified of the
+            // write operation.
+            thread::sleep(Duration::from_millis(10));
+
+            writer2.write(123);
+
+            // Keep the reader waiting to verify that it gets notified of the
+            // dropped writer once the timer elapses.
+            thread::sleep(Duration::from_millis(10));
+        });
+
+        // Expect a value.
+        assert_eq!(reader.read(), Some(123));
+
+        // Expect all writers to be dropped.
+        assert!(reader.read().is_none());
+
+        th1.join().unwrap();
+        th2.join().unwrap();
+    }
+}
