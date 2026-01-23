@@ -5,6 +5,7 @@ pub(crate) mod priority_queue;
 pub(crate) mod rng;
 pub(crate) mod seq_futures;
 pub(crate) mod serialization;
+pub(crate) mod shared_cell;
 pub(crate) mod slot;
 pub(crate) mod sync_cell;
 pub(crate) mod task_set;

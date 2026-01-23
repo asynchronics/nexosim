@@ -1,214 +1,327 @@
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, TryLockError, TryLockResult};
-use std::time::{Duration, Instant};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::task::{Context, Poll};
 
-#[allow(deprecated)]
-use super::EventSinkStream;
-use super::{EventSink, EventSinkReader, EventSinkWriter};
+use diatomic_waker::{WakeSink, WakeSource};
+use futures_core::Stream;
+use futures_util::stream::StreamExt;
+use serde::Serialize;
 
-/// The shared data of an `EventSlot`.
-struct Inner<T> {
-    is_open: AtomicBool,
-    slot: Mutex<Option<T>>,
-    waker: Condvar,
-}
+use crate::model::Message;
+use crate::path::Path;
+use crate::simulation::{DuplicateEventSinkError, SimInit};
+use crate::util::shared_cell::SharedCell;
 
-/// An iterator implementing [`EventSink`] and [`EventSinkReader`] that only
-/// keeps the last event.
+use super::{EventSinkReader, EventSinkWriter, SinkState};
+
+/// Creates an event slot.
 ///
-/// Once the value is read, the iterator will return `None` until a new value is
-/// received. If the slot contains a value when a new value is received, the
-/// previous value is overwritten.
+/// This function returns an [`EventSlotReader`] and an [`EventSlotWriter`]
+/// which implement [`EventSinkReader`] and [`EventSinkWriter`], respectively.
+pub fn event_slot<T: Send>(state: SinkState) -> (EventSlotWriter<T>, EventSlotReader<T>) {
+    // Create an event slot with one writer.
+    let event_slot = Arc::new(EventSlot {
+        is_enabled: AtomicBool::new(state == SinkState::Enabled),
+        writer_count: AtomicUsize::new(1),
+        cell: SharedCell::new(),
+    });
+
+    let wake_sink = WakeSink::new();
+    let wake_source = wake_sink.source();
+
+    let reader = EventSlotReader {
+        inner: event_slot.clone(),
+        wake_sink,
+    };
+    let writer = EventSlotWriter {
+        inner: event_slot,
+        wake_source,
+    };
+
+    (writer, reader)
+}
+
+/// Creates an event slot, adding it as a simulation endpoint sink under the
+/// provided path.
 ///
-/// The read operation can be blocking or non-blocking depending on mode.
+/// This is a convenience function and is equivalent to calling [`event_slot`]
+/// and immediately registering the reader as an endpoint with
+/// [`SimInit::bind_event_sink`].
+pub fn event_slot_endpoint<T: Message + Serialize + Send + 'static>(
+    sim_init: &mut SimInit,
+    state: SinkState,
+    path: impl Into<Path>,
+) -> Result<EventSlotWriter<T>, DuplicateEventSinkError> {
+    let (writer, reader) = event_slot(state);
+
+    sim_init.bind_event_sink(reader, path).map(|()| writer)
+}
+
+/// Creates an event slot, adding it as a simulation endpoint sink under the
+/// provided path without requiring a [`Message`] implementation for its item
+/// type.
 ///
-/// `None` is returned
-/// * when all writer handles have been dropped (i.e. the `Simulation` object
-///   has been dropped);
-/// * on timeout if one has been set;
-/// * when there are no events at the moment (in the non-blocking mode).
-pub struct EventSlot<T> {
-    inner: Arc<Inner<T>>,
-    is_blocking: bool,
-    timeout: Duration,
+/// This is a convenience function and is equivalent to calling [`event_slot`]
+/// and immediately registering the reader as an endpoint with
+/// [`SimInit::bind_event_sink_raw`].
+pub fn event_slot_endpoint_raw<T: Serialize + Send + 'static>(
+    sim_init: &mut SimInit,
+    state: SinkState,
+    path: impl Into<Path>,
+) -> Result<EventSlotWriter<T>, DuplicateEventSinkError> {
+    let (writer, reader) = event_slot(state);
+
+    sim_init.bind_event_sink_raw(reader, path).map(|()| writer)
 }
 
-impl<T> EventSlot<T> {
-    /// Creates an open `EventSlot`.
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                is_open: AtomicBool::new(true),
-                slot: Mutex::new(None),
-                waker: Condvar::new(),
-            }),
-            is_blocking: false,
-            timeout: Duration::ZERO,
-        }
-    }
+/// Internal data of an event slot.
+#[derive(Default)]
+struct EventSlot<T: Send> {
+    is_enabled: AtomicBool,
+    writer_count: AtomicUsize,
+    cell: SharedCell<T>,
+}
 
-    /// Creates a closed `EventSlot`.
-    pub fn new_closed() -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                is_open: AtomicBool::new(false),
-                slot: Mutex::new(None),
-                waker: Condvar::new(),
-            }),
-            is_blocking: false,
-            timeout: Duration::ZERO,
-        }
-    }
-
-    /// Creates an open blocking `EventSlot`.
-    pub fn new_blocking() -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                is_open: AtomicBool::new(true),
-                slot: Mutex::new(None),
-                waker: Condvar::new(),
-            }),
-            is_blocking: true,
-            timeout: Duration::ZERO,
-        }
+impl<T: Send> fmt::Debug for EventSlot<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("EventSlotReader")
+            .field("is_enabled", &self.is_enabled.load(Ordering::Relaxed))
+            .field("writer_count", &self.writer_count.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
     }
 }
 
-impl<T: Send + 'static> EventSink<T> for EventSlot<T> {
-    type Writer = EventSlotWriter<T>;
-
-    /// Returns a writer handle.
-    fn writer(&self) -> EventSlotWriter<T> {
-        EventSlotWriter {
-            inner: self.inner.clone(),
-        }
-    }
+/// The unique consumer handle of an event slot.
+///
+/// Implements [`EventSinkReader`].
+pub struct EventSlotReader<T: Send> {
+    inner: Arc<EventSlot<T>>,
+    wake_sink: WakeSink,
 }
 
-impl<T> Iterator for EventSlot<T> {
+impl<T: Send> Stream for EventSlotReader<T> {
     type Item = T;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.is_blocking {
-            let mut slot = self.inner.slot.lock().unwrap();
-            let start = Instant::now();
-            while slot.is_none() {
-                if self.timeout.is_zero() {
-                    slot = self.inner.waker.wait(slot).unwrap();
-                } else {
-                    let (sl, timeout_result) =
-                        self.inner.waker.wait_timeout(slot, self.timeout).unwrap();
-                    slot = sl;
-                    if timeout_result.timed_out() || start.elapsed() >= self.timeout {
-                        break;
-                    }
-                }
-            }
-            slot.take()
-        } else {
-            match self.inner.slot.try_lock() {
-                TryLockResult::Ok(mut v) => v.take(),
-                TryLockResult::Err(TryLockError::WouldBlock) => None,
-                TryLockResult::Err(TryLockError::Poisoned(_)) => panic!(),
-            }
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Avoid waker registration if an event is readily available.
+        if let Some(event) = self.inner.cell.try_read() {
+            return Poll::Ready(Some(event));
         }
-    }
-}
 
-#[allow(deprecated)]
-impl<T: Send + 'static> EventSinkStream for EventSlot<T> {
-    fn open(&mut self) {
-        self.inner.is_open.store(true, Ordering::Relaxed);
-    }
-    fn close(&mut self) {
-        self.inner.is_open.store(false, Ordering::Relaxed);
-    }
-}
+        // Register the waker to be polled again once a value is available.
+        self.wake_sink.register(cx.waker());
 
-impl<T: Send + 'static> EventSinkReader for EventSlot<T> {
-    fn open(&mut self) {
-        self.inner.is_open.store(true, Ordering::Relaxed);
-    }
+        // Check again after registering the waker to prevent a race condition.
+        if let Some(event) = self.inner.cell.try_read() {
+            self.wake_sink.unregister();
 
-    fn close(&mut self) {
-        self.inner.is_open.store(false, Ordering::Relaxed);
-    }
+            return Poll::Ready(Some(event));
+        } else if self.inner.writer_count.load(Ordering::Relaxed) == 0 {
+            // If there is no event available and no writer left, the stream is
+            // exhausted.
+            self.wake_sink.unregister();
 
-    fn set_blocking(&mut self, blocking: bool) {
-        self.is_blocking = blocking;
-    }
-
-    fn set_timeout(&mut self, timeout: Duration) {
-        self.timeout = timeout;
-    }
-}
-
-impl<T> Default for EventSlot<T> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T> Clone for EventSlot<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            is_blocking: self.is_blocking,
-            timeout: self.timeout,
+            return Poll::Ready(None);
         }
+
+        Poll::Pending
     }
 }
 
-impl<T> fmt::Debug for EventSlot<T> {
+impl<T: Send + 'static> EventSinkReader<T> for EventSlotReader<T> {
+    fn enable(&mut self) {
+        self.inner.is_enabled.store(true, Ordering::Relaxed);
+    }
+
+    fn disable(&mut self) {
+        self.inner.is_enabled.store(false, Ordering::Relaxed);
+    }
+
+    fn try_read(&mut self) -> Option<T> {
+        self.inner.cell.try_read()
+    }
+
+    fn read(&mut self) -> Option<T> {
+        pollster::block_on(self.next())
+    }
+}
+
+impl<T: Send> fmt::Debug for EventSlotReader<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("EventSlot").finish_non_exhaustive()
+        f.debug_struct("EventSlotReader")
+            .field("inner", &self.inner)
+            .finish_non_exhaustive()
     }
 }
 
-/// A writer handle of an `EventSlot`.
-pub struct EventSlotWriter<T> {
-    inner: Arc<Inner<T>>,
+/// A cloneable producer handle of an event slot.
+pub struct EventSlotWriter<T: Send> {
+    inner: Arc<EventSlot<T>>,
+    wake_source: WakeSource,
 }
 
 impl<T: Send + 'static> EventSinkWriter<T> for EventSlotWriter<T> {
-    /// Write an event into the slot.
     fn write(&self, event: T) {
-        // Ignore if the sink is closed.
-        if !self.inner.is_open.load(Ordering::Relaxed) {
+        if !self.inner.is_enabled.load(Ordering::Relaxed) {
             return;
         }
 
-        // TODO: recheck this taking into account current design and use-cases.
-        //
-        // Why do we just use `try_lock` and abandon if the lock is taken? The
-        // reason is that (i) the reader is never supposed to access the slot
-        // when the simulation runs and (ii) as a rule the simulator does not
-        // warrant fairness when concurrently writing to an input. Therefore, if
-        // the mutex is already locked when this writer attempts to lock it, it
-        // means another writer is concurrently writing an event, and that event
-        // is just as legitimate as ours so there is not need to overwrite it.
-        match self.inner.slot.try_lock() {
-            TryLockResult::Ok(mut v) => {
-                *v = Some(event);
-                self.inner.waker.notify_one();
-            }
-            TryLockResult::Err(TryLockError::WouldBlock) => {}
-            TryLockResult::Err(TryLockError::Poisoned(_)) => panic!(),
+        // Notify the reader if the write is successful. Otherwise, bail out
+        // since it means another concurrent writer succeeded.
+        if self.inner.cell.try_write(event).is_ok() {
+            self.wake_source.notify();
         }
     }
 }
 
-impl<T> Clone for EventSlotWriter<T> {
+impl<T: Send> Drop for EventSlotWriter<T> {
+    fn drop(&mut self) {
+        if self.inner.writer_count.fetch_sub(1, Ordering::Relaxed) == 1 {
+            // This was the last writer: we need to notify the sink that no new
+            // events are expected.
+            self.wake_source.notify();
+        }
+    }
+}
+
+impl<T: Send> Clone for EventSlotWriter<T> {
     fn clone(&self) -> Self {
+        self.inner.writer_count.fetch_add(1, Ordering::Relaxed);
+
         Self {
             inner: self.inner.clone(),
+            wake_source: self.wake_source.clone(),
         }
     }
 }
 
-impl<T> fmt::Debug for EventSlotWriter<T> {
+impl<T: Send> fmt::Debug for EventSlotWriter<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("EventStreamWriter").finish_non_exhaustive()
+        f.debug_struct("EventSlotWriter")
+            .field("inner", &self.inner)
+            .finish_non_exhaustive()
+    }
+}
+
+//
+#[cfg(all(test, not(nexosim_loom)))]
+mod tests {
+    #[cfg(not(miri))]
+    use std::thread;
+    #[cfg(not(miri))]
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn event_slot_try_read_single_threaded() {
+        let (writer, mut reader) = event_slot(SinkState::Enabled);
+
+        assert!(reader.try_read().is_none());
+        writer.write(123);
+        assert_eq!(reader.try_read(), Some(123));
+        writer.write(7);
+        writer.write(42);
+        assert_eq!(reader.try_read(), Some(42));
+    }
+
+    #[test]
+    fn event_slot_read_drop_single_threaded() {
+        let (writer1, mut reader) = event_slot(SinkState::Enabled);
+        let writer2 = writer1.clone();
+
+        writer1.write(123);
+        drop(writer1);
+        drop(writer2);
+        assert_eq!(reader.read(), Some(123));
+        assert!(reader.read().is_none());
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn event_slot_try_read_multi_threaded() {
+        let (writer, mut reader) = event_slot(SinkState::Enabled);
+
+        assert!(reader.try_read().is_none());
+        let th = thread::spawn(move || {
+            writer.write(123);
+
+            // Keep the writer alive.
+            thread::sleep(Duration::from_millis(20));
+        });
+
+        // Give the writer enough time to write the value.
+        thread::sleep(Duration::from_millis(10));
+
+        assert_eq!(reader.try_read(), Some(123));
+
+        th.join().unwrap();
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn event_slot_read_multi_threaded() {
+        let (writer1, mut reader) = event_slot(SinkState::Enabled);
+        let writer2 = writer1.clone();
+
+        let th1 = thread::spawn(move || {
+            // Keep the reader waiting to check that it gets notified.
+            thread::sleep(Duration::from_millis(10));
+
+            writer1.write(123);
+
+            // Keep the writer alive.
+            thread::sleep(Duration::from_millis(30));
+        });
+
+        let th2 = thread::spawn(move || {
+            // Keep the reader waiting to check that it gets notified.
+            thread::sleep(Duration::from_millis(20));
+
+            writer2.write(42);
+
+            // Keep the writer alive.
+            thread::sleep(Duration::from_millis(20));
+        });
+
+        assert_eq!(reader.read(), Some(123));
+        assert_eq!(reader.read(), Some(42));
+        assert!(reader.try_read().is_none());
+
+        th1.join().unwrap();
+        th2.join().unwrap();
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn event_slot_drop_multi_threaded() {
+        let (writer1, mut reader) = event_slot(SinkState::Enabled);
+
+        let writer2 = writer1.clone();
+
+        let th1 = thread::spawn(move || drop(writer1));
+
+        let th2 = thread::spawn(move || {
+            // Keep the reader waiting to verify that it gets notified of the
+            // write operation.
+            thread::sleep(Duration::from_millis(10));
+
+            writer2.write(123);
+
+            // Keep the reader waiting to verify that it gets notified of the
+            // dropped writer once the timer elapses.
+            thread::sleep(Duration::from_millis(10));
+        });
+
+        // Expect a value.
+        assert_eq!(reader.read(), Some(123));
+
+        // Expect all writers to be dropped.
+        assert!(reader.read().is_none());
+
+        th1.join().unwrap();
+        th2.join().unwrap();
     }
 }

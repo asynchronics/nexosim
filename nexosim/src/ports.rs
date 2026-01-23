@@ -290,6 +290,9 @@ pub use sink::{
         EventQueueReader, EventQueueWriter, event_queue, event_queue_endpoint,
         event_queue_endpoint_raw,
     },
+    event_slot::{
+        EventSlotReader, EventSlotWriter, event_slot, event_slot_endpoint, event_slot_endpoint_raw,
+    },
 };
 pub use source::{EventSource, QuerySource, ReplyReader};
 

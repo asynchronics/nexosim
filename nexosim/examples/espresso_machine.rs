@@ -30,14 +30,13 @@
 //!                      (-)
 //! ```
 
-use std::iter;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use nexosim::Message;
 use nexosim::model::{Context, InitializedModel, Model, schedulable};
-use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 use nexosim::simulation::{EventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -374,7 +373,7 @@ fn main() -> Result<(), SimulationError> {
         .connect(Tank::fill, &tank_mbox)
         .register(&mut bench);
 
-    let (sink, mut flow_rate) = event_queue(SinkState::Enabled);
+    let (sink, mut flow_rate) = event_slot(SinkState::Enabled);
     pump.flow_rate.connect_sink(sink);
 
     // Assembly and initialization.
@@ -421,7 +420,7 @@ fn main() -> Result<(), SimulationError> {
     simu.step()?;
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
-    let last_flow_rate = iter::from_fn(|| flow_rate.try_read()).last();
+    let last_flow_rate = flow_rate.try_read();
     assert_eq!(last_flow_rate, Some(0.0));
 
     // Try to brew another shot while the tank is still empty.

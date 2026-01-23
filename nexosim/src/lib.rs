@@ -230,7 +230,7 @@
 //! #     }
 //! # }
 //! use std::time::Duration;
-//! use nexosim::ports::{EventSource, SinkState, event_queue};
+//! use nexosim::ports::{EventSource, SinkState, event_slot};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
 //!
@@ -261,7 +261,7 @@
 //!     .connect(Multiplier::input, &multiplier1_mbox)
 //!     .register(&mut bench);
 //!
-//! let (sink, mut output) = event_queue(SinkState::Enabled);
+//! let (sink, mut output) = event_slot(SinkState::Enabled);
 //! delay2.output.connect_sink(sink);
 //!
 //! // Pick an arbitrary simulation start time and build the simulation.
@@ -299,9 +299,9 @@
 //! such as [`AutoSystemClock`](time::AutoSystemClock).
 //!
 //! Simulation outputs can be monitored using
-//! [`event_queue`](ports::event_queue)s, or any implementer of the
-//! [`EventSinkWriter`](ports::EventSinkWriter) trait connected to one or
-//! several model output ports.
+//! [`event_slot`](ports::event_slot)s, [`event_queue`](ports::event_queue)s, or
+//! any implementer of the [`EventSinkWriter`](ports::EventSinkWriter) trait
+//! connected to one or several model output ports.
 //!
 //! This is an example of simulation that could be performed using the above
 //! bench assembly:
@@ -340,7 +340,7 @@
 //! #     }
 //! # }
 //! # use std::time::Duration;
-//! # use nexosim::ports::{EventSinkReader, EventSource, SinkState, event_queue};
+//! # use nexosim::ports::{EventSinkReader, EventSource, SinkState, event_slot};
 //! # use nexosim::simulation::{Mailbox, SimInit};
 //! # use nexosim::time::MonotonicTime;
 //! # use models::{Delay, Multiplier};
@@ -360,7 +360,7 @@
 //! # let input = EventSource::new()
 //! #     .connect(Multiplier::input, &multiplier1_mbox)
 //! #     .register(&mut bench);
-//! # let (sink, mut output) = event_queue(SinkState::Enabled);
+//! # let (sink, mut output) = event_slot(SinkState::Enabled);
 //! # delay2.output.connect_sink(sink);
 //! # let t0 = MonotonicTime::EPOCH;
 //! # let mut simu = bench

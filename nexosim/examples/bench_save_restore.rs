@@ -33,7 +33,9 @@
 use std::time::Duration;
 
 use nexosim::endpoints::Endpoints;
-use nexosim::ports::{EventSinkReader, EventSource, QuerySource, SinkState, event_queue_endpoint};
+use nexosim::ports::{
+    EventSinkReader, EventSource, QuerySource, SinkState, event_queue_endpoint, event_slot_endpoint,
+};
 use nexosim::simulation::{
     BenchError, EventId, Mailbox, QueryId, SimInit, Simulation, SimulationError,
 };
@@ -89,9 +91,9 @@ pub fn build_bench((pump_flow_rate, init_tank_volume): (f64, f64)) -> Result<Sim
 
     let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "pump_cmd")?;
     controller.pump_cmd.connect_sink(sink);
-    let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "flow_rate")?;
+    let sink = event_slot_endpoint(&mut bench, SinkState::Enabled, "flow_rate")?;
     pump.flow_rate.connect_sink(sink);
-    let sink = event_queue_endpoint(&mut bench, SinkState::Enabled, "water_sense")?;
+    let sink = event_slot_endpoint(&mut bench, SinkState::Enabled, "water_sense")?;
     tank.water_sense.connect_sink(sink);
 
     // Bench assembly.
@@ -142,10 +144,7 @@ fn run_simulation(
     simu.step()?;
     assert!(simu.time() < t + Controller::DEFAULT_BREW_TIME);
     t = simu.time();
-    assert_eq!(
-        std::iter::from_fn(|| flow_rate.try_read()).last(),
-        Some(0.0)
-    );
+    assert_eq!(flow_rate.try_read(), Some(0.0));
     assert_eq!(simu.process_query(&volume, ()).unwrap(), 0.0);
 
     // Try to brew another shot while the tank is still empty.

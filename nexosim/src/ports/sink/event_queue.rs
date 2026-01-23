@@ -123,7 +123,6 @@ pub struct EventQueueWriter<T: Send> {
 }
 
 impl<T: Send + 'static> EventSinkWriter<T> for EventQueueWriter<T> {
-    /// Pushes an event onto the queue.
     fn write(&self, event: T) {
         if !self.is_enabled.load(Ordering::Relaxed) {
             return;

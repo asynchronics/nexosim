@@ -29,7 +29,7 @@
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::Model;
-use nexosim::ports::{EventSinkReader, EventSource, Output, Requestor, SinkState, event_queue};
+use nexosim::ports::{EventSinkReader, EventSource, Output, Requestor, SinkState, event_slot};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -132,13 +132,13 @@ fn main() -> Result<(), SimulationError> {
         .connect(PowerSupply::voltage_setting, &psu_mbox)
         .register(&mut bench);
 
-    let (sink, mut psu_power) = event_queue(SinkState::Enabled);
+    let (sink, mut psu_power) = event_slot(SinkState::Enabled);
     psu.power.connect_sink(sink);
-    let (sink, mut load1_power) = event_queue(SinkState::Enabled);
+    let (sink, mut load1_power) = event_slot(SinkState::Enabled);
     load1.power.connect_sink(sink);
-    let (sink, mut load2_power) = event_queue(SinkState::Enabled);
+    let (sink, mut load2_power) = event_slot(SinkState::Enabled);
     load2.power.connect_sink(sink);
-    let (sink, mut load3_power) = event_queue(SinkState::Enabled);
+    let (sink, mut load3_power) = event_slot(SinkState::Enabled);
     load3.power.connect_sink(sink);
 
     // Assembly and initialization.

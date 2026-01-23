@@ -3,6 +3,7 @@ use std::fmt;
 use futures_core::stream::Stream;
 
 pub(crate) mod event_queue;
+pub(crate) mod event_slot;
 
 /// A writer handle to an event sink.
 pub trait EventSinkWriter<T>: Clone + Send + Sync + 'static {
@@ -28,7 +29,8 @@ pub trait EventSinkReader<T>: Stream<Item = T> + Unpin {
     /// Returns the next event, blocking the thread until the event becomes
     /// available if necessary.
     ///
-    /// Returns `None` if all writers were dropped.
+    /// Returns `None` if all writers were dropped and there is no more event to
+    /// be read.
     fn read(&mut self) -> Option<T>;
 }
 
