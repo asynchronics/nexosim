@@ -50,10 +50,13 @@
 
 mod clock;
 mod monotonic_time;
+mod ticker;
 
 pub use tai_time::MonotonicTime;
 
 pub use clock::{AutoSystemClock, Clock, NoClock, SyncStatus, SystemClock};
+pub use ticker::{PeriodicTicker, Ticker};
+
 pub(crate) use monotonic_time::TearableAtomicTime;
 
 pub(crate) type AtomicTime = crate::util::sync_cell::SyncCell<TearableAtomicTime>;
