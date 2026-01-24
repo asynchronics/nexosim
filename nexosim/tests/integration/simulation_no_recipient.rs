@@ -142,6 +142,41 @@ fn no_replier_from_query(num_threads: usize) {
     }
 }
 
+/// Drop an address and recreate one, making sure it does not trigger a missing
+/// recipient.
+///
+/// See: https://github.com/asynchronics/nexosim/issues/125
+fn dropped_address(num_threads: usize) {
+    const MODEL_A_NAME: &str = "testmodel_A";
+    const MODEL_B_NAME: &str = "testmodel_B";
+
+    let mut model_a = TestModel::default();
+    let model_b = TestModel::default();
+    let mbox_a = Mailbox::new();
+    let mbox_b = Mailbox::new();
+    let addr_a = mbox_a.address();
+    let _ = mbox_b.address(); // Create and drop immediately an address before any other exists.
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    model_a
+        .output
+        .connect(TestModel::activate_requestor, &mbox_b);
+
+    let activate_output = EventSource::new()
+        .connect(TestModel::activate_output, addr_a)
+        .register(&mut bench);
+
+    let t0 = MonotonicTime::EPOCH;
+    let mut simu = bench
+        .add_model(model_a, mbox_a, MODEL_A_NAME)
+        .add_model(model_b, mbox_b, MODEL_B_NAME)
+        .init(t0)
+        .unwrap();
+
+    assert!(simu.process_event(&activate_output, ()).is_ok());
+}
+
 #[test]
 fn no_input_from_model_st() {
     no_input_from_model(1);
@@ -180,4 +215,14 @@ fn no_replier_from_query_st() {
 #[test]
 fn no_replier_from_query_mt() {
     no_replier_from_query(MT_NUM_THREADS);
+}
+
+#[test]
+fn dropped_address_st() {
+    dropped_address(1);
+}
+
+#[test]
+fn dropped_address_mt() {
+    dropped_address(MT_NUM_THREADS);
 }

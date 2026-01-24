@@ -10,7 +10,6 @@ use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::sync::atomic::{self, AtomicUsize, Ordering};
 
 use async_event::Event;
 use diatomic_waker::primitives::DiatomicWaker;
@@ -37,8 +36,6 @@ struct Inner<M> {
     receiver_signal: DiatomicWaker,
     /// Signalling primitive used to notify one or several senders.
     sender_signal: Event,
-    /// Current count of live senders.
-    sender_count: AtomicUsize,
 }
 
 impl<M: 'static> Inner<M> {
@@ -47,7 +44,6 @@ impl<M: 'static> Inner<M> {
             queue: Queue::new(capacity),
             receiver_signal: DiatomicWaker::new(),
             sender_signal: Event::new(),
-            sender_count: AtomicUsize::new(0),
         }
     }
 }
@@ -81,15 +77,6 @@ impl<M: Model> Receiver<M> {
 
     /// Creates a new sender.
     pub(crate) fn sender(&self) -> Sender<M> {
-        // Increase the reference count of senders.
-        //
-        // Ordering: Relaxed ordering is sufficient here for the same reason it
-        // is sufficient for an `Arc` reference count increment: synchronization
-        // is only necessary when decrementing the counter since all what is
-        // needed is to ensure that all operations until the drop handler is
-        // called are visible once the reference count drops to 0.
-        self.inner.sender_count.fetch_add(1, Ordering::Relaxed);
-
         Sender {
             inner: self.inner.clone(),
         }
@@ -287,15 +274,6 @@ impl<M: Model> Sender<M> {
 
 impl<M> Clone for Sender<M> {
     fn clone(&self) -> Self {
-        // Increase the reference count of senders.
-        //
-        // Ordering: Relaxed ordering is sufficient here for the same reason it
-        // is sufficient for an `Arc` reference count increment: synchronization
-        // is only necessary when decrementing the counter since all what is
-        // needed is to ensure that all operations until the drop handler is
-        // called are visible once the reference count drops to 0.
-        self.inner.sender_count.fetch_add(1, Ordering::Relaxed);
-
         Self {
             inner: self.inner.clone(),
         }
@@ -330,34 +308,6 @@ pub(crate) struct Observer<M: 'static> {
 impl<M: Model> ChannelObserver for Observer<M> {
     fn len(&self) -> usize {
         self.inner.queue.len()
-    }
-}
-
-impl<M: 'static> Drop for Sender<M> {
-    fn drop(&mut self) {
-        // Decrease the reference count of senders.
-        //
-        // Ordering: Release ordering is necessary for the same reason it is
-        // necessary for an `Arc` reference count decrement: it ensures that all
-        // operations performed by this sender before it was dropped will be
-        // visible once the sender count drops to 0.
-        if self.inner.sender_count.fetch_sub(1, Ordering::Release) == 1
-            && !self.inner.queue.is_closed()
-        {
-            // Make sure that the notified receiver sees all operations
-            // performed by all dropped senders.
-            //
-            // Ordering: Acquire is necessary to synchronize with the Release
-            // decrement operations. Note that the fence synchronizes with _all_
-            // decrement operations since the chain of counter decrements forms
-            // a Release sequence.
-            atomic::fence(Ordering::Acquire);
-
-            self.inner.queue.close();
-
-            // Notify the senders that the channel is closed.
-            self.inner.receiver_signal.notify();
-        }
     }
 }
 
