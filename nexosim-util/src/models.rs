@@ -38,7 +38,7 @@ use nexosim::model::{Context, InitializedModel, Model, schedulable};
 /// // Assembly and initialization.
 /// let mut simu = SimInit::new()
 ///    .add_model(ticker, ticker_mbox, "ticker")
-///    .set_clock(AutoSystemClock::new())
+///    .with_tickless_clock(AutoSystemClock::new())
 ///    .init(t0).unwrap();
 ///
 /// let mut scheduler = simu.scheduler();

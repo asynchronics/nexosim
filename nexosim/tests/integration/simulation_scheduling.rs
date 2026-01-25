@@ -308,7 +308,7 @@ fn timestamp_bench(
 
     let simu = bench
         .add_model(model, mbox, "")
-        .set_clock(clock)
+        .with_tickless_clock(clock)
         .init(t0)
         .unwrap();
 

@@ -9,15 +9,15 @@ use crate::time::MonotonicTime;
 /// simulation time directly to the next scheduled event.
 ///
 /// While efficient, this approach causes the simulation to block (sleep) during
-/// idle periods between events. In real-time or scaled-time scenarios, long idle
-/// periods can make the simulation unresponsive to:
+/// idle periods between events. In real-time or scaled-time scenarios, long
+/// idle periods can make the simulation unresponsive to:
 ///
 /// - *commands:* instructions like
 ///   [`Scheduler::halt`](crate::simulation::Scheduler::halt) are postponed
 ///   until the next event triggers a wake-up;
 /// - *external scheduling:* the [`Scheduler`](crate::simulation::Scheduler)
-///   cannot schedule new events into the current idle window;
-/// - *injector events*: the processing of external events in the injector queue
+///   prohibits the scheduling of new events into the current idle window;
+/// - *injected events*: the processing of external events in the injector queue
 ///   is delayed.
 ///
 /// A `Ticker` forces the synchronization clock to wake up at regular intervals,
@@ -28,8 +28,8 @@ use crate::time::MonotonicTime;
 /// significantly more efficient as they only run the executor when required.
 ///
 /// A ticker can be attached to a simulation using
-/// [`SimInit::set_clock`](crate::simulation::SimInit::set_clock).
-pub trait Ticker: Send {
+/// [`SimInit::with_clock`](crate::simulation::SimInit::with_clock).
+pub trait Ticker: Send + 'static {
     /// Returns the next clock tick strictly after the provided time.
     ///
     /// It is a logical error to return a tick that is not in the future of the
@@ -70,9 +70,9 @@ impl PeriodicTicker {
     /// Creates a ticker anchored to a specific point in time.
     ///
     /// Ticks are calculated as `origin + k * period`, where the origin can be
-    /// in the past or in the future. This ensures that ticks always fall on the
-    /// boundaries defined by the origin, regardless of when the simulation
-    /// starts or when `next_tick` is called.
+    /// freely set in the past or in the future. This ensures that ticks always
+    /// fall on the boundaries defined by the origin, regardless of when the
+    /// simulation starts or when `next_tick` is called.
     ///
     /// # Panics
     ///
@@ -146,7 +146,7 @@ fn duration_from_nanos_u128(nanos: u128) -> Duration {
     let secs = u64::try_from(nanos / NANOS_PER_SEC).unwrap();
     let subsec_nanos = (nanos % NANOS_PER_SEC) as u32;
 
-    Duration::new(secs as u64, subsec_nanos)
+    Duration::new(secs, subsec_nanos)
 }
 
 #[cfg(test)]

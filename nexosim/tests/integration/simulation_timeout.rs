@@ -70,7 +70,7 @@ fn timeout_untriggered(num_threads: usize) {
 
     let mut simu = bench
         .add_model(model, mbox, "test")
-        .set_timeout(Duration::from_secs(1))
+        .with_timeout(Duration::from_secs(1))
         .init(MonotonicTime::EPOCH)
         .unwrap();
 
@@ -97,7 +97,7 @@ fn timeout_triggered(num_threads: usize) {
 
     let mut simu = bench
         .add_model(model, mbox, "test")
-        .set_timeout(Duration::from_secs(1))
+        .with_timeout(Duration::from_secs(1))
         .init(MonotonicTime::EPOCH)
         .unwrap();
 

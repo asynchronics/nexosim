@@ -197,11 +197,11 @@ impl Scheduler {
 
     /// Requests the simulation to be interrupted at the earliest opportunity.
     ///
-    /// If a multi-step method such as
-    /// [`Simulation::step_until`](crate::simulation::Simulation::step_until) or
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
     /// [`Simulation::run`](crate::simulation::Simulation::run) is concurrently
     /// being executed, this will cause such method to return before it steps to
-    /// next scheduler deadline (if any) with
+    /// next scheduler deadline or simulation tick (if any) with
     /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted).
     ///
     /// Otherwise, this will cause the next call to a `Simulation::step*` or

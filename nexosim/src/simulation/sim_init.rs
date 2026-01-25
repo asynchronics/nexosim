@@ -15,7 +15,7 @@ use crate::model::{Message, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
 use crate::time::{
-    AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime,
+    AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime, Ticker,
 };
 use crate::util::sync_cell::SyncCell;
 
@@ -40,6 +40,7 @@ pub struct SimInit {
     is_resumed: Arc<AtomicBool>,
     clock: Box<dyn Clock + 'static>,
     clock_tolerance: Option<Duration>,
+    ticker: Option<Box<dyn Ticker>>,
     timeout: Duration,
     observers: Vec<(Path, Box<dyn ChannelObserver>)>,
     abort_signal: Signal,
@@ -93,6 +94,7 @@ impl SimInit {
             is_resumed: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
+            ticker: None,
             timeout: Duration::ZERO,
             observers: Vec::new(),
             abort_signal,
@@ -102,12 +104,42 @@ impl SimInit {
         }
     }
 
-    /// Synchronizes the simulation with the provided [`Clock`].
+    /// Configures the simulation to run with the provided
+    /// [`Clock`] and [`Ticker`].
     ///
-    /// If the clock isn't explicitly set then the default [`NoClock`] is used,
-    /// resulting in the simulation running as fast as possible.
-    pub fn set_clock(mut self, clock: impl Clock + 'static) -> Self {
+    /// A [`Ticker`] forces the synchronization clock to wake up at regular
+    /// intervals, independent of the events in the scheduler. This improves
+    /// responsiveness towards injected events and interruption requests with
+    /// [`Scheduler::halt`](crate::simulation::Scheduler::halt).
+    ///
+    /// A [`Ticker`] also relaxes the constraints on concurrent event
+    /// scheduling. In tickless mode, calls to methods such as
+    /// [`Simulation::step`] or [`Simulation::run`] cause the simulation to
+    /// block until the clock reaches the time of the next event, prohibiting
+    /// the concurrent scheduling of events within the current idle window. With
+    /// a [`Ticker`], this window is reduced to at most the interval between
+    /// ticks.
+    pub fn with_clock(mut self, clock: impl Clock + 'static, ticker: impl Ticker) -> Self {
         self.clock = Box::new(clock);
+        self.ticker = Some(Box::new(ticker));
+
+        self
+    }
+
+    /// Configures the simulation to run in tickless mode with the provided
+    /// [`Clock`].
+    ///
+    /// Note that in tickless mode, the simulation always sleep until the
+    /// deadline of the next event in the scheduler queue, which may render the
+    /// simulation unresponsive and prohibits events scheduling within the
+    /// current idle window.
+    ///
+    /// Tickless mode is only recommended when the simulation runs as fast as
+    /// possible, for instance with the default [`NoClock`] clock. In other
+    /// cases, [`SimInit::with_clock`] should be preferred.
+    pub fn with_tickless_clock(mut self, clock: impl Clock + 'static) -> Self {
+        self.clock = Box::new(clock);
+        self.ticker = None;
 
         self
     }
@@ -117,7 +149,7 @@ impl SimInit {
     /// When a clock synchronization tolerance is set, then any report of
     /// synchronization loss by [`Clock::synchronize`] that exceeds the
     /// specified tolerance will trigger an [`ExecutionError::OutOfSync`] error.
-    pub fn set_clock_tolerance(mut self, tolerance: Duration) -> Self {
+    pub fn with_clock_tolerance(mut self, tolerance: Duration) -> Self {
         self.clock_tolerance = Some(tolerance);
 
         self
@@ -134,7 +166,7 @@ impl SimInit {
     ///
     /// See also [`Simulation::set_timeout`].
     #[cfg(not(target_family = "wasm"))]
-    pub fn set_timeout(mut self, timeout: Duration) -> Self {
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
 
         self
@@ -292,12 +324,11 @@ impl SimInit {
     /// The simulation object is returned upon success.
     pub fn init(mut self, start_time: MonotonicTime) -> Result<Simulation, SimulationError> {
         self.time.write(start_time);
-        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time) {
-            if let Some(tolerance) = &self.clock_tolerance {
-                if &lag > tolerance {
-                    return Err(ExecutionError::OutOfSync(lag).into());
-                }
-            }
+        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(start_time)
+            && let Some(tolerance) = &self.clock_tolerance
+            && &lag > tolerance
+        {
+            return Err(ExecutionError::OutOfSync(lag).into());
         }
 
         let callback = self.post_init_callback.take();
@@ -431,6 +462,7 @@ impl SimInit {
             self.time,
             self.clock,
             self.clock_tolerance,
+            self.ticker,
             self.timeout,
             self.observers,
             self.registered_models,

@@ -7,6 +7,7 @@
 //! * simulation halting,
 //! * processing of external data (useful in co-simulation),
 //! * system clock,
+//! * clock ticker,
 //! * periodic scheduling.
 //!
 //! ```text
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use nexosim::model::{Context, InitializedModel, Model, ProtoModel, schedulable};
 use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
-use nexosim::time::{AutoSystemClock, MonotonicTime};
+use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
 
 const DELTA: Duration = Duration::from_millis(2);
 const PERIOD: Duration = Duration::from_millis(20);
@@ -120,7 +121,10 @@ fn main() -> Result<(), SimulationError> {
     let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
     let mut simu = SimInit::new()
         .add_model(listener, listener_mbox, "listener")
-        .set_clock(AutoSystemClock::new())
+        .with_clock(
+            AutoSystemClock::new(),
+            PeriodicTicker::new(Duration::from_millis(100)),
+        )
         .init(t0)?;
 
     let scheduler = simu.scheduler();
