@@ -164,7 +164,7 @@ impl SimInit {
     ///
     /// A null duration disables the timeout, which is the default behavior.
     ///
-    /// See also [`Simulation::set_timeout`].
+    /// See also [`Simulation::with_timeout`].
     #[cfg(not(target_family = "wasm"))]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;

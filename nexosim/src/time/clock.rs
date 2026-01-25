@@ -10,7 +10,7 @@ use crate::time::MonotonicTime;
 /// as-fast-as-possible and real-time clocks.
 ///
 /// A clock can be associated to a simulation prior to initialization by calling
-/// [`SimInit::set_clock`](crate::simulation::SimInit::set_clock).
+/// [`SimInit::with_clock`](crate::simulation::SimInit::with_clock).
 pub trait Clock: Send + 'static {
     /// Blocks until the deadline.
     fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus;

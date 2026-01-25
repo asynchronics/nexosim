@@ -16,7 +16,7 @@
 //!    all models and mailboxes to the builder with [`SimInit::add_model`],
 //! 4. initialization of a [`Simulation`] instance with [`SimInit::init`],
 //!    possibly preceded by the setup of a custom clock with
-//!    [`SimInit::set_clock`],
+//!    [`SimInit::with_clock`],
 //! 5. discrete-time simulation, which typically involves scheduling events and
 //!    incrementing simulation time while observing the models outputs.
 //!
@@ -1078,7 +1078,7 @@ pub enum ExecutionError {
     /// This is a fatal error: any subsequent attempt to run the simulation will
     /// return an [`ExecutionError::Terminated`] error.
     ///
-    /// See also [`SimInit::set_timeout`] and [`Simulation::set_timeout`].
+    /// See also [`SimInit::with_timeout`].
     Timeout,
     /// The simulation has lost synchronization with the clock and lags behind
     /// by the duration given in the payload.
@@ -1086,7 +1086,7 @@ pub enum ExecutionError {
     /// This is a fatal error: any subsequent attempt to run the simulation will
     /// return an [`ExecutionError::Terminated`] error.
     ///
-    /// See also [`SimInit::set_clock_tolerance`].
+    /// See also [`SimInit::with_clock_tolerance`].
     OutOfSync(Duration),
     /// The query did not obtain a response because the mailbox targeted by the
     /// query was not found in the simulation.
