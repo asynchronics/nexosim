@@ -454,8 +454,6 @@ pub(crate) async fn serialize_model<M: Model>(
 pub(crate) async fn deserialize_model<M: Model>(
     model: &mut M,
     state: (Vec<u8>, EventKeyReg, Path),
-    cx: &Context<M>,
-    env: &mut M::Env,
 ) -> Result<(), ExecutionError> {
     let restored = PORT_REG
         .set(&Mutex::new(VecDeque::new()), || {
