@@ -58,12 +58,9 @@
 //! [`Model::init`](model::Model::init) method that is guaranteed to run once
 //! and only once when the simulation is initialized, _i.e._ after all models
 //! have been connected but before the simulation starts.
-//! [`Model::restore`](model::Model::restore) method on the other hand, is
-//! called only when the simulation has been restored from a saved state.
 //!
-//! The [`Model::init`](model::Model::init) and
-//! [`Model::restore`](model::Model::restore) methods have default
-//! implementations, so models that do not require setup and initialization can
+//! The [`Model::init`](model::Model::init) method has a default
+//! implementation, so models that do not require setup and initialization can
 //! simply implement the trait with a one-liner such as `impl Model for MyModel
 //! {}`.
 //!
@@ -80,9 +77,9 @@
 //!
 //! In typical scenarios the [`Model`](trait@model::Model) trait can be
 //! implemented by a [`Model`](macro@model::Model) proc-macro, applied to the
-//! main `impl` block of the model struct. Methods such as `init` and `restore`
-//! can be provided by using custom attributes (`#[nexosim(init)]` and
-//! `#[nexosim(restore)]`). Moreover, input methods can be decorated with
+//! main `impl` block of the model struct. Definition for the `init` method
+//! can be provided by using a custom `#[nexosim(init)]` attribute.
+//! Moreover, input methods can be decorated with
 //! `#[nexosim(schedulable)]` attribute to allow convenient self-scheduling
 //! within the model.
 //!
