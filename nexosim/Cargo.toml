@@ -10,7 +10,7 @@ name = "nexosim"
 # - Update if necessary copyright notice in LICENSE-MIT
 # - Create a "vX.Y.Z" git tag
 authors = ["Asynchronics and the NeXosim Contributors"]
-version = "0.4.0-alpha.1"
+version = "1.0.0-beta.1"
 edition = "2024"
 rust-version = "1.88.0"
 license = "MIT OR Apache-2.0"
@@ -46,7 +46,7 @@ dev-hooks = []
 
 [dependencies]
 # Internal dependencies
-nexosim-macros = { version = "0.1.0-alpha.1", path = "../nexosim-macros" }
+nexosim-macros = { version = "1.0.0-beta.1", path = "../nexosim-macros" }
 # Mandatory dependencies.
 async-event = "0.2.1"
 bincode = { version = "2.0", features = ["serde"] }

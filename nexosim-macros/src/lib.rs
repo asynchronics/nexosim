@@ -325,13 +325,13 @@ fn collect_nexosim_attributes(f: &mut ImplItemFn) -> Result<Vec<&'static str>, s
 
         match &attr.meta {
             Meta::List(meta) => {
-                if let Ok(Expr::Path(path)) = meta.parse_args::<Expr>() {
-                    if let Some(segment) = path.path.segments.first() {
-                        for attr in AVAILABLE_ATTRS {
-                            if segment.ident == attr {
-                                attrs.push(*attr);
-                                continue 'outer;
-                            }
+                if let Ok(Expr::Path(path)) = meta.parse_args::<Expr>()
+                    && let Some(segment) = path.path.segments.first()
+                {
+                    for attr in AVAILABLE_ATTRS {
+                        if segment.ident == attr {
+                            attrs.push(*attr);
+                            continue 'outer;
                         }
                     }
                 }
