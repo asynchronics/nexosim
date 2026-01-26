@@ -20,7 +20,7 @@ const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
 /// A global simulation scheduler.
 ///
 /// A `Scheduler` can be `Clone`d and sent to other threads.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Scheduler(GlobalScheduler);
 
 impl Scheduler {
@@ -215,14 +215,6 @@ impl Scheduler {
     /// `Simulation::process*` methods.
     pub fn halt(&self) {
         self.0.halt()
-    }
-}
-
-impl fmt::Debug for Scheduler {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Scheduler")
-            .field("time", &self.time())
-            .finish_non_exhaustive()
     }
 }
 
@@ -484,8 +476,9 @@ impl GlobalScheduler {
 
 impl fmt::Debug for GlobalScheduler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SchedulerInner")
+        f.debug_struct("GlobalScheduler")
             .field("time", &self.time())
+            .field("is_halted", &self.is_halted.load(Ordering::Relaxed))
             .finish_non_exhaustive()
     }
 }

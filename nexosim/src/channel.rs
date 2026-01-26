@@ -287,7 +287,7 @@ pub(crate) trait ChannelObserver: Send {
     ///
     /// # Warning
     ///
-    /// The returned result is only meaningful if it can be established than
+    /// The returned result is only meaningful if it can be established that
     /// there are no concurrent send or receive operations on the channel.
     /// Otherwise, the returned value may neither reflect the current state nor
     /// the past state of the channel, and may be greater than the capacity of

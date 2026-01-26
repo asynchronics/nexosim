@@ -1,4 +1,4 @@
-//! Event scheduling from a `Simulation` instance.
+//! Simulation with clock ticks.
 
 use std::thread;
 use std::time::Duration;
@@ -16,7 +16,7 @@ use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
 
 const MT_NUM_THREADS: usize = 4;
 
-// Input-to-output pass-through model.
+// A time-stamping model.
 #[derive(Serialize, Deserialize)]
 struct TimestampingModel {
     pub output: Output<MonotonicTime>,
@@ -33,8 +33,8 @@ impl TimestampingModel {
     }
 }
 
-/// A simple bench containing a single pass-through model (input forwarded to
-/// output) running as fast as possible.
+/// A simple real-time bench containing a single time-stamping model (timestamp
+/// forwarded to output upon trigger).
 fn timestamping_bench(
     num_threads: usize,
     t0: MonotonicTime,

@@ -75,11 +75,13 @@
 //! Deadlocks are reported as [`ExecutionError::Deadlock`] errors, which
 //! identify all involved models and the count of unprocessed messages (events
 //! or requests) in their mailboxes.
+mod injector;
 mod mailbox;
 mod queue_items;
 mod scheduler;
 mod sim_init;
 
+pub use injector::ModelInjector;
 pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
@@ -88,6 +90,7 @@ pub use sim_init::{
     SimInit,
 };
 
+pub(crate) use injector::InjectorQueue;
 #[cfg(feature = "server")]
 pub(crate) use queue_items::Event;
 pub(crate) use queue_items::{
@@ -171,6 +174,7 @@ pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     scheduler_registry: SchedulerRegistry,
+    injector_queue: Arc<Mutex<InjectorQueue>>,
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -189,6 +193,7 @@ impl Simulation {
         executor: Executor,
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         scheduler_registry: SchedulerRegistry,
+        injector_queue: Arc<Mutex<InjectorQueue>>,
         time: AtomicTime,
         clock: Box<dyn Clock>,
         clock_tolerance: Option<Duration>,
@@ -202,6 +207,7 @@ impl Simulation {
             executor,
             scheduler_queue,
             scheduler_registry,
+            injector_queue,
             time,
             clock,
             clock_tolerance,
@@ -561,13 +567,13 @@ impl Simulation {
 
         let mut has_events = false;
 
-        // Process scheduled events matching the current time stamp.
+        // Spawn scheduled events matching the current time stamp.
         while next_key.map(|key| key.0 == time).unwrap_or(false) {
-            // Merge all events targeting the same mailbox in a single future to
+            // Merge all events with the same origin in a single future to
             // preserve event ordering.
             let mut event_seq = SeqFuture::new();
             next_key = loop {
-                let ((time, channel_id), item) = scheduler_queue.pull().unwrap();
+                let ((time, origin_id), item) = scheduler_queue.pull().unwrap();
 
                 let fut = match item {
                     QueueItem::Event(event) => {
@@ -576,10 +582,13 @@ impl Simulation {
                             .get_event_source(&event.event_id)
                             .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
+                        // TODO: `event_future` always clones the inner message.
+                        // This should be avoided for non-periodic events,
+                        // maybe with a consuming variant of `event_future`.
                         let fut = source.event_future(&*event.arg, event.key.clone());
                         if let Some(period) = event.period {
                             scheduler_queue
-                                .insert((time + period, channel_id), QueueItem::Event(event));
+                                .insert((time + period, origin_id), QueueItem::Event(event));
                         }
                         fut
                     }
@@ -588,6 +597,7 @@ impl Simulation {
                             .scheduler_registry
                             .get_query_source(&query.query_id)
                             .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
+                        // TODO: `query_future` should never clone the inner message.
                         source.query_future(&*query.arg, query.replier)
                     }
                 };
@@ -606,9 +616,36 @@ impl Simulation {
             has_events = true;
         }
 
-        // Make sure the queue's mutex is released before the potentially
+        // Make sure the scheduler's mutex is released before the potentially
         // blocking call to `synchronize`.
         drop(scheduler_queue);
+
+        // Spawn injector events. The events are assumed to be non-periodic and
+        // non-cancellable.
+        {
+            let mut injector_queue = self.injector_queue.lock().unwrap();
+
+            if let Some(mut origin_id) = injector_queue.peek().map(|item| *item.0) {
+                has_events = true;
+                let mut event_seq = SeqFuture::new();
+                while let Some((id, event)) = injector_queue.pull() {
+                    let source = self
+                        .scheduler_registry
+                        .get_event_source(&event.event_id)
+                        .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
+
+                    let fut = source.event_future(&*event.arg, event.key);
+                    if id != origin_id {
+                        self.executor.spawn_and_forget(event_seq);
+                        event_seq = SeqFuture::new();
+                        origin_id = id
+                    }
+                    event_seq.push(fut);
+                }
+
+                self.executor.spawn_and_forget(event_seq);
+            }
+        }
 
         // Block until the deadline.
         self.synchronize(time)?;
@@ -1251,6 +1288,7 @@ pub(crate) fn add_model<P>(
     path: Path,
     scheduler: GlobalScheduler,
     scheduler_registry: &mut SchedulerRegistry,
+    injector: &Arc<Mutex<InjectorQueue>>,
     executor: &Executor,
     abort_signal: &Signal,
     registered_models: &mut Vec<RegisteredModel>,
@@ -1261,23 +1299,32 @@ pub(crate) fn add_model<P>(
     #[cfg(feature = "tracing")]
     let span = tracing::span!(target: env!("CARGO_PKG_NAME"), tracing::Level::INFO, "model", path = path.to_string());
 
+    let model_id = ModelId::new(registered_models.len());
     let mut build_cx = BuildContext::new(
         &mailbox,
         &path,
         &scheduler,
         scheduler_registry,
+        injector,
+        model_id.0,
         executor,
         abort_signal,
         registered_models,
         is_resumed.clone(),
     );
-    let (mut model, mut env) = model.build(&mut build_cx);
-    let model_registry = model.register_schedulables(&mut build_cx);
+
+    // The model registry must be built before the call to `ProtoModel::build`
+    // because `BuildContext::injector` may be called in the build step and it
+    // requires the model register.
+    let model_registry = Arc::new(P::Model::register_schedulables(&mut build_cx));
+    build_cx.set_model_registry(&model_registry);
+
+    // Build the model.
+    let (model, mut env) = model.build(&mut build_cx);
 
     let address = mailbox.address();
     let mut receiver = mailbox.0;
     let abort_signal = abort_signal.clone();
-    let model_id = ModelId::new(registered_models.len());
 
     registered_models.push(RegisteredModel::new(path.clone(), address.clone()));
 

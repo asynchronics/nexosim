@@ -1,5 +1,6 @@
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::Mutex;
 use std::sync::{Arc, atomic::AtomicBool};
 use std::time::Duration;
 
@@ -9,8 +10,8 @@ use crate::executor::{Executor, Signal};
 use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
-    self, Address, EventId, EventIdErased, EventKey, GlobalScheduler, InputSource, Mailbox,
-    SchedulerRegistry, SchedulingError,
+    self, Address, EventId, EventIdErased, EventKey, GlobalScheduler, InjectorQueue, InputSource,
+    Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -91,7 +92,7 @@ pub struct Context<M: Model> {
     scheduler: GlobalScheduler,
     address: Address<M>,
     origin_id: usize,
-    model_registry: ModelRegistry,
+    model_registry: Arc<ModelRegistry>,
 }
 
 impl<M: Model> Context<M> {
@@ -101,7 +102,7 @@ impl<M: Model> Context<M> {
         scheduler: GlobalScheduler,
         address: Address<M>,
         origin_id: usize,
-        model_registry: ModelRegistry,
+        model_registry: Arc<ModelRegistry>,
     ) -> Self {
         Self {
             path,
@@ -369,6 +370,21 @@ impl<M: Model> Context<M> {
     }
 }
 
+#[cfg(all(test, not(nexosim_loom)))]
+impl<M: Model<Env = ()>> Context<M> {
+    /// Creates a dummy context for testing purposes.
+    pub(crate) fn new_dummy() -> Self {
+        let dummy_address = Receiver::new(1).sender();
+        Context::new(
+            Path::from(""),
+            GlobalScheduler::new_dummy(),
+            Address(dummy_address),
+            0,
+            Arc::new(ModelRegistry::default()),
+        )
+    }
+}
+
 impl<M: Model> fmt::Debug for Context<M> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Context")
@@ -465,26 +481,30 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///     }
 /// }
 /// ```
-#[derive(Debug)]
 pub struct BuildContext<'a, P: ProtoModel> {
     mailbox: &'a Mailbox<P::Model>,
     path: &'a Path,
     scheduler: &'a GlobalScheduler,
     scheduler_registry: &'a mut SchedulerRegistry,
+    injector: &'a Arc<Mutex<InjectorQueue>>,
+    origin_id: usize,
     executor: &'a Executor,
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
     is_resumed: Arc<AtomicBool>,
+    model_registry: Option<&'a Arc<ModelRegistry>>,
 }
 
 impl<'a, P: ProtoModel> BuildContext<'a, P> {
-    /// Creates a new local context.
+    /// Creates a new local context without a model registry.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         mailbox: &'a Mailbox<P::Model>,
         path: &'a Path,
         scheduler: &'a GlobalScheduler,
         scheduler_registry: &'a mut SchedulerRegistry,
+        injector: &'a Arc<Mutex<InjectorQueue>>,
+        origin_id: usize,
         executor: &'a Executor,
         abort_signal: &'a Signal,
         registered_models: &'a mut Vec<RegisteredModel>,
@@ -495,10 +515,13 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             path,
             scheduler,
             scheduler_registry,
+            injector,
+            origin_id,
             executor,
             abort_signal,
             registered_models,
             is_resumed,
+            model_registry: None,
         }
     }
 
@@ -515,7 +538,16 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.mailbox.address()
     }
 
-    /// Registers a single self-schedulable source from model's own input.
+    /// Registers a self-schedulable input.
+    ///
+    /// Typically, registering self-schedulable inputs is not necessary since
+    /// the [`macro@Model`] procedural macro does this automatically, enabling
+    /// the convenient use of the [`schedulable!`](crate::model::schedulable!)
+    /// macro.
+    ///
+    /// However, if the [`trait@Model`] trait is implemented manually or if a
+    /// non-method function with an input signature needs to be registered,
+    /// `register_schedulable` can be used to obtain a handle to such input.
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
@@ -524,6 +556,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     {
         let source = InputSource::new(func, self.address().clone());
         let id = self.scheduler_registry.add_event_source(source);
+
         SchedulableId(id.0, PhantomData, PhantomData)
     }
 
@@ -544,6 +577,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             submodel_path,
             self.scheduler.clone(),
             self.scheduler_registry,
+            self.injector,
             self.executor,
             self.abort_signal,
             self.registered_models,
@@ -551,41 +585,45 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         );
     }
 
-    /// Returns a clock reader instance, allowing to track simulation
-    /// time (once it is initialized).
+    /// Returns a clock reader instance.
     pub fn clock_reader(&self) -> ClockReader {
         self.scheduler.clock_reader()
     }
-}
 
-#[cfg(all(test, not(nexosim_loom)))]
-impl<M: Model<Env = ()>> Context<M> {
-    /// Creates a dummy context for testing purposes.
-    pub(crate) fn new_dummy() -> Self {
-        let dummy_address = Receiver::new(1).sender();
-        Context::new(
-            Path::from(""),
-            GlobalScheduler::new_dummy(),
-            Address(dummy_address),
-            0,
-            ModelRegistry::default(),
+    /// Returns an injector associated to this model.
+    pub fn injector(&self) -> ModelInjector<P::Model> {
+        ModelInjector::new(
+            self.injector.clone(),
+            self.origin_id,
+            self.model_registry.unwrap().clone(),
         )
+    }
+
+    /// Sets the model registry.
+    ///
+    /// This is necessary prior to any call to [`injector`](Self::injector).
+    pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
+        self.model_registry = Some(model_registry);
     }
 }
 
-/// Model's internal registry of self-schedulable inputs.
-/// In typical scenarios it is utilized exclusively in the proc-macro generated
-/// code.
+impl<'a, P: ProtoModel> fmt::Debug for BuildContext<'a, P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("BuildContext")
+            .field("path", &self.path)
+            .field("origin_id", &self.origin_id)
+            .field("is_resumed", &self.is_resumed)
+            .finish()
+    }
+}
+
+/// An internal registry of schedulable inputs.
 ///
-/// Entries in the `ModelRegistry` come from [`Model::register_schedulables`]
-/// method which is generated by the [`Model`](crate::model)
-/// proc-macro. Model inputs decorated with the `#[nexosim(schedulable)]`
-/// attribute are sequentially registered in the `SchedulerRegistry` and stored
-/// in the `ModelRegistry` under their compile-time assigned indices.
+/// This is normally only used by procedural macro-generated code.
 ///
-/// Therefore it is possible to use the index of decorated method (which is
-/// basically its order of appearance in the model's impl block) to obtain a
-/// valid `SchedulerRegistry` entry.
+/// The `ModelRegistry` is automatically populated by the
+/// [`Model`](crate::model) procedural macro based on the inputs decorated with
+/// `#[nexosim(schedulable)]`.
 #[derive(Debug, Default)]
 pub struct ModelRegistry(Vec<EventIdErased>);
 impl ModelRegistry {
@@ -598,9 +636,17 @@ impl ModelRegistry {
     }
 }
 
-/// Type-safe, unique id required for model's internal event scheduling.
-/// `SchedulableId` is stable between bench runs, provided that the model layout
-/// does not change.
+/// Type-safe identifier for schedulable inputs.
+///
+/// Typically, creating a `SchedulableId` manually is not necessary since the
+/// [`macro@Model`] procedural macro does this automatically. In such case, the
+/// [`schedulable!`](crate::model::schedulable!) convenience macro can be used
+/// to dynamically creates a `SchedulableId`.
+///
+/// However, if the [`trait@Model`] trait is implemented manually or if a
+/// non-method function with an input signature needs to be registered, a
+/// `SchedulableId` can be obtained by calling the
+/// [`BuildContext::register_schedulable`] method.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> SchedulableId<M, T> {
@@ -619,12 +665,12 @@ impl<M: Model, T> SchedulableId<M, T> {
     }
 
     // When a SchedulableId is created manually by calling
-    // `[BuildContext::register_schedulable]` method its internal value
-    // directly corresponds with its index within the `SchedulerRegistry`.
+    // `BuildContext::register_schedulable`, its internal value directly
+    // corresponds to its index within the `SchedulerRegistry`.
     //
-    // However, as those (scheduler) indices are not known at compilation time,
-    // proc-macro generated SchedulableIds (for the decorated methods) have to
-    // use an indirection via the `ModelRegistry`.
+    // However, as those indices are not known at compilation time, the
+    // proc-macro generated `SchedulableId`s for decorated methods have to use
+    // an indirection via the `ModelRegistry`.
     pub(crate) fn source_id(&self, registry: &ModelRegistry) -> EventId<T> {
         match self.0 & Self::REGISTRY_MASK {
             0 => EventId(self.0, PhantomData),
@@ -636,7 +682,6 @@ impl<M: Model, T> SchedulableId<M, T> {
     }
 }
 
-// Manual clone and copy impl. to not enforce bounds on M and T.
 impl<M, T> Clone for SchedulableId<M, T> {
     fn clone(&self) -> Self {
         *self
