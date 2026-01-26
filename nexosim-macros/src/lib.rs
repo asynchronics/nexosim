@@ -80,13 +80,13 @@ fn impl_schedulable(ast: &Path) -> Result<TokenStream, syn::Error> {
 
     let is_generic = matches!(ty.arguments, PathArguments::AngleBracketed(_));
 
-    // Generic types cannot be used in a const context.
-    // Therefore we are not able to use our custom error message.
+    // Generic types cannot be used in a const context. Therefore we are not
+    // able to use our custom error message.
     let tokens = if !is_generic {
         quote! {
             {
-                // Call a hidden method in the array type definition
-                // to cast a custom error during a type-checking compilation phase.
+                // Call a hidden method in the array type definition to cast a
+                // custom error during a type-checking compilation phase.
                 let _: [(); { if !#ty::____is_schedulable(stringify!(#hidden_name)) {
                     panic!(#err_msg)
                 }; 0} ] = [];
@@ -240,7 +240,7 @@ fn get_impl_model_trait(
             #env
 
             fn register_schedulables(
-                &mut self, cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>
+                cx: &mut nexosim::model::BuildContext<impl nexosim::model::ProtoModel<Model = Self>>
             ) -> nexosim::model::ModelRegistry {
                 let mut registry = nexosim::model::ModelRegistry::default();
                 #(

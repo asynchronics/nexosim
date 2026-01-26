@@ -14,6 +14,7 @@ use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
+use crate::simulation::InjectorQueue;
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime, Ticker,
 };
@@ -31,6 +32,7 @@ pub struct SimInit {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     scheduler_registry: SchedulerRegistry,
+    injector_queue: Arc<Mutex<InjectorQueue>>,
     event_sink_registry: EventSinkRegistry,
     event_sink_info_registry: EventSinkInfoRegistry,
     event_source_registry: EventSourceRegistry,
@@ -85,6 +87,7 @@ impl SimInit {
             executor,
             scheduler_queue: Arc::new(Mutex::new(SchedulerQueue::new())),
             scheduler_registry: SchedulerRegistry::default(),
+            injector_queue: Arc::new(Mutex::new(InjectorQueue::new())),
             event_sink_registry: EventSinkRegistry::default(),
             event_sink_info_registry: EventSinkInfoRegistry::default(),
             event_source_registry: EventSourceRegistry::default(),
@@ -249,6 +252,7 @@ impl SimInit {
             path,
             scheduler,
             &mut self.scheduler_registry,
+            &self.injector_queue,
             &self.executor,
             &self.abort_signal,
             &mut self.registered_models,
@@ -459,6 +463,7 @@ impl SimInit {
             self.executor,
             self.scheduler_queue,
             self.scheduler_registry,
+            self.injector_queue,
             self.time,
             self.clock,
             self.clock_tolerance,

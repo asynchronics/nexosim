@@ -27,16 +27,13 @@ use super::ExecutionError;
 scoped_thread_local!(pub(crate) static EVENT_KEY_REG: EventKeyReg);
 pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 
-// This value has to be lower than the `SchedulableId::Mask`.
-const MAX_SOURCE_ID: usize = 1 << (usize::BITS - 1) as usize;
+// The maximum source identifier value that fits within the registry mask.
+const MAX_SOURCE_ID: usize = (1 << (usize::BITS - 1) as usize) - 1;
 
-/// A unique, type-safe event source id.
-/// `EventId` is stable between bench runs, provided that the bench layout does
-/// not change.
+/// A unique, type-safe event source identifier.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EventId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
 
-// Manual clone and copy impl. to not enforce bounds on T.
 impl<T> Clone for EventId<T> {
     fn clone(&self) -> Self {
         *self
@@ -44,7 +41,7 @@ impl<T> Clone for EventId<T> {
 }
 impl<T> Copy for EventId<T> {}
 
-/// Type erased `EventId` variant.
+/// A type-erased `EventId`.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct EventIdErased(pub(crate) usize);
 
@@ -140,7 +137,7 @@ impl SchedulerEventRegistry {
     where
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
-        assert!(self.0.len() < MAX_SOURCE_ID);
+        assert!(self.0.len() <= MAX_SOURCE_ID);
         let event_id = EventId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
         event_id
@@ -158,7 +155,7 @@ impl SchedulerQueryRegistry {
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
         R: Send + 'static,
     {
-        assert!(self.0.len() < MAX_SOURCE_ID);
+        assert!(self.0.len() <= MAX_SOURCE_ID);
         let query_id = QueryId(self.0.len(), PhantomData);
         self.0.push(Box::new(source));
         query_id
