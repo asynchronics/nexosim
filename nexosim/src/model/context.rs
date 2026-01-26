@@ -487,7 +487,7 @@ pub struct BuildContext<'a, P: ProtoModel> {
     scheduler: &'a GlobalScheduler,
     scheduler_registry: &'a mut SchedulerRegistry,
     injector: &'a Arc<Mutex<InjectorQueue>>,
-    model_id: usize,
+    origin_id: usize,
     executor: &'a Executor,
     abort_signal: &'a Signal,
     registered_models: &'a mut Vec<RegisteredModel>,
@@ -504,7 +504,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         scheduler: &'a GlobalScheduler,
         scheduler_registry: &'a mut SchedulerRegistry,
         injector: &'a Arc<Mutex<InjectorQueue>>,
-        model_id: usize,
+        origin_id: usize,
         executor: &'a Executor,
         abort_signal: &'a Signal,
         registered_models: &'a mut Vec<RegisteredModel>,
@@ -516,7 +516,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             scheduler,
             scheduler_registry,
             injector,
-            model_id,
+            origin_id,
             executor,
             abort_signal,
             registered_models,
@@ -594,7 +594,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn injector(&self) -> ModelInjector<P::Model> {
         ModelInjector::new(
             self.injector.clone(),
-            self.model_id,
+            self.origin_id,
             self.model_registry.unwrap().clone(),
         )
     }
@@ -611,7 +611,7 @@ impl<'a, P: ProtoModel> fmt::Debug for BuildContext<'a, P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("BuildContext")
             .field("path", &self.path)
-            .field("model_id", &self.model_id)
+            .field("origin_id", &self.origin_id)
             .field("is_resumed", &self.is_resumed)
             .finish()
     }
