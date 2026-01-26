@@ -6,8 +6,6 @@
 //! asynchronous initialization method, [`Model::init`], which main purpose is
 //! to enable models to perform specific actions when the simulation starts,
 //! *i.e.* after all models have been connected and added to the simulation.
-//! [`Model::restore`] method is called whenever the model is restored from a
-//! saved state.
 //!
 //! It is frequently convenient to expose to users a model builder type—called a
 //! *model prototype*—rather than the final model. This can be done by
@@ -36,8 +34,8 @@
 //!
 //! In typical scenarios the [`trait@Model`] trait can be implemented
 //! by a [`macro@Model`] proc-macro, applied to the main `impl` block of
-//! the model struct. Methods such as `init` and `restore` can be provided by
-//! using custom attributes (`#[nexosim(init)]` and `#[nexosim(restore)]`).
+//! the model struct. Definition for the `init` method can be provided by
+//! a custom `#[nexosim(init)]` attribute.
 //! Moreover, input methods can be decorated with `#[nexosim(schedulable)]`
 //! attribute to allow convenient self-scheduling within the model.
 //!
@@ -289,10 +287,6 @@ mod context;
 /// The `init` function converts the model to the opaque `InitializedModel` type
 /// to prevent an already initialized model from being added to the simulation
 /// bench.
-///
-/// Simiralily [`Model::restore`] method allows to perform actions when model is
-/// restored from a saved state. It is run only once per simulation restore,
-/// before it's run is resumed.
 pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     /// Helper struct for internal non-state model data that cannot (or should
     /// not) be serialized and persisted.
@@ -338,24 +332,6 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     /// }
     /// ```
     fn init(
-        self,
-        _: &Context<Self>,
-        _: &mut Self::Env,
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
-        async { self.into() }
-    }
-
-    /// Initializes the model after it has been restored from a serialized
-    /// state.
-    ///
-    /// This asynchronous method is executed exactly once for all models of the
-    /// simulation when the
-    /// [`SimInit::restore`](crate::simulation::SimInit::restore) method is
-    /// called.
-    ///
-    /// The default implementation simply converts the model to an
-    /// `InitializedModel` without any side effect.
-    fn restore(
         self,
         _: &Context<Self>,
         _: &mut Self::Env,
@@ -478,8 +454,6 @@ pub(crate) async fn serialize_model<M: Model>(
 pub(crate) async fn deserialize_model<M: Model>(
     model: &mut M,
     state: (Vec<u8>, EventKeyReg, Path),
-    cx: &Context<M>,
-    env: &mut M::Env,
 ) -> Result<(), ExecutionError> {
     let restored = PORT_REG
         .set(&Mutex::new(VecDeque::new()), || {
@@ -500,7 +474,6 @@ pub(crate) async fn deserialize_model<M: Model>(
             })
         })?
         .0;
-    let restored = restored.restore(cx, env).await.0;
     let _ = std::mem::replace(model, restored);
     Ok(())
 }

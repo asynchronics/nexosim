@@ -9,9 +9,8 @@ use syn::{
 };
 
 const INIT_ATTR: &str = "init";
-const RESTORE_ATTR: &str = "restore";
 const SCHEDULABLE_ATTR: &str = "schedulable";
-const AVAILABLE_ATTRS: &[&str] = &[INIT_ATTR, RESTORE_ATTR, SCHEDULABLE_ATTR];
+const AVAILABLE_ATTRS: &[&str] = &[INIT_ATTR, SCHEDULABLE_ATTR];
 
 macro_rules! handle_parse_result {
     ($call:expr) => {
@@ -115,11 +114,10 @@ pub fn Model(attr: TokenStream, input: TokenStream) -> TokenStream {
 fn impl_model(ast: &mut syn::ItemImpl, env: ItemType) -> Result<TokenStream, syn::Error> {
     let name = &ast.self_ty;
 
-    let (init, restore, schedulables) = parse_tagged_methods(&mut ast.items)?;
+    let (init, schedulables) = parse_tagged_methods(&mut ast.items)?;
 
     let registered_methods = get_registered_method_paths(&schedulables);
-    let mut tokens =
-        get_impl_model_trait(name, &env, &ast.generics, init, restore, registered_methods);
+    let mut tokens = get_impl_model_trait(name, &env, &ast.generics, init, registered_methods);
     let hidden_methods = get_hidden_method_impls(&schedulables);
 
     // We do not use ty_generics as they're already present in `name`
@@ -188,21 +186,13 @@ fn get_registered_method_paths<'a>(
     })
 }
 
-/// Finds methods tagged as `init`, `restore` or `schedulable`.
+/// Finds methods tagged as `init` or `schedulable`.
 /// Clears found tags from the original token stream.
 #[allow(clippy::type_complexity)]
 fn parse_tagged_methods(
     items: &mut [ImplItem],
-) -> Result<
-    (
-        Option<proc_macro2::TokenStream>,
-        Option<proc_macro2::TokenStream>,
-        Vec<ImplItemFn>,
-    ),
-    syn::Error,
-> {
+) -> Result<(Option<proc_macro2::TokenStream>, Vec<ImplItemFn>), syn::Error> {
     let mut init = None;
-    let mut restore = None;
     let mut schedulables = Vec::new();
 
     // Find tagged methods.
@@ -215,13 +205,10 @@ fn parse_tagged_methods(
             if attrs.contains(&INIT_ATTR) {
                 init = Some(fn_with_optional_cx_env(&f.sig)?);
             }
-            if attrs.contains(&RESTORE_ATTR) {
-                restore = Some(fn_with_optional_cx_env(&f.sig)?);
-            }
         }
     }
 
-    // Wrap init and restore tokens into Options for conditional rendering.
+    // Wrap init tokens into an Option for conditional rendering.
     let init = init.and_then(|init| {
         quote! {
             fn init(
@@ -233,18 +220,7 @@ fn parse_tagged_methods(
         .into()
     });
 
-    let restore = restore.and_then(|restore| {
-        quote! {
-            fn restore(
-                self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env
-            ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-                #restore
-            }
-        }
-        .into()
-    });
-
-    Ok((init, restore, schedulables))
+    Ok((init, schedulables))
 }
 
 /// Renders the impl Model for MyModel block.
@@ -253,7 +229,6 @@ fn get_impl_model_trait(
     env: &ItemType,
     generics: &Generics,
     init: Option<proc_macro2::TokenStream>,
-    restore: Option<proc_macro2::TokenStream>,
     registered_methods: impl Iterator<Item = Expr>,
 ) -> proc_macro2::TokenStream {
     // We do not use ty_generics as they're already present in `name`
@@ -275,8 +250,6 @@ fn get_impl_model_trait(
             }
 
             #init
-
-            #restore
         }
     }
 }

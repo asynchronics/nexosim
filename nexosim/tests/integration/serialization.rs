@@ -59,15 +59,6 @@ impl ModelWithState {
         self.state *= 11;
         async { self.into() }
     }
-    #[nexosim(restore)]
-    fn restore(
-        mut self,
-        _: &Context<Self>,
-        _: &mut (),
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
-        self.state *= 13;
-        async { self.into() }
-    }
     pub async fn query(&mut self) -> u32 {
         self.state
     }
@@ -309,7 +300,7 @@ fn model_with_key() {
 }
 
 #[test]
-fn model_init_restore() {
+fn model_init() {
     fn get_bench() -> (SimInit, QueryId<(), u32>) {
         let mbox = Mailbox::new();
         let model = ModelWithState::new(1);
@@ -341,9 +332,9 @@ fn model_init_restore() {
     let (bench, _) = get_bench();
     let mut simu = bench.restore(&state[..]).unwrap();
 
-    // Verify that `restore` has been called instead of `init` this time
+    // Verify that `init` has not been called again.
     let model_state = simu.process_query(&query, ()).unwrap();
-    assert_eq!(model_state, 11 * 13);
+    assert_eq!(model_state, 11);
 }
 
 #[test]
@@ -553,7 +544,7 @@ fn model_relative_order() {
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
-    assert_eq!(11 * 13 * 7 + 19, simu.process_query(&query, ()).unwrap());
+    assert_eq!(11 * 7 + 19, simu.process_query(&query, ()).unwrap());
 
     // Test add -> mul order.
 
@@ -580,5 +571,5 @@ fn model_relative_order() {
 
     // Verify events have been called in the right order.
     simu.step().unwrap();
-    assert_eq!((11 * 13 + 19) * 7, simu.process_query(&query, ()).unwrap());
+    assert_eq!((11 + 19) * 7, simu.process_query(&query, ()).unwrap());
 }

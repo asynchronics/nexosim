@@ -345,9 +345,7 @@ impl SimInit {
         Ok(simulation)
     }
 
-    /// Restores a simulation from a previously persisted state, executing the
-    /// [`Model::restore`](crate::model::Model::restore) method on all
-    /// registered models.
+    /// Restores a simulation from a previously persisted state.
     ///
     /// The simulation object is returned upon success.
     pub fn restore<R: std::io::Read>(mut self, state: R) -> Result<Simulation, SimulationError> {
