@@ -69,7 +69,7 @@ slab = "0.4"
 smol_str = { version = "0.3", features = ["serde"] }
 spin_sleep = "1"
 st3 = "0.4"
-tai-time = { version = "0.3.3", features = ["serde"] }
+tai-time = { version = "1", features = ["serde", "schemars"] }
 
 # Optional dependencies.
 bytes = { version = "1", default-features = false, optional = true }
