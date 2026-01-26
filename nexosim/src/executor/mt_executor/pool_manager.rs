@@ -281,7 +281,9 @@ impl<'a> ShuffledStealers<'a> {
                 let candidate_count = stealers.len();
                 let lower_bits = candidates & ((1 << next_candidate) - 1);
 
-                // The left shift cannot overflow since next_candidate>=1.
+                // The left shift cannot overflow since `next_candidate >= 1``
+                // and the number of worker threads (`candidate_count`) cannot
+                // exceed `usize::BITS`.
                 (candidates >> next_candidate) | (lower_bits << (candidate_count - next_candidate))
             };
 
