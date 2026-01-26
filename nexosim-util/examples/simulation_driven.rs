@@ -239,7 +239,7 @@ fn main() -> Result<(), SimulationError> {
         .add_model(detector, detector_mbox, "detector")
         .add_model(counter, counter_mbox, "counter")
         .add_model(ticker, ticker_mbox, "ticker")
-        .set_clock(AutoSystemClock::new())
+        .with_tickless_clock(AutoSystemClock::new())
         .init(t0)?;
 
     let scheduler = simu.scheduler();

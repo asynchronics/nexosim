@@ -10,22 +10,10 @@ use crate::time::MonotonicTime;
 /// as-fast-as-possible and real-time clocks.
 ///
 /// A clock can be associated to a simulation prior to initialization by calling
-/// [`SimInit::set_clock`](crate::simulation::SimInit::set_clock).
-pub trait Clock: Send {
+/// [`SimInit::with_clock`](crate::simulation::SimInit::with_clock).
+pub trait Clock: Send + 'static {
     /// Blocks until the deadline.
     fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus;
-}
-
-impl<C: Clock + ?Sized> Clock for &mut C {
-    fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus {
-        (**self).synchronize(deadline)
-    }
-}
-
-impl<C: Clock + ?Sized> Clock for Box<C> {
-    fn synchronize(&mut self, deadline: MonotonicTime) -> SyncStatus {
-        (**self).synchronize(deadline)
-    }
 }
 
 /// The current synchronization status of a clock.
@@ -80,17 +68,18 @@ impl SystemClock {
     /// use std::time::{Duration, Instant};
     ///
     /// use nexosim::simulation::SimInit;
-    /// use nexosim::time::{MonotonicTime, SystemClock};
+    /// use nexosim::time::{MonotonicTime, PeriodicTicker, SystemClock};
     ///
     /// let t0 = MonotonicTime::new(1_234_567_890, 0).unwrap();
     ///
-    /// // Make the simulation start in 1s.
+    /// // Make the simulation start in 1s, with 0.1s ticks.
     /// let clock = SystemClock::from_instant(t0, Instant::now() + Duration::from_secs(1));
+    /// let ticker = PeriodicTicker::new(Duration::from_millis(100));
     ///
     /// let simu = SimInit::new()
     /// //  .add_model(...)
     /// //  .add_model(...)
-    ///     .set_clock(clock)
+    ///     .with_clock(clock, ticker)
     ///     .init(t0);
     /// ```
     pub fn from_instant(simulation_ref: MonotonicTime, wall_clock_ref: Instant) -> Self {
@@ -121,20 +110,21 @@ impl SystemClock {
     /// use std::time::{Duration, UNIX_EPOCH};
     ///
     /// use nexosim::simulation::SimInit;
-    /// use nexosim::time::{MonotonicTime, SystemClock};
+    /// use nexosim::time::{MonotonicTime, PeriodicTicker, SystemClock};
     ///
     /// let t0 = MonotonicTime::new(1_234_567_890, 0).unwrap();
     ///
-    /// // Make the simulation start at the next full second boundary.
+    /// // Make the simulation start at the next full second boundary, with 0.1s ticks.
     /// let now_secs = UNIX_EPOCH.elapsed().unwrap().as_secs();
     /// let start_time = UNIX_EPOCH + Duration::from_secs(now_secs + 1);
     ///
     /// let clock = SystemClock::from_system_time(t0, start_time);
+    /// let ticker = PeriodicTicker::new(Duration::from_millis(100));
     ///
     /// let simu = SimInit::new()
     /// //  .add_model(...)
     /// //  .add_model(...)
-    ///     .set_clock(clock)
+    ///     .with_clock(clock, ticker)
     ///     .init(t0);
     /// ```
     pub fn from_system_time(simulation_ref: MonotonicTime, wall_clock_ref: SystemTime) -> Self {

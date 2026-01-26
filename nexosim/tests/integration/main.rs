@@ -13,4 +13,6 @@ mod simulation_no_recipient;
 mod simulation_panic;
 mod simulation_scheduling;
 #[cfg(not(miri))]
+mod simulation_ticked_mode;
+#[cfg(not(miri))]
 mod simulation_timeout;

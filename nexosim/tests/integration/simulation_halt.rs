@@ -50,7 +50,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
 
     let simu = SimInit::new()
         .add_model(model, mailbox, "timed_model")
-        .set_clock(SystemClock::from_instant(t0, Instant::now()))
+        .with_tickless_clock(SystemClock::from_instant(t0, Instant::now()))
         .init(t0)?;
 
     let scheduler = simu.scheduler();
@@ -89,7 +89,7 @@ fn halt_and_resume() -> Result<(), SimulationError> {
         assert_eq!(t1, t0 + Duration::from_millis(200));
 
         // Restart the simulation at the last simulation time.
-        s.reset_clock(SystemClock::from_instant(t1, Instant::now()));
+        s.with_tickless_clock(SystemClock::from_instant(t1, Instant::now()));
     }
     let spawned_simulation = simulation.clone();
     let simulation_handle = thread::spawn(move || spawned_simulation.lock().unwrap().run());

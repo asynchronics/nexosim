@@ -10,7 +10,7 @@ use nexosim::model::Model;
 use nexosim::ports::{
     EventQueueReader, EventSinkReader, EventSource, Output, SinkState, event_queue,
 };
-use nexosim::simulation::{EventId, Mailbox, Scheduler, SimInit, Simulation};
+use nexosim::simulation::{EventId, Mailbox, SimInit, Simulation};
 use nexosim::time::MonotonicTime;
 
 const MT_NUM_THREADS: usize = 4;
@@ -48,7 +48,7 @@ where
 fn passthrough_bench<T>(
     num_threads: usize,
     t0: MonotonicTime,
-) -> (Simulation, Scheduler, EventId<T>, EventQueueReader<T>)
+) -> (Simulation, EventId<T>, EventQueueReader<T>)
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
@@ -67,14 +67,14 @@ where
         .register(&mut bench);
 
     let simu = bench.add_model(model, mbox, "").init(t0).unwrap();
-    let scheduler = simu.scheduler();
 
-    (simu, scheduler, input, out_stream)
+    (simu, input, out_stream)
 }
 
 fn schedule_events(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler, source, mut output) = passthrough_bench(num_threads, t0);
+    let (mut simu, source, mut output) = passthrough_bench(num_threads, t0);
+    let scheduler = simu.scheduler();
 
     // Queue 2 events at t0+3s and t0+2s, in reverse order.
     scheduler
@@ -108,7 +108,8 @@ fn schedule_events(num_threads: usize) {
 
 fn schedule_keyed_events(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler, source, mut output) = passthrough_bench(num_threads, t0);
+    let (mut simu, source, mut output) = passthrough_bench(num_threads, t0);
+    let scheduler = simu.scheduler();
 
     let event_t1 = scheduler
         .schedule_keyed_event(t0 + Duration::from_secs(1), &source, 1)
@@ -142,7 +143,8 @@ fn schedule_keyed_events(num_threads: usize) {
 
 fn schedule_periodic_events(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler, source, mut output) = passthrough_bench(num_threads, t0);
+    let (mut simu, source, mut output) = passthrough_bench(num_threads, t0);
+    let scheduler = simu.scheduler();
 
     // Queue 2 periodic events at t0 + 3s + k*2s.
     scheduler
@@ -172,7 +174,8 @@ fn schedule_periodic_events(num_threads: usize) {
 
 fn schedule_periodic_keyed_events(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    let (mut simu, scheduler, source, mut output) = passthrough_bench(num_threads, t0);
+    let (mut simu, source, mut output) = passthrough_bench(num_threads, t0);
+    let scheduler = simu.scheduler();
 
     // Queue 2 periodic events at t0 + 3s + k*2s.
     scheduler
@@ -308,7 +311,7 @@ fn timestamp_bench(
 
     let simu = bench
         .add_model(model, mbox, "")
-        .set_clock(clock)
+        .with_tickless_clock(clock)
         .init(t0)
         .unwrap();
 

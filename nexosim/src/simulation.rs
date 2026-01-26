@@ -16,7 +16,7 @@
 //!    all models and mailboxes to the builder with [`SimInit::add_model`],
 //! 4. initialization of a [`Simulation`] instance with [`SimInit::init`],
 //!    possibly preceded by the setup of a custom clock with
-//!    [`SimInit::set_clock`],
+//!    [`SimInit::with_clock`],
 //! 5. discrete-time simulation, which typically involves scheduling events and
 //!    incrementing simulation time while observing the models outputs.
 //!
@@ -123,7 +123,7 @@ use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{ReplierFn, query_replier};
-use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus};
+use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus, Ticker};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
 use crate::util::slot;
@@ -174,6 +174,7 @@ pub struct Simulation {
     time: AtomicTime,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
+    ticker: Option<Box<dyn Ticker>>,
     timeout: Duration,
     observers: Vec<(Path, Box<dyn ChannelObserver>)>,
     registered_models: Vec<RegisteredModel>,
@@ -189,8 +190,9 @@ impl Simulation {
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         scheduler_registry: SchedulerRegistry,
         time: AtomicTime,
-        clock: Box<dyn Clock + 'static>,
+        clock: Box<dyn Clock>,
         clock_tolerance: Option<Duration>,
+        ticker: Option<Box<dyn Ticker>>,
         timeout: Duration,
         observers: Vec<(Path, Box<dyn ChannelObserver>)>,
         registered_models: Vec<RegisteredModel>,
@@ -203,12 +205,37 @@ impl Simulation {
             time,
             clock,
             clock_tolerance,
+            ticker,
             timeout,
             observers,
             registered_models,
             is_halted,
             is_terminated: false,
         }
+    }
+
+    /// Reset the simulation clock and (re)set the ticker.
+    ///
+    /// This can in particular be used to resume a simulation driven by a
+    /// real-time clock after it was halted, using a new clock with an update
+    /// time reference.
+    ///
+    /// See also [`SimInit::with_clock`].
+    pub fn with_clock(&mut self, clock: impl Clock, ticker: impl Ticker) {
+        self.clock = Box::new(clock);
+        self.ticker = Some(Box::new(ticker));
+    }
+
+    /// Reset the simulation clock and run the simulation in tickless mode.
+    ///
+    /// This can in particular be used to resume a simulation driven by a
+    /// real-time clock after it was halted, using instead a clock running as
+    /// fast as possible.
+    ///
+    /// See also [`SimInit::with_tickless_clock`].
+    pub fn with_tickless_clock(&mut self, clock: impl Clock) {
+        self.clock = Box::new(clock);
+        self.ticker = None;
     }
 
     /// Sets a timeout for each simulation step.
@@ -219,24 +246,15 @@ impl Simulation {
     ///
     /// A null duration disables the timeout, which is the default behavior.
     ///
-    /// See also [`SimInit::set_timeout`].
+    /// See also [`SimInit::with_timeout`].
     #[cfg(not(target_family = "wasm"))]
-    pub fn set_timeout(&mut self, timeout: Duration) {
+    pub fn with_timeout(&mut self, timeout: Duration) {
         self.timeout = timeout;
     }
 
     /// Returns the current simulation time.
     pub fn time(&self) -> MonotonicTime {
         self.time.read()
-    }
-
-    /// Reinitializes the simulation clock.
-    ///
-    /// This can in particular be used to resume a simulation driven by a
-    /// real-time clock after it was halted, using a new clock with an update
-    /// time reference.
-    pub fn reset_clock(&mut self, clock: impl Clock + 'static) {
-        self.clock = Box::new(clock);
     }
 
     /// Advances simulation time to that of the next scheduled event, processing
@@ -469,17 +487,35 @@ impl Simulation {
         })
     }
 
-    /// Advances simulation time to that of the next scheduled event if its
-    /// scheduling time does not exceed the specified bound, processing that
-    /// event as well as all other event scheduled for the same time.
+    /// Blocks until the provided deadline.
     ///
-    /// If at least one event was found that satisfied the time bound, the
+    /// An `ExecutionError::OutOfSync` error is returned if the clock lags by
+    /// more than the tolerance.
+    fn synchronize(&mut self, deadline: MonotonicTime) -> Result<(), ExecutionError> {
+        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(deadline)
+            && let Some(tolerance) = &self.clock_tolerance
+            && &lag > tolerance
+        {
+            self.is_terminated = true;
+
+            return Err(ExecutionError::OutOfSync(lag));
+        }
+
+        Ok(())
+    }
+
+    /// Advances simulation time to that of the next tick or the next scheduled
+    /// event (whichever is earlier) that does not exceed the specified bound,
+    /// processing all events scheduled or injected until that time.
+    ///
+    /// If at least one event or tick satisfies the time bound, the
     /// corresponding new simulation time is returned.
     fn step_to_next(
         &mut self,
         upper_time_bound: Option<MonotonicTime>,
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
         self.take_halt_flag()?;
+
         if self.is_terminated {
             return Err(ExecutionError::Terminated);
         }
@@ -492,37 +528,45 @@ impl Simulation {
             loop {
                 match scheduler_queue.peek() {
                     Some((&key, item)) if key.0 <= upper_time_bound => {
-                        let is_cancelled = match item {
-                            QueueItem::Event(event) => event.is_cancelled(),
-                            QueueItem::Query(_) => false,
-                        };
-                        if !is_cancelled {
+                        // Discard and evict cancelled events.
+                        if let QueueItem::Event(event) = item
+                            && event.is_cancelled()
+                        {
+                            scheduler_queue.pull();
+                        } else {
                             break Some(key);
                         }
-                        // Discard cancelled events.
-                        scheduler_queue.pull();
                     }
                     _ => break None,
                 }
             }
         };
 
-        // Move to the next scheduled time.
+        // Set to simulation time to the next scheduled event or next tick,
+        // whichever is earlier.
+        let next_tick = self.ticker.as_mut().and_then(|ticker| {
+            let tick = ticker.next_tick(self.time.read());
+            (tick <= upper_time_bound).then_some(tick)
+        });
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
-        let mut current_key = match peek_next_key(&mut scheduler_queue) {
-            Some(key) => key,
-            None => return Ok(None),
+        let mut next_key = peek_next_key(&mut scheduler_queue);
+        let time = match (next_key, next_tick) {
+            (Some(key), Some(tick)) => tick.min(key.0),
+            (Some(key), None) => key.0,
+            (None, Some(tick)) => tick,
+            (None, None) => return Ok(None),
         };
-        self.time.write(current_key.0);
 
-        loop {
-            let mut next_key;
+        self.time.write(time);
 
-            // TODO: if there is a single event consider firing immediately
-            // instead of allocating SeqFuture, although the perf vs. complexity
-            // might not be worth it.
+        let mut has_events = false;
+
+        // Process scheduled events matching the current time stamp.
+        while next_key.map(|key| key.0 == time).unwrap_or(false) {
+            // Merge all events targeting the same mailbox in a single future to
+            // preserve event ordering.
             let mut event_seq = SeqFuture::new();
-            loop {
+            next_key = loop {
                 let ((time, channel_id), item) = scheduler_queue.pull().unwrap();
 
                 let fut = match item {
@@ -549,41 +593,32 @@ impl Simulation {
                 };
 
                 event_seq.push(fut);
-                next_key = peek_next_key(&mut scheduler_queue);
-                if next_key != Some(current_key) {
-                    break;
+
+                let key = peek_next_key(&mut scheduler_queue);
+                if key != next_key {
+                    break key;
                 }
-            }
+            };
 
             // Spawn a compound future that sequentially polls all events
             // targeting the same mailbox.
             self.executor.spawn_and_forget(event_seq);
-
-            current_key = match next_key {
-                // If the next event is scheduled at the same time, update the
-                // key and continue.
-                Some(k) if k.0 == current_key.0 => k,
-                // Otherwise wait until all actions triggered by the events have
-                // completed and return.
-                _ => {
-                    drop(scheduler_queue); // make sure the queue's mutex is released.
-
-                    let current_time = current_key.0;
-                    if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(current_time) {
-                        if let Some(tolerance) = &self.clock_tolerance {
-                            if &lag > tolerance {
-                                self.is_terminated = true;
-
-                                return Err(ExecutionError::OutOfSync(lag));
-                            }
-                        }
-                    }
-                    self.run_executor()?;
-
-                    return Ok(Some(current_time));
-                }
-            };
+            has_events = true;
         }
+
+        // Make sure the queue's mutex is released before the potentially
+        // blocking call to `synchronize`.
+        drop(scheduler_queue);
+
+        // Block until the deadline.
+        self.synchronize(time)?;
+
+        // Run the executor is necessary.
+        if has_events {
+            self.run_executor()?;
+        }
+
+        Ok(Some(time))
     }
 
     /// Iteratively advances simulation time and processes all events scheduled
@@ -608,15 +643,7 @@ impl Simulation {
                     if let Some(target_time) = target_time {
                         // Update the simulation time.
                         self.time.write(target_time);
-                        if let SyncStatus::OutOfSync(lag) = self.clock.synchronize(target_time) {
-                            if let Some(tolerance) = &self.clock_tolerance {
-                                if &lag > tolerance {
-                                    self.is_terminated = true;
-
-                                    return Err(ExecutionError::OutOfSync(lag));
-                                }
-                            }
-                        }
+                        self.synchronize(target_time)?;
                     }
                     return Ok(());
                 }
@@ -1051,7 +1078,7 @@ pub enum ExecutionError {
     /// This is a fatal error: any subsequent attempt to run the simulation will
     /// return an [`ExecutionError::Terminated`] error.
     ///
-    /// See also [`SimInit::set_timeout`] and [`Simulation::set_timeout`].
+    /// See also [`SimInit::with_timeout`].
     Timeout,
     /// The simulation has lost synchronization with the clock and lags behind
     /// by the duration given in the payload.
@@ -1059,7 +1086,7 @@ pub enum ExecutionError {
     /// This is a fatal error: any subsequent attempt to run the simulation will
     /// return an [`ExecutionError::Terminated`] error.
     ///
-    /// See also [`SimInit::set_clock_tolerance`].
+    /// See also [`SimInit::with_clock_tolerance`].
     OutOfSync(Duration),
     /// The query did not obtain a response because the mailbox targeted by the
     /// query was not found in the simulation.

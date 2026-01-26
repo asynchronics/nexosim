@@ -294,7 +294,7 @@
 //! When initialized with the default clock, the simulation will run as fast as
 //! possible, without regard for the actual wall clock time. Alternatively, the
 //! simulation time can be synchronized to the wall clock time using
-//! [`SimInit::set_clock`](simulation::SimInit::set_clock) and providing a
+//! [`SimInit::with_clock`](simulation::SimInit::with_clock) and providing a
 //! custom [`Clock`](time::Clock) type or a readily-available real-time clock
 //! such as [`AutoSystemClock`](time::AutoSystemClock).
 //!

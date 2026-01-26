@@ -49,8 +49,8 @@ fn clock_sync(
     let t0 = MonotonicTime::EPOCH;
     bench = bench
         .add_model(model, mbox, "test")
-        .set_clock(clock)
-        .set_clock_tolerance(clock_tolerance);
+        .with_tickless_clock(clock)
+        .with_clock_tolerance(clock_tolerance);
 
     let mut simu = bench.init(t0).unwrap();
 
