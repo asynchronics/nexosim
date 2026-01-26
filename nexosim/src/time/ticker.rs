@@ -140,6 +140,8 @@ impl Ticker for PeriodicTicker {
     }
 }
 
+// `Duration::from_nanos_u128` was stabilized in Rust 1.93 and can be used
+// instead once we bump the MSRV.
 fn duration_from_nanos_u128(nanos: u128) -> Duration {
     const NANOS_PER_SEC: u128 = 1_000_000_000;
 
