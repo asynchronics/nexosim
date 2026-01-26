@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{
+    BuildContext, Context, InitializedModel, Model, ProtoModel, SchedulableId, schedulable,
+};
 use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -51,9 +53,9 @@ fn model_schedule_event(num_threads: usize) {
     assert!(output.try_read().is_none());
 }
 
-// This test mainly checks that ModelRegistry and SchedulableId with bitmasking
-// works properly when multiple models are involved (the won't override their
-// inputs).
+// This test mainly checks that ModelRegistry and SchedulableId with bit-masking
+// works properly when multiple models are involved and will not override their
+// inputs.
 fn multiple_models_scheduling(num_threads: usize) {
     const MODEL_COUNT: usize = 3;
 
@@ -107,9 +109,9 @@ fn multiple_models_scheduling(num_threads: usize) {
 
     for idx in 0..MODEL_COUNT {
         simu.step().unwrap();
-        // This should assert that the order of the SourceIds is correct.
-        // If bitmasking is removed from `SchedulableId::__from_decorated` this would
-        // fail.
+        // This should assert that the order of the SourceIds is correct. If
+        // bit-masking is removed from `SchedulableId::__from_decorated` this
+        // would fail.
         assert_eq!(output.try_read(), Some(13 * (idx + 1)));
     }
 }
@@ -320,6 +322,71 @@ fn model_cancel_periodic_event(num_threads: usize) {
     assert!(output.try_read().is_none());
 }
 
+fn model_schedule_manually_registered_input(num_threads: usize) {
+    #[derive(Default)]
+    struct TestProtoModel {
+        output: Output<usize>,
+    }
+
+    impl ProtoModel for TestProtoModel {
+        type Model = TestModel;
+
+        fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, ()) {
+            let action2 =
+                cx.register_schedulable(async |model: &mut TestModel| model.output.send(2).await);
+
+            (TestModel::new(self.output, action2), ())
+        }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct TestModel {
+        output: Output<usize>,
+        action2: SchedulableId<Self, ()>,
+    }
+    #[Model]
+    impl TestModel {
+        fn new(output: Output<usize>, action2: SchedulableId<Self, ()>) -> Self {
+            Self { output, action2 }
+        }
+        fn trigger(&mut self, _: (), cx: &Context<Self>) {
+            cx.schedule_event(Duration::from_secs(1), schedulable!(Self::action1), ())
+                .unwrap();
+            cx.schedule_event(Duration::from_secs(2), &self.action2, ())
+                .unwrap();
+        }
+        #[nexosim(schedulable)]
+        async fn action1(&mut self) {
+            self.output.send(1).await;
+        }
+    }
+
+    let mut model = TestProtoModel::default();
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let trigger = EventSource::new()
+        .connect(TestModel::trigger, &mbox)
+        .register(&mut bench);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.process_event(&trigger, ()).unwrap();
+    simu.step().unwrap();
+    assert_eq!(simu.time(), t0 + Duration::from_secs(1));
+    assert_eq!(output.try_read(), Some(1));
+    simu.step().unwrap();
+    assert_eq!(simu.time(), t0 + Duration::from_secs(2));
+    assert_eq!(output.try_read(), Some(2));
+    simu.step().unwrap();
+    assert!(output.try_read().is_none());
+}
+
 #[test]
 fn model_schedule_event_st() {
     model_schedule_event(1);
@@ -378,4 +445,14 @@ fn model_cancel_periodic_event_st() {
 #[test]
 fn model_cancel_periodic_event_mt() {
     model_cancel_periodic_event(MT_NUM_THREADS);
+}
+
+#[test]
+fn model_schedule_manually_registered_input_st() {
+    model_schedule_manually_registered_input(1)
+}
+
+#[test]
+fn model_schedule_manually_registered_input_mt() {
+    model_schedule_manually_registered_input(MT_NUM_THREADS)
 }
