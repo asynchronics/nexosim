@@ -150,6 +150,8 @@ fn from_execution_error(error: ExecutionError) -> Error {
         ExecutionError::InvalidDeadline(_) => ErrorCode::InvalidDeadline,
         ExecutionError::InvalidEventId(_) => ErrorCode::EventSourceNotFound,
         ExecutionError::InvalidQueryId(_) => ErrorCode::QuerySourceNotFound,
+        ExecutionError::InvalidEventType { .. } => ErrorCode::InvalidEventType,
+        ExecutionError::InvalidQueryType { .. } => ErrorCode::InvalidQueryType,
         ExecutionError::SaveError(_) => ErrorCode::SaveError,
         ExecutionError::RestoreError(_) => ErrorCode::RestoreError,
     };
