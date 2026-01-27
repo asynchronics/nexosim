@@ -320,7 +320,7 @@ impl Simulation {
             .get_event_source(&(*event_id).into())
             .ok_or(ExecutionError::InvalidEventId(event_id.0))?;
 
-        let fut = source.event_future(&arg, None);
+        let fut = source.future_owned(Box::new(arg), None);
 
         self.process_future(fut)
     }
@@ -341,7 +341,7 @@ impl Simulation {
                 event_source.get_event_id().0,
             ))?;
 
-        let fut = source.event_future(arg.as_ref(), None);
+        let fut = source.future_owned(arg, None);
 
         self.process_future(fut)
     }
@@ -367,7 +367,7 @@ impl Simulation {
             .get_query_source(&(*query_id).into())
             .ok_or(ExecutionError::InvalidQueryId(query_id.0))?;
 
-        let fut = source.query_future(&arg, Some(Box::new(tx)));
+        let fut = source.future(Box::new(arg), Some(Box::new(tx)));
         self.process_future(fut)?;
 
         // If the future resolves successfully it should be
@@ -395,7 +395,7 @@ impl Simulation {
 
         let (tx, rx) = query_source.replier();
 
-        let fut = source.query_future(arg.as_ref(), Some(tx));
+        let fut = source.future(arg, Some(tx));
         self.process_future(fut)?;
         Ok(rx)
     }
@@ -582,23 +582,21 @@ impl Simulation {
                             .get_event_source(&event.event_id)
                             .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
-                        // TODO: `event_future` always clones the inner message.
-                        // This should be avoided for non-periodic events,
-                        // maybe with a consuming variant of `event_future`.
-                        let fut = source.event_future(&*event.arg, event.key.clone());
                         if let Some(period) = event.period {
+                            let fut = source.future_borrowed(&*event.arg, event.key.as_ref());
                             scheduler_queue
                                 .insert((time + period, origin_id), QueueItem::Event(event));
+                            fut
+                        } else {
+                            source.future_owned(event.arg, event.key)
                         }
-                        fut
                     }
                     QueueItem::Query(query) => {
                         let source = self
                             .scheduler_registry
                             .get_query_source(&query.query_id)
                             .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
-                        // TODO: `query_future` should never clone the inner message.
-                        source.query_future(&*query.arg, query.replier)
+                        source.future(query.arg, query.replier)
                     }
                 };
 
@@ -634,7 +632,7 @@ impl Simulation {
                         .get_event_source(&event.event_id)
                         .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
-                    let fut = source.event_future(&*event.arg, event.key);
+                    let fut = source.future_owned(event.arg, event.key);
                     if id != origin_id {
                         self.executor.spawn_and_forget(event_seq);
                         event_seq = SeqFuture::new();
