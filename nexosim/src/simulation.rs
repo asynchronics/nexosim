@@ -320,7 +320,7 @@ impl Simulation {
             .get_event_source(&(*event_id).into())
             .ok_or(ExecutionError::InvalidEventId(event_id.0))?;
 
-        let fut = source.future_owned(Box::new(arg), None);
+        let fut = source.future_owned(Box::new(arg), None)?;
 
         self.process_future(fut)
     }
@@ -341,7 +341,7 @@ impl Simulation {
                 event_source.get_event_id().0,
             ))?;
 
-        let fut = source.future_owned(arg, None);
+        let fut = source.future_owned(arg, None)?;
 
         self.process_future(fut)
     }
@@ -367,7 +367,7 @@ impl Simulation {
             .get_query_source(&(*query_id).into())
             .ok_or(ExecutionError::InvalidQueryId(query_id.0))?;
 
-        let fut = source.future(Box::new(arg), Some(Box::new(tx)));
+        let fut = source.future(Box::new(arg), Some(Box::new(tx)))?;
         self.process_future(fut)?;
 
         // If the future resolves successfully it should be
@@ -395,7 +395,7 @@ impl Simulation {
 
         let (tx, rx) = query_source.replier();
 
-        let fut = source.future(arg, Some(tx));
+        let fut = source.future(arg, Some(tx))?;
         self.process_future(fut)?;
         Ok(rx)
     }
@@ -583,12 +583,12 @@ impl Simulation {
                             .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
                         if let Some(period) = event.period {
-                            let fut = source.future_borrowed(&*event.arg, event.key.as_ref());
+                            let fut = source.future_borrowed(&*event.arg, event.key.as_ref())?;
                             scheduler_queue
                                 .insert((time + period, origin_id), QueueItem::Event(event));
                             fut
                         } else {
-                            source.future_owned(event.arg, event.key)
+                            source.future_owned(event.arg, event.key)?
                         }
                     }
                     QueueItem::Query(query) => {
@@ -596,7 +596,7 @@ impl Simulation {
                             .scheduler_registry
                             .get_query_source(&query.query_id)
                             .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
-                        source.future(query.arg, query.replier)
+                        source.future(query.arg, query.replier)?
                     }
                 };
 
@@ -632,7 +632,7 @@ impl Simulation {
                         .get_event_source(&event.event_id)
                         .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
-                    let fut = source.future_owned(event.arg, event.key);
+                    let fut = source.future_owned(event.arg, event.key)?;
                     if id != origin_id {
                         self.executor.spawn_and_forget(event_seq);
                         event_seq = SeqFuture::new();
@@ -1137,6 +1137,18 @@ pub enum ExecutionError {
     InvalidEventId(usize),
     /// A non-existent query source identifier has been used.
     InvalidQueryId(usize),
+    /// The type of the event argument is invalid.
+    InvalidEventType {
+        /// The actual event type.
+        expected_event_type: &'static str,
+    },
+    /// The type of the query argument or reply invalid.
+    InvalidQueryType {
+        /// The actual request type.
+        expected_request_type: &'static str,
+        /// The actual replier type.
+        expected_reply_type: &'static str,
+    },
     /// Simulation serialization has failed.
     SaveError(SaveError),
     /// Simulation deserialization has failed.
@@ -1207,6 +1219,23 @@ impl fmt::Display for ExecutionError {
             }
             Self::InvalidEventId(e) => write!(f, "event source with identifier '{e}' was not found"),
             Self::InvalidQueryId(e) => write!(f, "query source with identifier '{e}' was not found"),
+            Self::InvalidEventType {
+                expected_event_type,
+            } => {
+                write!(
+                    f,
+                    "invalid event type, expected: {expected_event_type}"
+                )
+            }
+            Self::InvalidQueryType {
+                expected_request_type,
+                expected_reply_type,
+            } => {
+                write!(
+                    f,
+                    "invalid query request-reply type pair, expected: ('{expected_request_type}', '{expected_reply_type}')"
+                )
+            }
             Self::SaveError(o) => write!(f, "saving the simulation state has failed: {o}"),
             Self::RestoreError(o) => write!(f, "restoring the simulation state has failed: {o}"),
         }
