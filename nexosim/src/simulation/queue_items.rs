@@ -229,6 +229,34 @@ where
             _phantom: PhantomData,
         }
     }
+    fn send(
+        &self,
+        arg: T,
+        event_key: Option<EventKey>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let func = self.func.clone();
+        let sender = self.sender.clone();
+
+        let fut = async move {
+            sender
+                .send(
+                    move |model: &mut M, scheduler, env, recycle_box: RecycleBox<()>| {
+                        let fut = async {
+                            match event_key {
+                                Some(key) if key.is_cancelled() => (),
+                                _ => func.call(model, arg, scheduler, env).await,
+                            }
+                        };
+
+                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
+                    },
+                )
+                .await
+                .unwrap_or_throw();
+        };
+
+        Box::pin(fut)
+    }
 }
 
 impl<M, F, S, T> std::fmt::Debug for InputSource<M, F, S, T>
@@ -269,61 +297,16 @@ where
         arg: &dyn Any,
         event_key: Option<&EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        // FIXME
         let arg = arg.downcast_ref::<T>().unwrap().clone();
-        let func = self.func.clone();
-        let sender = self.sender.clone();
-        let key = event_key.cloned();
-
-        let fut = async move {
-            sender
-                .send(
-                    move |model: &mut M, scheduler, env, recycle_box: RecycleBox<()>| {
-                        let fut = async {
-                            match key {
-                                Some(key) if key.is_cancelled() => (),
-                                _ => func.call(model, arg, scheduler, env).await,
-                            }
-                        };
-
-                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
-                    },
-                )
-                .await
-                .unwrap_or_throw();
-        };
-
-        Box::pin(fut)
+        self.send(arg, event_key.cloned())
     }
     fn future_owned(
         &self,
         arg: Box<dyn Any>,
         event_key: Option<EventKey>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        // FIXME
-        let arg = arg.downcast_ref::<T>().unwrap().clone();
-        let func = self.func.clone();
-        let sender = self.sender.clone();
-
-        let fut = async move {
-            sender
-                .send(
-                    move |model: &mut M, scheduler, env, recycle_box: RecycleBox<()>| {
-                        let fut = async {
-                            match event_key {
-                                Some(key) if key.is_cancelled() => (),
-                                _ => func.call(model, arg, scheduler, env).await,
-                            }
-                        };
-
-                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
-                    },
-                )
-                .await
-                .unwrap_or_throw();
-        };
-
-        Box::pin(fut)
+        let arg = *arg.downcast::<T>().unwrap();
+        self.send(arg, event_key)
     }
 }
 
