@@ -1,9 +1,9 @@
 //! A high-performance, discrete-event computation framework for system
 //! simulation.
 //!
-//! NeXosim (né Asynchronix) is a developer-friendly, yet highly optimized
-//! software simulator able to scale to very large simulation with complex
-//! time-driven state machines.
+//! NeXosim is a developer-friendly, yet highly optimized software simulator
+//! able to scale to very large simulation with complex time-driven state
+//! machines.
 //!
 //! It promotes a component-oriented architecture that is familiar to system
 //! engineers and closely resembles [flow-based programming][FBP]: a model is
@@ -24,7 +24,7 @@
 //!
 //! Simulating a system typically involves three distinct activities:
 //!
-//! 1. the design of simulation models for each sub-system,
+//! 1. the design of simulation models for each node of the system,
 //! 2. the assembly of a simulation bench from a set of models, performed by
 //!    inter-connecting model ports,
 //! 3. the execution of the simulation, managed through periodical increments of
@@ -39,13 +39,14 @@
 //! * _output ports_, which are instances of the [`Output`](ports::Output) type
 //!   and can be used to broadcast a message,
 //! * _requestor ports_, which are instances of the
-//!   [`Requestor`](ports::Requestor) or [`UniRequestor`](ports::UniRequestor)
-//!   types and can be used to broadcast a message and receive an iterator
-//!   yielding the replies from all connected replier ports,
+//!   [`UniRequestor`](ports::UniRequestor) or [`Requestor`](ports::Requestor)
+//!   types and can be used to send/broadcast a message and receive a single
+//!   reply ([`UniRequestor`](ports::UniRequestor)) or an iterator over the
+//!   replies of all connected replier ports ([`Requestor`](ports::Requestor)),
 //! * _input ports_, which are synchronous or asynchronous methods that
 //!   implement the [`InputFn`](ports::InputFn) trait and take an `&mut self`
-//!   argument, a message argument, and an optional [`&mut
-//!   Context`](model::Context) argument,
+//!   argument, a message argument and, optionally, [`&Context`](model::Context)
+//!   and [`&Model::Env`](model::Model::Env) arguments,
 //! * _replier ports_, which are similar to input ports but implement the
 //!   [`ReplierFn`](ports::ReplierFn) trait and return a reply.
 //!
@@ -53,16 +54,12 @@
 //! to as *events*, while messages exchanged between requestor and replier ports
 //! are referred to as *requests* and *replies*.
 //!
-//! Models must implement the [`Model`](trait@model::Model) trait. The main
-//! purpose of this trait is to allow models to specify a
-//! [`Model::init`](model::Model::init) method that is guaranteed to run once
-//! and only once when the simulation is initialized, _i.e._ after all models
-//! have been connected but before the simulation starts.
-//!
-//! The [`Model::init`](model::Model::init) method has a default
-//! implementation, so models that do not require setup and initialization can
-//! simply implement the trait with a one-liner such as `impl Model for MyModel
-//! {}`.
+//! Models must implement the [`Model`](trait@model::Model) trait, which is most
+//! conveniently done by annotating the `impl` block of the model with the
+//! [`#[Model]`](macro@model::Model) macro. This trait allows models to specify a custom
+//! [`Model::init`](model::Model::init) method that is guaranteed to run exactly
+//! once when the simulation is initialized, _i.e._ after all models have been
+//! connected but before the simulation starts.
 //!
 //! More complex models can be built with the [`ProtoModel`](model::ProtoModel)
 //! trait. The [`ProtoModel::build`](model::ProtoModel::build) method makes it
@@ -111,7 +108,6 @@
 //! }
 //! #[Model]
 //! impl Multiplier {
-//!     #[nexosim(schedulable)]
 //!     pub async fn input(&mut self, value: f64) {
 //!         self.output.send(2.0 * value).await;
 //!     }
@@ -124,9 +120,11 @@
 //! access to the current simulation time. To do so, input and replier methods
 //! can take an optional argument that gives them access to a local context.
 //!
-//! To show how the local context can be used in practice, let us implement
-//! `Delay`, a model which simply forwards its input unmodified after a 1s
-//! delay:
+//! To show how the local context can be used in practice, let us implement a
+//! `Delay` model which simply forwards its input after a 1s delay. Note as well
+//! the use of the [`schedulable!`](model::schedulable) macro which, together
+//! with the `[nexosim(Schedulable)]` attribute, make it possible for a model to
+//! self-schedule its inputs.
 //!
 //! ```
 //! use std::time::Duration;
@@ -162,7 +160,11 @@
 //! creation of a [`Mailbox`](simulation::Mailbox) for each model. A mailbox is
 //! essentially a fixed-capacity buffer for events and requests. While each
 //! model has only one mailbox, it is possible to create an arbitrary number of
-//! [`Address`](simulation::Mailbox)es pointing to that mailbox.
+//! [`Address`](simulation::Mailbox)es pointing to that mailbox. For
+//! convenience, methods such as [`Output::connect`](ports::Output::connect)
+//! accept as the target either a [`&Mailbox`](simulation::Mailbox) reference
+//! from which an address is created, or a pre-instantiated
+//! [`Address`](simulation::Mailbox).
 //!
 //! Addresses are used among others to connect models: each output or requestor
 //! port has a `connect` method that takes as argument a function pointer to
@@ -441,7 +443,7 @@
 //! ## Server
 //!
 //! The `server` feature provides a gRPC server for remote control and
-//! monitoring, e.g. from a Python client. It can be activated with:
+//! monitoring, *e.g.* from a Python client. It can be activated with:
 //!
 //! ```toml
 //! [dependencies]

@@ -86,20 +86,17 @@ impl Deadline for MonotonicTime {
     }
 }
 
-/// A cloneable clock reader, tracking current simulation time.
-///
-/// Note: it is discouraged to query the time before simulation is
-/// initialized as the returned value will have no useful meaning.
+/// A `Clone`-able clock reader to track the current simulation time.
 #[derive(Clone)]
 pub struct ClockReader(AtomicTimeReader);
 impl ClockReader {
     pub(crate) fn from_atomic_time_reader(reader: &AtomicTimeReader) -> Self {
         Self(reader.clone())
     }
-    /// Returns current simulation time.
+    /// Returns the current simulation time.
     ///
-    /// Note: it is discouraged to call this before simulation is initialized
-    /// as the returned value will have no useful meaning.
+    /// Note: it is discouraged to query the time before the simulation is
+    /// initialized as the returned value is then meaningless.
     pub fn time(&self) -> MonotonicTime {
         self.0.read()
     }

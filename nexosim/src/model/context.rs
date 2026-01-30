@@ -23,30 +23,8 @@ use crate::channel::Receiver;
 /// A local context for models.
 ///
 /// A `Context` is a handle to the global context associated to a model
-/// instance. It can be used by the model to retrieve the simulation time or
-/// schedule delayed actions on itself.
-///
-/// ### Caveat: self-scheduling `async` methods
-///
-/// Due to a current rustc issue, `async` methods that schedule themselves will
-/// not compile unless an explicit `Send` bound is added to the returned future.
-/// This can be done by replacing the `async` signature with a partially
-/// desugared signature such as:
-///
-/// ```ignore
-/// fn self_scheduling_method<'a>(
-///     &'a mut self,
-///     arg: MyEventType,
-///     cx: &'a Context<Self>
-/// ) -> impl Future<Output=()> + Send + 'a {
-///     async move {
-///         /* implementation */
-///     }
-/// }
-/// ```
-///
-/// Self-scheduling methods which are not `async` are not affected by this
-/// issue.
+/// instance. It can be used by the model to retrieve the model's [Path] and the
+/// simulation time, or to schedule delayed events on itself.
 ///
 /// # Examples
 ///
@@ -85,8 +63,6 @@ use crate::channel::Receiver;
 ///     }
 /// }
 /// ```
-// The self-scheduling caveat seems related to this issue:
-// https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
     path: Path,
     scheduler: GlobalScheduler,
@@ -398,23 +374,29 @@ impl<M: Model> fmt::Debug for Context<M> {
 
 /// Context available when building a model from a model prototype.
 ///
-/// A `BuildContext` can be used to add the sub-models of a hierarchical model
-/// to the simulation bench.
+/// A `BuildContext` can be used for a variety of purposes, for instance:
+///
+/// - to spawn sub-models onto the simulation with
+///   [`BuildContext::add_submodel`],
+/// - to pass a [`ModelInjector`] retrieved with [`BuildContext::injector`] to
+///   any background thread that may need to communicate with the model,
+/// - to manually register a schedulable method with
+///   [`BuildContext::register_schedulable`],
+/// - to provide a clock reader to the model with [`BuildContext::clock_reader`].
 ///
 /// # Examples
 ///
 /// A model that multiplies its input by four using two sub-models that each
-/// multiply their input by two.
+/// multiply their input by two:
 ///
 /// ```text
 ///             ┌───────────────────────────────────────┐
-///             │ MyltiplyBy4                           │
+///             │              MultiplyBy4              │
 ///             │   ┌─────────────┐   ┌─────────────┐   │
 ///             │   │             │   │             │   │
 /// Input ●─────┼──►│ MultiplyBy2 ├──►│ MultiplyBy2 ├───┼─────► Output
 ///         f64 │   │             │   │             │   │ f64
 ///             │   └─────────────┘   └─────────────┘   │
-///             │                                       │
 ///             └───────────────────────────────────────┘
 /// ```
 ///
@@ -527,8 +509,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Returns the path to the model.
     ///
-    /// The path is constituted by the name of the root model, followed by its
-    /// sub-models if any.
+    /// The path is constituted by the name of all parent models (if any) and of
+    /// this model, starting from the root.
     pub fn path(&self) -> &Path {
         self.path
     }
@@ -541,13 +523,14 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// Registers a self-schedulable input.
     ///
     /// Typically, registering self-schedulable inputs is not necessary since
-    /// the [`macro@Model`] procedural macro does this automatically, enabling
-    /// the convenient use of the [`schedulable!`](crate::model::schedulable!)
-    /// macro.
+    /// the [`macro@Model`] procedural macro does this automatically for methods
+    /// annotated with `[nexosim(schedulable)]`, enabling the use of the
+    /// [`schedulable!`](crate::model::schedulable!) macro and alleviating the
+    /// need to keep [`SchedulableId`] handles within the model.
     ///
     /// However, if the [`trait@Model`] trait is implemented manually or if a
-    /// non-method function with an input signature needs to be registered,
-    /// `register_schedulable` can be used to obtain a handle to such input.
+    /// non-method function needs to be scheduled, `register_schedulable` can be
+    /// used instead to obtain a [`SchedulableId`].
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
@@ -562,9 +545,10 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Adds a sub-model to the simulation bench.
     ///
-    /// The `name` argument defines the [`Path`] to the sub-model relative to
-    /// this model (root path). Because model paths are used for logging and
-    /// error reports, the use of unique names is recommended.
+    /// The [`Path`] to the sub-model is formed by the concatenation of the path
+    /// to this parent model and of the `name` argument. Because model paths are
+    /// used for logging and error reporting, the use of unique names is
+    /// recommended.
     pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: &str)
     where
         S: ProtoModel,
@@ -601,7 +585,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Sets the model registry.
     ///
-    /// This is necessary prior to any call to [`injector`](Self::injector).
+    /// Warning: this method must be called prior to any call to
+    /// [`injector`](Self::injector).
     pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
         self.model_registry = Some(model_registry);
     }

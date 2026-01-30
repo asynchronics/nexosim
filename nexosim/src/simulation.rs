@@ -1,8 +1,8 @@
 //! Discrete-event simulation management.
 //!
 //! This module contains most notably the [`Simulation`] environment, the
-//! [`SimInit`] simulation builder, the [`Mailbox`] and [`Address`] types as
-//! well as miscellaneous other types related to simulation management.
+//! [`SimInit`] simulation bench builder, the [`Mailbox`] and [`Address`] types
+//! as well as miscellaneous other types related to simulation management.
 //!
 //! # Simulation lifecycle
 //!
@@ -156,7 +156,7 @@ const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
 ///
 /// Events and queries can be scheduled immediately, *i.e.* for the current
 /// simulation time, using [`process_event`](Simulation::process_event) and
-/// [`send_query`](Simulation::process_query). Calling these methods will block
+/// [`process_query`](Simulation::process_query). Calling these methods will block
 /// until all computations triggered by such event or query have completed. In
 /// the case of queries, the response is returned.
 ///
