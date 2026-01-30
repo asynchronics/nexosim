@@ -169,21 +169,26 @@ impl SchedulerQueryRegistry {
 pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
-    fn event_future(
+    fn future_borrowed(
         &self,
         arg: &dyn Any,
+        event_key: Option<&EventKey>,
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, ExecutionError>;
+    fn future_owned(
+        &self,
+        arg: Box<dyn Any>,
         event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, ExecutionError>;
 }
 
 pub(crate) trait SchedulerQuerySource: std::fmt::Debug + Send + 'static {
     fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
-    fn query_future(
+    fn future(
         &self,
-        arg: &dyn Any,
+        arg: Box<dyn Any>,
         replier: Option<Box<dyn Any + Send>>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError>;
 }
 
 /// A helper trait ensuring type safety of the registered event sources.
@@ -224,6 +229,34 @@ where
             _phantom: PhantomData,
         }
     }
+    fn send(
+        &self,
+        arg: T,
+        event_key: Option<EventKey>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let func = self.func.clone();
+        let sender = self.sender.clone();
+
+        let fut = async move {
+            sender
+                .send(
+                    move |model: &mut M, scheduler, env, recycle_box: RecycleBox<()>| {
+                        let fut = async {
+                            match event_key {
+                                Some(key) if key.is_cancelled() => (),
+                                _ => func.call(model, arg, scheduler, env).await,
+                            }
+                        };
+
+                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
+                    },
+                )
+                .await
+                .unwrap_or_throw();
+        };
+
+        Box::pin(fut)
+    }
 }
 
 impl<M, F, S, T> std::fmt::Debug for InputSource<M, F, S, T>
@@ -259,34 +292,30 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         deserialize_arg::<T>(arg)
     }
-    fn event_future(
+    fn future_borrowed(
         &self,
         arg: &dyn Any,
+        event_key: Option<&EventKey>,
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError> {
+        let arg = arg
+            .downcast_ref::<T>()
+            .ok_or(ExecutionError::InvalidEventType {
+                expected_event_type: type_name::<T>(),
+            })?
+            .clone();
+        Ok(self.send(arg, event_key.cloned()))
+    }
+    fn future_owned(
+        &self,
+        arg: Box<dyn Any>,
         event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let arg = arg.downcast_ref::<T>().unwrap().clone();
-        let func = self.func.clone();
-        let sender = self.sender.clone();
-
-        let fut = async move {
-            sender
-                .send(
-                    move |model: &mut M, scheduler, env, recycle_box: RecycleBox<()>| {
-                        let fut = async {
-                            match event_key {
-                                Some(key) if key.is_cancelled() => (),
-                                _ => func.call(model, arg, scheduler, env).await,
-                            }
-                        };
-
-                        coerce_box!(RecycleBox::recycle(recycle_box, fut))
-                    },
-                )
-                .await
-                .unwrap_or_throw();
-        };
-
-        Box::pin(fut)
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError> {
+        let arg = *arg
+            .downcast::<T>()
+            .map_err(|_| ExecutionError::InvalidEventType {
+                expected_event_type: type_name::<T>(),
+            })?;
+        Ok(self.send(arg, event_key))
     }
 }
 
@@ -305,15 +334,32 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         deserialize_arg::<T>(arg)
     }
-    fn event_future(
+    fn future_borrowed(
         &self,
         arg: &dyn Any,
-        _: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(EventSource::event_future(
+        _: Option<&EventKey>,
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError> {
+        Ok(Box::pin(EventSource::event_future(
             self,
-            arg.downcast_ref::<T>().unwrap().clone(),
-        ))
+            arg.downcast_ref::<T>()
+                .ok_or(ExecutionError::InvalidEventType {
+                    expected_event_type: type_name::<T>(),
+                })?
+                .clone(),
+        )))
+    }
+    fn future_owned(
+        &self,
+        arg: Box<dyn Any>,
+        _: Option<EventKey>,
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError> {
+        Ok(Box::pin(EventSource::event_future(
+            self,
+            *arg.downcast::<T>()
+                .map_err(|_| ExecutionError::InvalidEventType {
+                    expected_event_type: type_name::<T>(),
+                })?,
+        )))
     }
 }
 
@@ -331,13 +377,21 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         self.as_ref().deserialize_arg(arg)
     }
-    fn event_future(
+    fn future_borrowed(
         &self,
         arg: &dyn Any,
-        event_key: Option<EventKey>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        event_key: Option<&EventKey>,
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, ExecutionError> {
         let inner: &dyn SchedulerEventSource = self.as_ref();
-        inner.event_future(arg, event_key)
+        inner.future_borrowed(arg, event_key)
+    }
+    fn future_owned(
+        &self,
+        arg: Box<dyn Any>,
+        event_key: Option<EventKey>,
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send + 'static>>, ExecutionError> {
+        let inner: &dyn SchedulerEventSource = self.as_ref();
+        inner.future_owned(arg, event_key)
     }
 }
 
@@ -358,13 +412,31 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         deserialize_arg::<T>(arg)
     }
-    fn query_future(
+    fn future(
         &self,
-        arg: &dyn Any,
+        arg: Box<dyn Any>,
         replier: Option<Box<dyn Any + Send>>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let replier = replier.map(|r| *r.downcast::<ReplyWriter<R>>().unwrap());
-        QuerySource::query_future(self, arg.downcast_ref::<T>().unwrap().clone(), replier)
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError> {
+        let replier = replier
+            .map(|r| {
+                r.downcast::<ReplyWriter<R>>()
+                    .map_err(|_| ExecutionError::InvalidQueryType {
+                        expected_request_type: type_name::<T>(),
+                        expected_reply_type: type_name::<R>(),
+                    })
+                    .map(|r| *r)
+            })
+            .transpose()?;
+
+        Ok(QuerySource::query_future(
+            self,
+            *arg.downcast::<T>()
+                .map_err(|_| ExecutionError::InvalidQueryType {
+                    expected_request_type: type_name::<T>(),
+                    expected_reply_type: type_name::<R>(),
+                })?,
+            replier,
+        ))
     }
 }
 
@@ -385,13 +457,13 @@ where
     fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
         deserialize_arg::<T>(arg)
     }
-    fn query_future(
+    fn future(
         &self,
-        arg: &dyn Any,
+        arg: Box<dyn Any>,
         replier: Option<Box<dyn Any + Send>>,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    ) -> Result<Pin<Box<dyn Future<Output = ()> + Send>>, ExecutionError> {
         let inner: &dyn SchedulerQuerySource = self.as_ref();
-        inner.query_future(arg, replier)
+        inner.future(arg, replier)
     }
 }
 
