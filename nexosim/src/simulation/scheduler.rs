@@ -13,9 +13,7 @@ use crate::util::priority_queue::PriorityQueue;
 #[cfg(all(test, not(nexosim_loom)))]
 use crate::{time::AtomicTime, time::TearableAtomicTime, util::sync_cell::SyncCell};
 
-// Usize::MAX - 1 is used as plain usize::MAX is used e.g. to mark a missing
-// ModelId.
-const GLOBAL_SCHEDULER_ORIGIN_ID: usize = usize::MAX - 1;
+use super::GLOBAL_ORIGIN_ID;
 
 /// A global simulation scheduler.
 ///
@@ -76,8 +74,7 @@ impl Scheduler {
         deadline: impl Deadline,
         event: Event,
     ) -> Result<(), SchedulingError> {
-        self.0
-            .schedule_from(deadline, event, GLOBAL_SCHEDULER_ORIGIN_ID)
+        self.0.schedule_from(deadline, event, GLOBAL_ORIGIN_ID)
     }
 
     /// Schedules an event by its id at a future time.
@@ -97,7 +94,7 @@ impl Scheduler {
         T: Send + Clone + 'static,
     {
         self.0
-            .schedule_event_from(deadline, event_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_event_from(deadline, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
     /// Schedules a cancellable event by its id at a future time and returns an
@@ -118,7 +115,7 @@ impl Scheduler {
         T: Send + Clone + 'static,
     {
         self.0
-            .schedule_keyed_event_from(deadline, event_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_keyed_event_from(deadline, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
     /// Schedules a periodically recurring event by its id at a future time.
@@ -138,13 +135,8 @@ impl Scheduler {
     where
         T: Send + Clone + 'static,
     {
-        self.0.schedule_periodic_event_from(
-            deadline,
-            period,
-            event_id,
-            arg,
-            GLOBAL_SCHEDULER_ORIGIN_ID,
-        )
+        self.0
+            .schedule_periodic_event_from(deadline, period, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
     /// Schedules a cancellable, periodically recurring event by its id at a
@@ -165,13 +157,8 @@ impl Scheduler {
     where
         T: Send + Clone + 'static,
     {
-        self.0.schedule_keyed_periodic_event_from(
-            deadline,
-            period,
-            event_id,
-            arg,
-            GLOBAL_SCHEDULER_ORIGIN_ID,
-        )
+        self.0
+            .schedule_keyed_periodic_event_from(deadline, period, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
     /// Schedules a query by its id at a future time.
@@ -192,7 +179,7 @@ impl Scheduler {
         R: Send + 'static,
     {
         self.0
-            .schedule_query_from(deadline, query_id, arg, GLOBAL_SCHEDULER_ORIGIN_ID)
+            .schedule_query_from(deadline, query_id, arg, GLOBAL_ORIGIN_ID)
     }
 
     /// Requests the simulation to be interrupted at the earliest opportunity.

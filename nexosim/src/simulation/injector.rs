@@ -3,8 +3,11 @@ use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 use crate::model::{Model, ModelRegistry, SchedulableId};
+use crate::simulation::EventId;
 use crate::simulation::queue_items::Event;
 use crate::util::priority_queue::PriorityQueue;
+
+use super::GLOBAL_ORIGIN_ID;
 
 /// Alias for the scheduler queue type.
 ///
@@ -18,10 +21,11 @@ pub(crate) type InjectorQueue = PriorityQueue<usize, Event>;
 
 /// An injector for events to be processed by a model as soon as possible.
 ///
-/// A `ModelInjector` is similar to a
-/// [`Scheduler`](crate::simulation::Scheduler) but is used to request events to
-/// be processed as soon as possible rather than at a specific deadline. A
-/// `ModelInjector` is always associated to a model instance.
+/// The [`ModelInjector::inject_event`] method is similar to
+/// [`Context::schedule_event`](crate::model::Context::schedule_event) but is
+/// used to request events to be processed as soon as possible rather than at a
+/// specific deadline. A `ModelInjector` is always associated to a model
+/// instance.
 #[derive(Clone)]
 pub struct ModelInjector<M: Model> {
     queue: Arc<Mutex<InjectorQueue>>,
@@ -46,8 +50,9 @@ impl<M: Model> ModelInjector<M> {
 
     /// Injects an event to be processed as soon as possible.
     ///
-    /// The event will be processed at the next simulation step, whether the
-    /// step coincides with a scheduled event or a simulation tick.
+    /// The event will be processed at the simulation step that follows the one
+    /// that is being stepped into, whether the step coincides with a scheduled
+    /// event or a simulation tick.
     pub fn inject_event<T>(&self, schedulable_id: &SchedulableId<M, T>, arg: T)
     where
         T: Send + Clone + 'static,
@@ -63,5 +68,50 @@ impl<M: Model> fmt::Debug for ModelInjector<M> {
         f.debug_struct("ModelInjector")
             .field("origin_id", &self.origin_id)
             .finish_non_exhaustive()
+    }
+}
+
+/// An injector for events to be processed as soon as possible.
+///
+/// An `Injector` is similar to a [`Scheduler`](crate::simulation::Scheduler)
+/// but is used to request events to be processed as soon as possible rather
+/// than at a specific deadline.
+#[derive(Clone)]
+pub struct Injector {
+    queue: Arc<Mutex<InjectorQueue>>,
+}
+
+impl Injector {
+    pub(crate) fn new(queue: Arc<Mutex<InjectorQueue>>) -> Self {
+        Self { queue }
+    }
+
+    /// Injects an event to be processed as soon as possible.
+    ///
+    /// The event will be processed at the simulation step that follows the one
+    /// that is being stepped into, whether the step coincides with a scheduled
+    /// event or a simulation tick.
+    pub fn inject_event<T>(&self, event_id: &EventId<T>, arg: T)
+    where
+        T: Send + Clone + 'static,
+    {
+        let event = Event::new(event_id, arg);
+        self.inject_built_event(event);
+    }
+
+    /// Injects an already built event to be processed as soon as possible.
+    ///
+    /// The event will be processed at the simulation step that follows the one
+    /// that is being stepped into, whether the step coincides with a scheduled
+    /// event or a simulation tick.
+    pub(crate) fn inject_built_event(&self, event: Event) {
+        let mut queue = self.queue.lock().unwrap();
+        queue.insert(GLOBAL_ORIGIN_ID, event);
+    }
+}
+
+impl fmt::Debug for Injector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Injector").finish_non_exhaustive()
     }
 }

@@ -15,6 +15,7 @@ use crate::model::{Message, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
 use crate::simulation::InjectorQueue;
+use crate::simulation::injector::Injector;
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime, Ticker,
 };
@@ -56,6 +57,11 @@ impl SimInit {
     /// available logical threads.
     pub fn new() -> Self {
         Self::with_num_threads(num_cpus::get())
+    }
+
+    /// Returns an injector handle.
+    pub fn injector(&self) -> Injector {
+        Injector::new(self.injector_queue.clone())
     }
 
     /// Creates a builder for a simulation running on the specified number of
