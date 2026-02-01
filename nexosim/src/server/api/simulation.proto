@@ -280,6 +280,17 @@ message GetEventSinkSchemasReply {
   }
 }
 
+message InjectEventRequest {
+  Path source = 3;
+  bytes event = 4;
+}
+message InjectEventReply {
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 1;
+    Error error = 100;
+  }
+}
+
 message ScheduleEventRequest {
   oneof deadline { // Expects exactly 1 variant.
     google.protobuf.Timestamp time = 1;
@@ -400,6 +411,7 @@ service Simulation {
   rpc GetQuerySourceSchemas(GetQuerySourceSchemasRequest) returns (GetQuerySourceSchemasReply);
   rpc ListEventSinks(ListEventSinksRequest) returns (ListEventSinksReply);
   rpc GetEventSinkSchemas(GetEventSinkSchemasRequest) returns (GetEventSinkSchemasReply);
+  rpc InjectEvent(InjectEventRequest) returns (InjectEventReply);
   rpc ScheduleEvent(ScheduleEventRequest) returns (ScheduleEventReply);
   rpc CancelEvent(CancelEventRequest) returns (CancelEventReply);
   rpc ProcessEvent(ProcessEventRequest) returns (ProcessEventReply);

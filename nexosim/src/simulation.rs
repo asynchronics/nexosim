@@ -226,6 +226,11 @@ impl Simulation {
         }
     }
 
+    /// Returns an injector handle.
+    pub fn injector(&self) -> Injector {
+        Injector::new(self.injector_queue.clone())
+    }
+
     /// Returns a scheduler handle.
     pub fn scheduler(&self) -> Scheduler {
         Scheduler::new(

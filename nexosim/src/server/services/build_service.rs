@@ -10,7 +10,7 @@ use crate::endpoints::{
     EventSinkInfoRegistry, EventSinkRegistry, EventSourceRegistry, QuerySourceRegistry,
 };
 use crate::server::services::from_bench_error;
-use crate::simulation::{BenchError, SimInit, Simulation};
+use crate::simulation::{BenchError, Injector, SimInit, Simulation};
 
 use super::super::codegen::simulation::*;
 use super::{bench_not_built_error, from_simulation_error, timestamp_to_monotonic, to_error};
@@ -73,6 +73,7 @@ impl BuildService {
             EventSinkInfoRegistry,
             Arc<EventSourceRegistry>,
             Arc<QuerySourceRegistry>,
+            Injector,
         ),
         Error,
     > {
@@ -93,6 +94,7 @@ impl BuildService {
 
             let event_source_registry = Arc::new(event_source_registry);
             let query_source_registry = Arc::new(query_source_registry);
+            let injector = bench.injector();
 
             self.bench = Some((
                 bench,
@@ -105,6 +107,7 @@ impl BuildService {
                 event_sink_info_registry,
                 event_source_registry,
                 query_source_registry,
+                injector,
             )
         })
     }

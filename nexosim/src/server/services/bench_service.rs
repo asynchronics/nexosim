@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
+use crate::simulation::Injector;
 
 use super::super::codegen::simulation::*;
-use super::{bench_not_built_error, from_endpoint_error};
+use super::{bench_not_built_error, from_endpoint_error, to_error};
 
 /// Protobuf-based bench service.
 ///
@@ -16,6 +17,7 @@ pub(crate) enum BenchService {
         event_sink_info_registry: EventSinkInfoRegistry,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
+        injector: Injector,
     },
 }
 
@@ -220,6 +222,43 @@ impl BenchService {
 
         schemas.map_err(from_endpoint_error)
     }
+
+    /// Injects an event to be executed as soon as possible.
+    pub(crate) fn inject_event(&self, request: InjectEventRequest) -> Result<(), Error> {
+        let Self::Started {
+            event_source_registry,
+            injector,
+            ..
+        } = self
+        else {
+            return Err(bench_not_built_error());
+        };
+
+        let source_path: &NexosimPath = &request
+            .source
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event source path"))?
+            .segments
+            .into();
+
+        let source = event_source_registry
+            .get(source_path)
+            .map_err(from_endpoint_error)?;
+
+        let event = source.event(&request.event).map_err(|e| {
+            to_error(
+                ErrorCode::InvalidMessage,
+                format!(
+                    "the event could not be deserialized as type '{}': {}",
+                    source.event_type_name(),
+                    e
+                ),
+            )
+        })?;
+
+        injector.inject_built_event(event);
+
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
@@ -227,9 +266,11 @@ mod tests {
     use super::*;
 
     use std::collections::HashSet;
+    use std::sync::Mutex;
 
     use crate::ports::{EventSource, QuerySource};
     use crate::simulation::SchedulerRegistry;
+    use crate::util::priority_queue::PriorityQueue;
 
     #[derive(Default)]
     struct TestParams {
@@ -279,6 +320,7 @@ mod tests {
             event_sink_info_registry,
             event_source_registry: Arc::new(event_source_registry),
             query_source_registry: Arc::new(query_source_registry),
+            injector: Injector::new(Arc::new(Mutex::new(PriorityQueue::new()))),
         }
     }
 

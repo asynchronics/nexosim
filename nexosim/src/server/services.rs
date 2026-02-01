@@ -20,7 +20,7 @@ use crate::endpoints::{
     QuerySourceRegistry,
 };
 use crate::simulation::{
-    BenchError, ExecutionError, SchedulingError, SimInit, Simulation, SimulationError,
+    BenchError, ExecutionError, Injector, SchedulingError, SimInit, Simulation, SimulationError,
 };
 
 pub(crate) use bench_service::BenchService;
@@ -95,11 +95,13 @@ impl GrpcSimulationService {
         event_sink_info_registry: EventSinkInfoRegistry,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
+        injector: Injector,
     ) {
         *self.bench_service.write().unwrap() = BenchService::Started {
             event_sink_info_registry,
             event_source_registry: event_source_registry.clone(),
             query_source_registry,
+            injector,
         };
     }
 
@@ -321,11 +323,12 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
 
         let reply = self.build_service.lock().unwrap().build(request).map(
-            |(event_sink_info_registry, event_source_registry, query_source_registry)| {
+            |(event_sink_info_registry, event_source_registry, query_source_registry, injector)| {
                 self.start_init_services(
                     event_sink_info_registry,
                     event_source_registry,
                     query_source_registry,
+                    injector,
                 );
             },
         );
@@ -597,6 +600,22 @@ impl simulation_server::Simulation for GrpcSimulationService {
             Err(e) => GetEventSinkSchemasReply {
                 schemas: Vec::new(),
                 result: Some(get_event_sink_schemas_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn inject_event(
+        &self,
+        request: Request<InjectEventRequest>,
+    ) -> Result<Response<InjectEventReply>, Status> {
+        let request = request.into_inner();
+        let reply = self.bench_service.read().unwrap().inject_event(request);
+
+        Ok(Response::new(match reply {
+            Ok(()) => InjectEventReply {
+                result: Some(inject_event_reply::Result::Empty(())),
+            },
+            Err(e) => InjectEventReply {
+                result: Some(inject_event_reply::Result::Error(e)),
             },
         }))
     }
