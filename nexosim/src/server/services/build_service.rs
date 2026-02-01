@@ -1,16 +1,19 @@
 use std::any::Any;
 use std::error;
 use std::panic::{self, AssertUnwindSafe};
+use std::sync::Arc;
 
 use ciborium;
 use serde::de::DeserializeOwned;
 
-use crate::endpoints::Endpoints;
+use crate::endpoints::{
+    EventSinkInfoRegistry, EventSinkRegistry, EventSourceRegistry, QuerySourceRegistry,
+};
 use crate::server::services::from_bench_error;
 use crate::simulation::{BenchError, SimInit, Simulation};
 
 use super::super::codegen::simulation::*;
-use super::{from_simulation_error, timestamp_to_monotonic, to_error};
+use super::{bench_not_built_error, from_simulation_error, timestamp_to_monotonic, to_error};
 
 type DeserializationError = ciborium::de::Error<std::io::Error>;
 type SimGen = Box<
@@ -25,7 +28,12 @@ type SimGen = Box<
 /// initialization configuration.
 pub(crate) struct BuildService {
     sim_gen: SimGen,
-    bench: Option<SimInit>,
+    bench: Option<(
+        SimInit,
+        EventSinkRegistry,
+        Arc<EventSourceRegistry>,
+        Arc<QuerySourceRegistry>,
+    )>,
 }
 
 impl BuildService {
@@ -57,7 +65,17 @@ impl BuildService {
     }
 
     /// Builds the simulation bench based on the specified configuration.
-    pub(crate) fn build(&mut self, request: BuildRequest) -> Result<(), Error> {
+    pub(crate) fn build(
+        &mut self,
+        request: BuildRequest,
+    ) -> Result<
+        (
+            EventSinkInfoRegistry,
+            Arc<EventSourceRegistry>,
+            Arc<QuerySourceRegistry>,
+        ),
+        Error,
+    > {
         panic::catch_unwind(AssertUnwindSafe(|| {
             (self.sim_gen)(&request.cfg)
                 .map_err(from_config_deserialization_error)
@@ -65,51 +83,99 @@ impl BuildService {
         }))
         .map_err(from_panic)
         .and_then(|reply| reply)
-        .map(|bench| self.bench = Some(bench))
+        .map(|mut bench| {
+            let (
+                event_sink_registry,
+                event_sink_info_registry,
+                event_source_registry,
+                query_source_registry,
+            ) = bench.take_endpoints().into_parts();
+
+            let event_source_registry = Arc::new(event_source_registry);
+            let query_source_registry = Arc::new(query_source_registry);
+
+            self.bench = Some((
+                bench,
+                event_sink_registry,
+                event_source_registry.clone(),
+                query_source_registry.clone(),
+            ));
+
+            (
+                event_sink_info_registry,
+                event_source_registry,
+                query_source_registry,
+            )
+        })
     }
 
     /// Initializes the simulation.
-    pub(crate) fn init(&mut self, request: InitRequest) -> Result<(Simulation, Endpoints), Error> {
-        let Some(mut bench) = self.bench.take() else {
-            return Err(bench_not_built_error());
-        };
+    pub(crate) fn init(
+        &mut self,
+        request: InitRequest,
+    ) -> Result<
+        (
+            Simulation,
+            EventSinkRegistry,
+            Arc<EventSourceRegistry>,
+            Arc<QuerySourceRegistry>,
+        ),
+        Error,
+    > {
+        let start_time = request
+            .time
+            .and_then(timestamp_to_monotonic)
+            .ok_or_else(|| {
+                to_error(
+                    ErrorCode::MissingArgument,
+                    "simulation start time not provided",
+                )
+            })?;
 
-        let Some(start_time) = request.time.and_then(timestamp_to_monotonic) else {
-            return Err(to_error(
-                ErrorCode::MissingArgument,
-                "simulation start time not provided",
-            ));
-        };
+        let (bench, event_sink_registry, event_source_registry, query_source_registry) =
+            self.bench.take().ok_or_else(bench_not_built_error)?;
 
-        let endpoints = bench.take_endpoints();
         bench
             .init(start_time)
             .map_err(from_simulation_error)
-            .map(|simulation| (simulation, endpoints))
+            .map(|simulation| {
+                (
+                    simulation,
+                    event_sink_registry,
+                    event_source_registry,
+                    query_source_registry,
+                )
+            })
     }
 
     /// Restore the simulation from a serialized state.
     pub(crate) fn restore(
         &mut self,
         request: RestoreRequest,
-    ) -> Result<(Simulation, Endpoints), Error> {
-        let Some(mut bench) = self.bench.take() else {
-            return Err(bench_not_built_error());
-        };
+    ) -> Result<
+        (
+            Simulation,
+            EventSinkRegistry,
+            Arc<EventSourceRegistry>,
+            Arc<QuerySourceRegistry>,
+        ),
+        Error,
+    > {
+        let (bench, event_sink_registry, event_source_registry, query_source_registry) =
+            self.bench.take().ok_or_else(bench_not_built_error)?;
 
-        let endpoints = bench.take_endpoints();
         bench
             .restore(&request.state[..])
             .map_err(from_simulation_error)
-            .map(|simulation| (simulation, endpoints))
+            .map(|simulation| {
+                (
+                    simulation,
+                    event_sink_registry,
+                    event_source_registry,
+                    query_source_registry,
+                )
+            })
     }
-}
-
-fn bench_not_built_error() -> Error {
-    to_error(
-        ErrorCode::BenchNotBuilt,
-        "the simulation bench needs to be built first",
-    )
 }
 
 fn from_panic(payload: Box<dyn Any + Send>) -> Error {

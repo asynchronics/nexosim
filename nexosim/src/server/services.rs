@@ -1,6 +1,6 @@
+mod bench_service;
 mod build_service;
 mod controller_service;
-mod inspector_service;
 mod monitor_service;
 mod scheduler_service;
 
@@ -15,38 +15,43 @@ use tonic::{Request, Response, Status};
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
-use crate::endpoints::{EndpointError, Endpoints};
+use crate::endpoints::{
+    EndpointError, EventSinkInfoRegistry, EventSinkRegistry, EventSourceRegistry,
+    QuerySourceRegistry,
+};
 use crate::simulation::{
     BenchError, ExecutionError, SchedulingError, SimInit, Simulation, SimulationError,
 };
 
+pub(crate) use bench_service::BenchService;
 pub(crate) use build_service::BuildService;
 pub(crate) use controller_service::ControllerService;
-pub(crate) use inspector_service::InspectorService;
 pub(crate) use monitor_service::{MonitorService, monitor_service_read_event};
 pub(crate) use scheduler_service::SchedulerService;
 
 /// The global gRPC service.
 ///
-/// In order to allow concurrent non-mutating requests, most such requests are
-/// routed to an `InspectorService` which is under an RW lock. The only time it
-/// is accessed in writing mode is during initialization and termination.
+/// In order to allow concurrent non-mutating requests that are readily
+/// available after the bench has been built (before the simulation starts),
+/// most such requests are routed to a `BenchService` which is held under an RW
+/// lock. The only time it is accessed in writing mode is during initialization
+/// and termination.
 ///
 /// Mutable resources that can be managed through non-blocking or async calls,
 /// namely the `KeyRegistry` (held by `SchedulerService`) and the
 /// `EventSinkRegistry` (held by `MonitorService`), are bundled with all
-/// necessary immutable resources in a service object held under a mutex.
+/// necessary immutable resources in the `SchedulerService` and
+/// `MonitorService`, which are each held under a mutex.
 ///
-/// In the case of the `Simulation` instance, managed by `ControllerService`, a
-/// mutex is wrapped in an `Arc`. This allows mutating blocking requests to the
-/// simulation object to be spawned on a separate thread with
-/// `tokio::task::spawn_blocking`.
+/// The `Simulation` instance, managed by `ControllerService`, is also held
+/// under a mutex to allow mutating blocking requests to the simulation object
+/// to be spawned on a separate thread with `tokio::task::spawn_blocking`.
 pub(crate) struct GrpcSimulationService {
     build_service: Mutex<BuildService>,
     controller_service: Arc<Mutex<ControllerService>>,
     scheduler_service: Mutex<SchedulerService>,
     monitor_service: Mutex<MonitorService>,
-    inspector_service: RwLock<InspectorService>,
+    bench_service: RwLock<BenchService>,
 }
 
 impl GrpcSimulationService {
@@ -66,7 +71,7 @@ impl GrpcSimulationService {
             controller_service: Arc::new(Mutex::new(ControllerService::Halted)),
             scheduler_service: Mutex::new(SchedulerService::Halted),
             monitor_service: Mutex::new(MonitorService::Halted),
-            inspector_service: RwLock::new(InspectorService::Halted),
+            bench_service: RwLock::new(BenchService::Halted),
         }
     }
 
@@ -85,27 +90,32 @@ impl GrpcSimulationService {
             .unwrap()
     }
 
-    fn start_services(&self, simulation: Simulation, endpoint_registry: Endpoints) {
-        let scheduler = simulation.scheduler();
-
-        let (
-            event_sink_registry,
+    fn start_init_services(
+        &self,
+        event_sink_info_registry: EventSinkInfoRegistry,
+        event_source_registry: Arc<EventSourceRegistry>,
+        query_source_registry: Arc<QuerySourceRegistry>,
+    ) {
+        *self.bench_service.write().unwrap() = BenchService::Started {
             event_sink_info_registry,
-            event_source_registry,
+            event_source_registry: event_source_registry.clone(),
             query_source_registry,
-        ) = endpoint_registry.into_parts();
-        let event_source_registry = Arc::new(event_source_registry);
-        let query_source_registry = Arc::new(query_source_registry);
+        };
+    }
+
+    fn start_simulation_services(
+        &self,
+        simulation: Simulation,
+        event_sink_registry: EventSinkRegistry,
+        event_source_registry: Arc<EventSourceRegistry>,
+        query_source_registry: Arc<QuerySourceRegistry>,
+    ) {
+        let scheduler = simulation.scheduler();
 
         *self.controller_service.lock().unwrap() = ControllerService::Started {
             simulation,
             event_source_registry: event_source_registry.clone(),
             query_source_registry: query_source_registry.clone(),
-        };
-        *self.inspector_service.write().unwrap() = InspectorService::Started {
-            event_sink_info_registry,
-            event_source_registry: event_source_registry.clone(),
-            query_source_registry,
         };
         *self.monitor_service.lock().unwrap() = MonitorService::Started {
             event_sink_registry,
@@ -124,6 +134,14 @@ fn to_error(code: ErrorCode, message: impl Into<String>) -> Error {
         code: code as i32,
         message: message.into(),
     }
+}
+
+/// An error returned when no simulation bench has been built.
+fn bench_not_built_error() -> Error {
+    to_error(
+        ErrorCode::BenchNotBuilt,
+        "the simulation bench needs to be built first",
+    )
 }
 
 /// An error returned when no simulation has been initialized/restored or the
@@ -286,7 +304,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         _request: Request<TerminateRequest>,
     ) -> Result<Response<TerminateReply>, Status> {
         *self.controller_service.lock().unwrap() = ControllerService::Halted;
-        *self.inspector_service.write().unwrap() = InspectorService::Halted;
+        *self.bench_service.write().unwrap() = BenchService::Halted;
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
 
@@ -302,7 +320,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildReply>, Status> {
         let request = request.into_inner();
 
-        let reply = self.build_service.lock().unwrap().build(request);
+        let reply = self.build_service.lock().unwrap().build(request).map(
+            |(event_sink_info_registry, event_source_registry, query_source_registry)| {
+                self.start_init_services(
+                    event_sink_info_registry,
+                    event_source_registry,
+                    query_source_registry,
+                );
+            },
+        );
 
         Ok(Response::new(BuildReply {
             result: Some(match reply {
@@ -312,21 +338,19 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }))
     }
 
-    //--------------
-    // Init service.
-    //--------------
-
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
 
-        let reply =
-            self.build_service
-                .lock()
-                .unwrap()
-                .init(request)
-                .map(|(simulation, endpoints)| {
-                    self.start_services(simulation, endpoints);
-                });
+        let reply = self.build_service.lock().unwrap().init(request).map(
+            |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
+                self.start_simulation_services(
+                    simulation,
+                    event_sink_registry,
+                    event_source_registry,
+                    query_source_registry,
+                );
+            },
+        );
 
         Ok(Response::new(InitReply {
             result: Some(match reply {
@@ -339,21 +363,23 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         request: Request<InitAndRunRequest>,
     ) -> Result<Response<InitAndRunReply>, Status> {
-        // This is a composite request that is splitted into 2 sub-requests.
+        // This is a composite request that is split into 2 sub-requests.
         let request = request.into_inner();
         let init_request = InitRequest { time: request.time };
 
-        let reply =
-            self.build_service
-                .lock()
-                .unwrap()
-                .init(init_request)
-                .map(|(simulation, endpoints)| {
-                    self.start_services(simulation, endpoints);
-                });
+        let reply = self.build_service.lock().unwrap().init(init_request).map(
+            |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
+                self.start_simulation_services(
+                    simulation,
+                    event_sink_registry,
+                    event_source_registry,
+                    query_source_registry,
+                );
+            },
+        );
 
-        // Important: release the lock on the build service before calling
-        // `run``, as `run` is blocking.
+        // Important: the lock on the build service must be released before
+        // calling `run`.
         let reply = match reply {
             Ok(()) => {
                 self.execute_controller_fn(RunRequest {}, ControllerService::run)
@@ -375,14 +401,16 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<RestoreReply>, Status> {
         let request = request.into_inner();
 
-        let reply =
-            self.build_service
-                .lock()
-                .unwrap()
-                .restore(request)
-                .map(|(simulation, endpoints)| {
-                    self.start_services(simulation, endpoints);
-                });
+        let reply = self.build_service.lock().unwrap().restore(request).map(
+            |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
+                self.start_simulation_services(
+                    simulation,
+                    event_sink_registry,
+                    event_source_registry,
+                    query_source_registry,
+                );
+            },
+        );
 
         Ok(Response::new(RestoreReply {
             result: Some(match reply {
@@ -395,7 +423,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         request: Request<RestoreAndRunRequest>,
     ) -> Result<Response<RestoreAndRunReply>, Status> {
-        // This is a composite request that is splitted into 2 sub-requests.
+        // This is a composite request that is split into 2 sub-requests.
         let request = request.into_inner();
         let restore_request = RestoreRequest {
             state: request.state,
@@ -406,12 +434,24 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .lock()
             .unwrap()
             .restore(restore_request)
-            .map(|(simulation, endpoints)| {
-                self.start_services(simulation, endpoints);
-            });
+            .map(
+                |(
+                    simulation,
+                    event_sink_registry,
+                    event_source_registry,
+                    query_source_registry,
+                )| {
+                    self.start_simulation_services(
+                        simulation,
+                        event_sink_registry,
+                        event_source_registry,
+                        query_source_registry,
+                    );
+                },
+            );
 
-        // Important: release the lock on the build service before calling
-        // `run``, as `run` is blocking.
+        // Important: the lock on the build service must be released before
+        // calling `run`.
         let reply = match reply {
             Ok(()) => {
                 self.execute_controller_fn(RunRequest {}, ControllerService::run)
@@ -425,6 +465,139 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Ok(timestamp) => restore_and_run_reply::Result::Time(timestamp),
                 Err(e) => restore_and_run_reply::Result::Error(e),
             }),
+        }))
+    }
+
+    //---------------
+    // Bench service.
+    //---------------
+
+    async fn list_event_sources(
+        &self,
+        request: Request<ListEventSourcesRequest>,
+    ) -> Result<Response<ListEventSourcesReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .list_event_sources(request);
+
+        Ok(Response::new(match reply {
+            Ok(sources) => ListEventSourcesReply {
+                sources,
+                result: Some(list_event_sources_reply::Result::Empty(())),
+            },
+            Err(e) => ListEventSourcesReply {
+                sources: Vec::new(),
+                result: Some(list_event_sources_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn get_event_source_schemas(
+        &self,
+        request: Request<GetEventSourceSchemasRequest>,
+    ) -> Result<Response<GetEventSourceSchemasReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .get_event_source_schemas(request);
+
+        Ok(Response::new(match reply {
+            Ok(schemas) => GetEventSourceSchemasReply {
+                schemas,
+                result: Some(get_event_source_schemas_reply::Result::Empty(())),
+            },
+            Err(e) => GetEventSourceSchemasReply {
+                schemas: Vec::new(),
+                result: Some(get_event_source_schemas_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn list_query_sources(
+        &self,
+        request: Request<ListQuerySourcesRequest>,
+    ) -> Result<Response<ListQuerySourcesReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .list_query_sources(request);
+
+        Ok(Response::new(match reply {
+            Ok(sources) => ListQuerySourcesReply {
+                sources,
+                result: Some(list_query_sources_reply::Result::Empty(())),
+            },
+            Err(e) => ListQuerySourcesReply {
+                sources: Vec::new(),
+                result: Some(list_query_sources_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn get_query_source_schemas(
+        &self,
+        request: Request<GetQuerySourceSchemasRequest>,
+    ) -> Result<Response<GetQuerySourceSchemasReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .get_query_source_schemas(request);
+
+        Ok(Response::new(match reply {
+            Ok(schemas) => GetQuerySourceSchemasReply {
+                schemas,
+                result: Some(get_query_source_schemas_reply::Result::Empty(())),
+            },
+            Err(e) => GetQuerySourceSchemasReply {
+                schemas: Vec::new(),
+                result: Some(get_query_source_schemas_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn list_event_sinks(
+        &self,
+        request: Request<ListEventSinksRequest>,
+    ) -> Result<Response<ListEventSinksReply>, Status> {
+        let request = request.into_inner();
+        let reply = self.bench_service.read().unwrap().list_event_sinks(request);
+
+        Ok(Response::new(match reply {
+            Ok(sinks) => ListEventSinksReply {
+                sinks,
+                result: Some(list_event_sinks_reply::Result::Empty(())),
+            },
+            Err(e) => ListEventSinksReply {
+                sinks: Vec::new(),
+                result: Some(list_event_sinks_reply::Result::Error(e)),
+            },
+        }))
+    }
+    async fn get_event_sink_schemas(
+        &self,
+        request: Request<GetEventSinkSchemasRequest>,
+    ) -> Result<Response<GetEventSinkSchemasReply>, Status> {
+        let request = request.into_inner();
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .get_event_sink_schemas(request);
+
+        Ok(Response::new(match reply {
+            Ok(schemas) => GetEventSinkSchemasReply {
+                schemas,
+                result: Some(get_event_sink_schemas_reply::Result::Empty(())),
+            },
+            Err(e) => GetEventSinkSchemasReply {
+                schemas: Vec::new(),
+                result: Some(get_event_sink_schemas_reply::Result::Error(e)),
+            },
         }))
     }
 
@@ -587,143 +760,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Ok(()) => cancel_event_reply::Result::Empty(()),
                 Err(error) => cancel_event_reply::Result::Error(error),
             }),
-        }))
-    }
-
-    //-------------------
-    // Inspector service.
-    //-------------------
-
-    async fn list_event_sources(
-        &self,
-        request: Request<ListEventSourcesRequest>,
-    ) -> Result<Response<ListEventSourcesReply>, Status> {
-        let request = request.into_inner();
-        let reply = self
-            .inspector_service
-            .read()
-            .unwrap()
-            .list_event_sources(request);
-
-        Ok(Response::new(match reply {
-            Ok(sources) => ListEventSourcesReply {
-                sources,
-                result: Some(list_event_sources_reply::Result::Empty(())),
-            },
-            Err(e) => ListEventSourcesReply {
-                sources: Vec::new(),
-                result: Some(list_event_sources_reply::Result::Error(e)),
-            },
-        }))
-    }
-    async fn get_event_source_schemas(
-        &self,
-        request: Request<GetEventSourceSchemasRequest>,
-    ) -> Result<Response<GetEventSourceSchemasReply>, Status> {
-        let request = request.into_inner();
-        let reply = self
-            .inspector_service
-            .read()
-            .unwrap()
-            .get_event_source_schemas(request);
-
-        Ok(Response::new(match reply {
-            Ok(schemas) => GetEventSourceSchemasReply {
-                schemas,
-                result: Some(get_event_source_schemas_reply::Result::Empty(())),
-            },
-            Err(e) => GetEventSourceSchemasReply {
-                schemas: Vec::new(),
-                result: Some(get_event_source_schemas_reply::Result::Error(e)),
-            },
-        }))
-    }
-    async fn list_query_sources(
-        &self,
-        request: Request<ListQuerySourcesRequest>,
-    ) -> Result<Response<ListQuerySourcesReply>, Status> {
-        let request = request.into_inner();
-        let reply = self
-            .inspector_service
-            .read()
-            .unwrap()
-            .list_query_sources(request);
-
-        Ok(Response::new(match reply {
-            Ok(sources) => ListQuerySourcesReply {
-                sources,
-                result: Some(list_query_sources_reply::Result::Empty(())),
-            },
-            Err(e) => ListQuerySourcesReply {
-                sources: Vec::new(),
-                result: Some(list_query_sources_reply::Result::Error(e)),
-            },
-        }))
-    }
-    async fn get_query_source_schemas(
-        &self,
-        request: Request<GetQuerySourceSchemasRequest>,
-    ) -> Result<Response<GetQuerySourceSchemasReply>, Status> {
-        let request = request.into_inner();
-        let reply = self
-            .inspector_service
-            .read()
-            .unwrap()
-            .get_query_source_schemas(request);
-
-        Ok(Response::new(match reply {
-            Ok(schemas) => GetQuerySourceSchemasReply {
-                schemas,
-                result: Some(get_query_source_schemas_reply::Result::Empty(())),
-            },
-            Err(e) => GetQuerySourceSchemasReply {
-                schemas: Vec::new(),
-                result: Some(get_query_source_schemas_reply::Result::Error(e)),
-            },
-        }))
-    }
-    async fn list_event_sinks(
-        &self,
-        request: Request<ListEventSinksRequest>,
-    ) -> Result<Response<ListEventSinksReply>, Status> {
-        let request = request.into_inner();
-        let reply = self
-            .inspector_service
-            .read()
-            .unwrap()
-            .list_event_sinks(request);
-
-        Ok(Response::new(match reply {
-            Ok(sinks) => ListEventSinksReply {
-                sinks,
-                result: Some(list_event_sinks_reply::Result::Empty(())),
-            },
-            Err(e) => ListEventSinksReply {
-                sinks: Vec::new(),
-                result: Some(list_event_sinks_reply::Result::Error(e)),
-            },
-        }))
-    }
-    async fn get_event_sink_schemas(
-        &self,
-        request: Request<GetEventSinkSchemasRequest>,
-    ) -> Result<Response<GetEventSinkSchemasReply>, Status> {
-        let request = request.into_inner();
-        let reply = self
-            .inspector_service
-            .read()
-            .unwrap()
-            .get_event_sink_schemas(request);
-
-        Ok(Response::new(match reply {
-            Ok(schemas) => GetEventSinkSchemasReply {
-                schemas,
-                result: Some(get_event_sink_schemas_reply::Result::Empty(())),
-            },
-            Err(e) => GetEventSinkSchemasReply {
-                schemas: Vec::new(),
-                result: Some(get_event_sink_schemas_reply::Result::Error(e)),
-            },
         }))
     }
 

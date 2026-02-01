@@ -4,13 +4,13 @@ use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRe
 use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
-use super::{from_endpoint_error, simulation_not_started_error};
+use super::{bench_not_built_error, from_endpoint_error};
 
-/// Protobuf-based simulation inspector.
+/// Protobuf-based bench service.
 ///
-/// The `InspectorService` handles all requests that only involve immutable
-/// access to endpoints.
-pub(crate) enum InspectorService {
+/// The `BenchService` handles all non-mutating requests that are available from
+/// the moment the bench is built (before the simulation is initialized).
+pub(crate) enum BenchService {
     Halted,
     Started {
         event_sink_info_registry: EventSinkInfoRegistry,
@@ -19,7 +19,7 @@ pub(crate) enum InspectorService {
     },
 }
 
-impl InspectorService {
+impl BenchService {
     /// Returns a list of the paths of all registered event sources.
     pub(crate) fn list_event_sources(
         &self,
@@ -35,7 +35,7 @@ impl InspectorService {
                     segments: path.to_vec_string(),
                 })
                 .collect()),
-            Self::Halted => Err(simulation_not_started_error()),
+            Self::Halted => Err(bench_not_built_error()),
         }
     }
 
@@ -54,7 +54,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_not_started_error());
+            return Err(bench_not_built_error());
         };
 
         let schemas: Result<Vec<_>, _> =
@@ -102,7 +102,7 @@ impl InspectorService {
                     segments: path.to_vec_string(),
                 })
                 .collect()),
-            Self::Halted => Err(simulation_not_started_error()),
+            Self::Halted => Err(bench_not_built_error()),
         }
     }
 
@@ -122,7 +122,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_not_started_error());
+            return Err(bench_not_built_error());
         };
 
         let schema: Result<Vec<_>, _> = if request.sources.is_empty() {
@@ -171,7 +171,7 @@ impl InspectorService {
                 })
                 .collect()),
 
-            Self::Halted => Err(simulation_not_started_error()),
+            Self::Halted => Err(bench_not_built_error()),
         }
     }
 
@@ -190,7 +190,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_not_started_error());
+            return Err(bench_not_built_error());
         };
 
         let schemas: Result<Vec<_>, _> = if request.sinks.is_empty() {
@@ -241,7 +241,7 @@ mod tests {
         raw_event_sinks: Vec<NexosimPath>,
     }
 
-    fn get_service(params: TestParams) -> InspectorService {
+    fn get_service(params: TestParams) -> BenchService {
         let mut scheduler_registry = SchedulerRegistry::default();
         let mut event_source_registry = EventSourceRegistry::default();
         for source in params.event_sources {
@@ -275,7 +275,7 @@ mod tests {
             event_sink_info_registry.register_raw(sink).unwrap();
         }
 
-        InspectorService::Started {
+        BenchService::Started {
             event_sink_info_registry,
             event_source_registry: Arc::new(event_source_registry),
             query_source_registry: Arc::new(query_source_registry),
