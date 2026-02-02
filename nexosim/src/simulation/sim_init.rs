@@ -366,8 +366,6 @@ impl SimInit {
         if let Some(callback) = callback {
             callback(&mut simulation)?;
         }
-        // TODO should run?
-        simulation.run_executor()?;
 
         Ok(simulation)
     }

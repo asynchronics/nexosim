@@ -428,7 +428,6 @@ impl<R: Send + 'static> Future for ReplyReader<R> {
 pub(crate) struct ReplyWriter<R>(oneshot::Sender<ReplyIterator<R>>);
 impl<R: Send + 'static> ReplyWriter<R> {
     pub(crate) fn send(self, reply: ReplyIterator<R>) {
-        // TODO handle error
         let _ = self.0.send(reply);
     }
 }

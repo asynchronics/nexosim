@@ -420,7 +420,9 @@ impl Simulation {
         Ok(rx)
     }
 
-    // TODO used for serialization / deserialization only - find a way to remove it
+    /// Processes a request on an arbitrary replier function.
+    ///
+    /// This is currently only used for (de)serialization.
     pub(crate) fn process_replier_fn<M, F, T, R, S>(
         &mut self,
         func: F,
@@ -787,7 +789,6 @@ impl Simulation {
     /// Persists a serialized simulation state.
     /// Saved byte count is returned upon success.
     pub fn save<W: std::io::Write>(&mut self, writer: &mut W) -> Result<usize, ExecutionError> {
-        // TODO should call halt first?
         let state = SimulationState {
             models: self.save_models()?,
             scheduler_queue: self.save_queue()?,
