@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::{ToTokens, quote, quote_token};
 use syn::{
     Expr, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, ItemType, Meta, Path,
-    PathArguments, PathSegment, Signature, Token, Type, TypeTuple,
+    PathArguments, PathSegment, Signature, Token, Type, TypeTuple, Visibility,
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
@@ -203,7 +203,13 @@ fn parse_tagged_methods(
                 schedulables.push(f.clone());
             }
             if attrs.contains(&INIT_ATTR) {
-                init = Some(fn_with_optional_cx_env(&f.sig)?);
+                if let Visibility::Public(pub_token) = f.vis {
+                    return Err(syn::Error::new_spanned(
+                        pub_token,
+                        "methods annotated with `nexosim(init)` cannot be public",
+                    ));
+                }
+                init = Some(init_fn(&f.sig)?);
             }
         }
     }
@@ -212,9 +218,9 @@ fn parse_tagged_methods(
     let init = init.and_then(|init| {
         quote! {
             fn init(
-                self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env,
+                mut self, cx: &nexosim::model::Context<Self>, env: &mut Self::Env,
             ) -> impl std::future::Future<Output = nexosim::model::InitializedModel<Self>> + Send {
-                #init
+                async move { #init.await; self.into() }
             }
         }
         .into()
@@ -363,12 +369,12 @@ fn collect_nexosim_attributes(f: &mut ImplItemFn) -> Result<Vec<&'static str>, s
     Ok(attrs)
 }
 
-fn fn_with_optional_cx_env(sig: &Signature) -> Result<proc_macro2::TokenStream, syn::Error> {
+fn init_fn(sig: &Signature) -> Result<proc_macro2::TokenStream, syn::Error> {
     let ident = sig.ident.clone();
     match sig.inputs.len() {
-        1 => Ok(quote!({ self.#ident() })),
-        2 => Ok(quote!({ self.#ident(cx) })),
-        3 => Ok(quote!({ self.#ident(cx, env) })),
+        1 => Ok(quote!(Self::#ident(&mut self))),
+        2 => Ok(quote!(Self::#ident(&mut self, cx))),
+        3 => Ok(quote!(Self::#ident(&mut self, cx, env))),
         _ => Err(syn::Error::new_spanned(sig, "invalid number of arguments")),
     }
 }

@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -56,9 +56,8 @@ impl Motor {
 
     /// Broadcasts the initial position of the motor.
     #[nexosim(init)]
-    async fn init(mut self) -> InitializedModel<Self> {
+    async fn init(&mut self) {
         self.position.send(self.pos).await;
-        self.into()
     }
 
     /// Coil currents [A] -- input port.

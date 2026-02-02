@@ -8,7 +8,7 @@
 //! ## Simple observable value
 //!
 //! ```rust
-//! use nexosim::model::{Context, InitializedModel, Model};
+//! use nexosim::model::{Context, Model};
 //! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 //! use nexosim::simulation::{Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
@@ -45,9 +45,8 @@
 //!
 //!     #[nexosim(init)]
 //!     /// Propagate the internal state.
-//!     async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+//!     async fn init(&mut self) {
 //!         self.acc.propagate().await;
-//!         self.into()
 //!     }
 //! }
 //!
@@ -101,7 +100,7 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::{schedulable, Context, InitializedModel, Model};
+//! use nexosim::model::{schedulable, Context, Model};
 //! use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 //! use nexosim::simulation::{AutoEventKey, Mailbox, SimInit};
 //! use nexosim::time::MonotonicTime;
@@ -186,9 +185,8 @@
 //!
 //!     #[nexosim(init)]
 //!     /// Propagate all internal states.
-//!     async fn init(mut self, _: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+//!     async fn init(&mut self) {
 //!         self.state.propagate().await;
-//!         self.into()
 //!     }
 //! }
 //!

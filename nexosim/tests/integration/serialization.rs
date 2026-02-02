@@ -1,11 +1,10 @@
 use std::collections::HashMap;
-use std::future::Future;
 use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 use nexosim::ports::{
     EventQueueReader, EventSinkReader, EventSource, Output, QuerySource, SinkState, event_queue,
 };
@@ -51,13 +50,8 @@ impl ModelWithState {
         Self { state }
     }
     #[nexosim(init)]
-    fn init(
-        mut self,
-        _: &Context<Self>,
-        _: &mut (),
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
+    async fn init(&mut self, _: &Context<Self>, _: &mut ()) {
         self.state *= 11;
-        async { self.into() }
     }
     pub async fn query(&mut self) -> u32 {
         self.state
@@ -82,11 +76,7 @@ impl ModelWithSchedule {
         }
     }
     #[nexosim(init)]
-    fn init(
-        self,
-        cx: &Context<Self>,
-        _: &mut (),
-    ) -> impl Future<Output = InitializedModel<Self>> + Send {
+    async fn init(&mut self, cx: &Context<Self>, _: &mut ()) {
         cx.schedule_periodic_event(
             Duration::from_secs(1),
             Duration::from_secs(2),
@@ -94,7 +84,6 @@ impl ModelWithSchedule {
             7,
         )
         .unwrap();
-        async { self.into() }
     }
     #[nexosim(schedulable)]
     async fn send(&mut self, arg: u32, cx: &Context<Self>) {
@@ -127,7 +116,7 @@ where
     async fn process(&mut self) {}
 
     #[nexosim(init)]
-    async fn init(self, cx: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+    async fn init(&mut self, cx: &Context<Self>, _: &mut ()) {
         // Test if schedulable! macro works with generics.
         cx.schedule_event(
             Duration::from_secs(255),
@@ -135,7 +124,6 @@ where
             (),
         )
         .unwrap();
-        self.into()
     }
 }
 
@@ -152,9 +140,7 @@ where
     }
 
     #[nexosim(init)]
-    async fn init(self, _: &Context<Self>, _: &mut T) -> InitializedModel<Self> {
-        self.into()
-    }
+    async fn init(&mut self, _: &Context<Self>, _: &mut T) {}
 }
 
 #[derive(Serialize, Deserialize)]
@@ -173,9 +159,7 @@ where
     }
 
     #[nexosim(init)]
-    async fn init(self, _: &Context<Self>, _: &mut EnvWithGeneric<T>) -> InitializedModel<Self> {
-        self.into()
-    }
+    async fn init(&mut self, _: &Context<Self>, _: &mut EnvWithGeneric<T>) {}
 }
 
 /// This model uses a non random hasher to allow consistent (de)serialization

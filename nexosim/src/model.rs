@@ -63,7 +63,7 @@
 //! done with the `#[nexosim(init)]` procedural macro helper attribute:
 //!
 //! ```
-//! use nexosim::model::{Context, InitializedModel, Model};
+//! use nexosim::model::{Context, Model};
 //!
 //! use serde::{Serialize, Deserialize};
 //!
@@ -74,14 +74,8 @@
 //! #[Model]
 //! impl MyModel {
 //!     #[nexosim(init)]
-//!     async fn init(
-//!         mut self,
-//!         ctx: &Context<Self>,
-//!         env: &mut <MyModel as Model>::Env
-//!     ) -> InitializedModel<Self> {
+//!     async fn init(&mut self) {
 //!         println!("...initialization...");
-//!
-//!         self.into()
 //!     }
 //! }
 //! ```
@@ -96,7 +90,7 @@
 //!
 //! use serde::{Serialize, Deserialize};
 //!
-//! use nexosim::model::{schedulable, Context, InitializedModel, Model};
+//! use nexosim::model::{schedulable, Context, Model};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct MyModel {
@@ -109,15 +103,11 @@
 //!         // ...
 //!     }
 //!     #[nexosim(init)]
-//!     async fn init(
-//!         mut self,
-//!         ctx: &Context<Self>,
-//!         env: &mut <MyModel as Model>::Env
-//!     ) -> InitializedModel<Self> {
+//!     async fn init(&mut self, cx: &Context<Self>) {
 //!         println!("...initialization...");
-//!         ctx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), ())
+//!
+//!         cx.schedule_event(Duration::from_secs(2), schedulable!(Self::input), ())
 //!             .unwrap();
-//!         self.into()
 //!     }
 //! }
 //! ```
@@ -128,7 +118,7 @@
 //! replier methods.
 //!
 //! ```
-//! use nexosim::model::{BuildContext, InitializedModel, Model, ProtoModel};
+//! use nexosim::model::{BuildContext, Model, ProtoModel};
 //! use nexosim::ports::Output;
 //!
 //! use serde::{Serialize, Deserialize};
