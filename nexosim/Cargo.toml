@@ -32,7 +32,6 @@ keywords = [
 server = [
     "dep:bytes",
     "dep:ciborium",
-    "dep:half",
     "dep:prost",
     "dep:prost-types",
     "dep:tokio",
@@ -75,9 +74,6 @@ tai-time = { version = "1", features = ["serde", "schemars"] }
 # Optional dependencies.
 bytes = { version = "1", default-features = false, optional = true }
 ciborium = { version = "0.2.2", optional = true }
-# The `half` dependency is explicitly listed and pinned to satisfy the rust 1.77
-# MSRV. To be removed when moving to the 2024 edition.
-half = { version = "=2.4.1", optional = true }
 prost = { version = "0.14", optional = true }
 prost-types = { version = "0.14", optional = true }
 tokio = { version = "1.0", features = ["net", "time"], optional = true }
