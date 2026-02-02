@@ -513,6 +513,30 @@ pub mod cancel_event_reply {
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InjectEventRequest {
+    #[prost(message, optional, tag = "3")]
+    pub source: ::core::option::Option<Path>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub event: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InjectEventReply {
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "inject_event_reply::Result", tags = "1, 100")]
+    pub result: ::core::option::Option<inject_event_reply::Result>,
+}
+/// Nested message and enum types in `InjectEventReply`.
+pub mod inject_event_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "1")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProcessEventRequest {
     #[prost(message, optional, tag = "1")]
     pub source: ::core::option::Option<Path>,
@@ -906,6 +930,13 @@ pub mod simulation_server {
             request: tonic::Request<super::CancelEventRequest>,
         ) -> std::result::Result<
             tonic::Response<super::CancelEventReply>,
+            tonic::Status,
+        >;
+        async fn inject_event(
+            &self,
+            request: tonic::Request<super::InjectEventRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::InjectEventReply>,
             tonic::Status,
         >;
         async fn process_event(
@@ -1895,6 +1926,51 @@ pub mod simulation_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = CancelEventSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/InjectEvent" => {
+                    #[allow(non_camel_case_types)]
+                    struct InjectEventSvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::InjectEventRequest>
+                    for InjectEventSvc<T> {
+                        type Response = super::InjectEventReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::InjectEventRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::inject_event(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = InjectEventSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

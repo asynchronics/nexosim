@@ -2,24 +2,26 @@ use std::sync::Arc;
 
 use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
+use crate::simulation::Injector;
 
 use super::super::codegen::simulation::*;
-use super::{from_endpoint_error, simulation_not_started_error};
+use super::{bench_not_built_error, from_endpoint_error, to_error};
 
-/// Protobuf-based simulation inspector.
+/// Protobuf-based bench service.
 ///
-/// The `InspectorService` handles all requests that only involve immutable
-/// access to endpoints.
-pub(crate) enum InspectorService {
+/// The `BenchService` handles all non-mutating requests that are available from
+/// the moment the bench is built (before the simulation is initialized).
+pub(crate) enum BenchService {
     Halted,
     Started {
         event_sink_info_registry: EventSinkInfoRegistry,
         event_source_registry: Arc<EventSourceRegistry>,
         query_source_registry: Arc<QuerySourceRegistry>,
+        injector: Injector,
     },
 }
 
-impl InspectorService {
+impl BenchService {
     /// Returns a list of the paths of all registered event sources.
     pub(crate) fn list_event_sources(
         &self,
@@ -35,7 +37,7 @@ impl InspectorService {
                     segments: path.to_vec_string(),
                 })
                 .collect()),
-            Self::Halted => Err(simulation_not_started_error()),
+            Self::Halted => Err(bench_not_built_error()),
         }
     }
 
@@ -54,7 +56,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_not_started_error());
+            return Err(bench_not_built_error());
         };
 
         let schemas: Result<Vec<_>, _> =
@@ -102,7 +104,7 @@ impl InspectorService {
                     segments: path.to_vec_string(),
                 })
                 .collect()),
-            Self::Halted => Err(simulation_not_started_error()),
+            Self::Halted => Err(bench_not_built_error()),
         }
     }
 
@@ -122,7 +124,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_not_started_error());
+            return Err(bench_not_built_error());
         };
 
         let schema: Result<Vec<_>, _> = if request.sources.is_empty() {
@@ -171,7 +173,7 @@ impl InspectorService {
                 })
                 .collect()),
 
-            Self::Halted => Err(simulation_not_started_error()),
+            Self::Halted => Err(bench_not_built_error()),
         }
     }
 
@@ -190,7 +192,7 @@ impl InspectorService {
             ..
         } = self
         else {
-            return Err(simulation_not_started_error());
+            return Err(bench_not_built_error());
         };
 
         let schemas: Result<Vec<_>, _> = if request.sinks.is_empty() {
@@ -220,6 +222,43 @@ impl InspectorService {
 
         schemas.map_err(from_endpoint_error)
     }
+
+    /// Injects an event to be executed as soon as possible.
+    pub(crate) fn inject_event(&self, request: InjectEventRequest) -> Result<(), Error> {
+        let Self::Started {
+            event_source_registry,
+            injector,
+            ..
+        } = self
+        else {
+            return Err(bench_not_built_error());
+        };
+
+        let source_path: &NexosimPath = &request
+            .source
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event source path"))?
+            .segments
+            .into();
+
+        let source = event_source_registry
+            .get(source_path)
+            .map_err(from_endpoint_error)?;
+
+        let event = source.event(&request.event).map_err(|e| {
+            to_error(
+                ErrorCode::InvalidMessage,
+                format!(
+                    "the event could not be deserialized as type '{}': {}",
+                    source.event_type_name(),
+                    e
+                ),
+            )
+        })?;
+
+        injector.inject_built_event(event);
+
+        Ok(())
+    }
 }
 
 #[cfg(all(test, not(nexosim_loom)))]
@@ -227,9 +266,11 @@ mod tests {
     use super::*;
 
     use std::collections::HashSet;
+    use std::sync::Mutex;
 
     use crate::ports::{EventSource, QuerySource};
     use crate::simulation::SchedulerRegistry;
+    use crate::util::priority_queue::PriorityQueue;
 
     #[derive(Default)]
     struct TestParams {
@@ -241,7 +282,7 @@ mod tests {
         raw_event_sinks: Vec<NexosimPath>,
     }
 
-    fn get_service(params: TestParams) -> InspectorService {
+    fn get_service(params: TestParams) -> BenchService {
         let mut scheduler_registry = SchedulerRegistry::default();
         let mut event_source_registry = EventSourceRegistry::default();
         for source in params.event_sources {
@@ -275,10 +316,11 @@ mod tests {
             event_sink_info_registry.register_raw(sink).unwrap();
         }
 
-        InspectorService::Started {
+        BenchService::Started {
             event_sink_info_registry,
             event_source_registry: Arc::new(event_source_registry),
             query_source_registry: Arc::new(query_source_registry),
+            injector: Injector::new(Arc::new(Mutex::new(PriorityQueue::new()))),
         }
     }
 

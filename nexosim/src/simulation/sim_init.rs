@@ -15,6 +15,7 @@ use crate::model::{Message, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
 use crate::simulation::InjectorQueue;
+use crate::simulation::injector::Injector;
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime, Ticker,
 };
@@ -40,7 +41,7 @@ pub struct SimInit {
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
     is_resumed: Arc<AtomicBool>,
-    clock: Box<dyn Clock + 'static>,
+    clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
     ticker: Option<Box<dyn Ticker>>,
     timeout: Duration,
@@ -56,6 +57,11 @@ impl SimInit {
     /// available logical threads.
     pub fn new() -> Self {
         Self::with_num_threads(num_cpus::get())
+    }
+
+    /// Returns an injector handle.
+    pub fn injector(&self) -> Injector {
+        Injector::new(self.injector_queue.clone())
     }
 
     /// Creates a builder for a simulation running on the specified number of
@@ -122,7 +128,7 @@ impl SimInit {
     /// the concurrent scheduling of events within the current idle window. With
     /// a [`Ticker`], this window is reduced to at most the interval between
     /// ticks.
-    pub fn with_clock(mut self, clock: impl Clock + 'static, ticker: impl Ticker) -> Self {
+    pub fn with_clock(mut self, clock: impl Clock, ticker: impl Ticker) -> Self {
         self.clock = Box::new(clock);
         self.ticker = Some(Box::new(ticker));
 
@@ -140,7 +146,7 @@ impl SimInit {
     /// Tickless mode is only recommended when the simulation runs as fast as
     /// possible, for instance with the default [`NoClock`] clock. In other
     /// cases, [`SimInit::with_clock`] should be preferred.
-    pub fn with_tickless_clock(mut self, clock: impl Clock + 'static) -> Self {
+    pub fn with_tickless_clock(mut self, clock: impl Clock) -> Self {
         self.clock = Box::new(clock);
         self.ticker = None;
 

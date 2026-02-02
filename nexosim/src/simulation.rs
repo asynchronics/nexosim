@@ -81,7 +81,7 @@ mod queue_items;
 mod scheduler;
 mod sim_init;
 
-pub use injector::ModelInjector;
+pub use injector::{Injector, ModelInjector};
 pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
@@ -132,6 +132,12 @@ use crate::util::serialization::serialization_config;
 use crate::util::slot;
 
 thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell::new(ModelId::none()) }; }
+// Marker for the origin ID of an event/query sent by a user rather than by a
+// model.
+//
+// Note: `usize::MAX` is not a valid origin ID as it is denotes the lack of an
+// origin ID for a `ModelId`.
+const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
 
 /// Simulation environment.
 ///
@@ -218,6 +224,20 @@ impl Simulation {
             is_halted,
             is_terminated: false,
         }
+    }
+
+    /// Returns an injector handle.
+    pub fn injector(&self) -> Injector {
+        Injector::new(self.injector_queue.clone())
+    }
+
+    /// Returns a scheduler handle.
+    pub fn scheduler(&self) -> Scheduler {
+        Scheduler::new(
+            self.scheduler_queue.clone(),
+            self.time.reader(),
+            self.is_halted.clone(),
+        )
     }
 
     /// Reset the simulation clock and (re)set the ticker.
@@ -699,15 +719,6 @@ impl Simulation {
             return Err(ExecutionError::Halted);
         }
         Ok(())
-    }
-
-    /// Returns a scheduler handle.
-    pub fn scheduler(&self) -> Scheduler {
-        Scheduler::new(
-            self.scheduler_queue.clone(),
-            self.time.reader(),
-            self.is_halted.clone(),
-        )
     }
 
     /// Requests and stores serialized state from each of the models.
