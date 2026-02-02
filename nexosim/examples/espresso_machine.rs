@@ -35,7 +35,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::Message;
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 use nexosim::simulation::{EventKey, Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
@@ -191,7 +191,7 @@ impl Tank {
 
     /// Broadcasts the initial state of the water sense.
     #[nexosim(init)]
-    async fn init(mut self) -> InitializedModel<Self> {
+    async fn init(&mut self) {
         self.water_sense
             .send(if self.volume == 0.0 {
                 WaterSenseState::Empty
@@ -199,8 +199,6 @@ impl Tank {
                 WaterSenseState::NotEmpty
             })
             .await;
-
-        self.into()
     }
 
     /// Water volume added [m³] -- input port.

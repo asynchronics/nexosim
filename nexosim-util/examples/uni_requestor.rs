@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use nexosim_util::observable::Observable;
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, UniRequestor, event_queue};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
@@ -72,7 +72,7 @@ impl Sensor {
 
     /// Propagate state and schedule cyclic method.
     #[nexosim(init)]
-    async fn init(mut self, context: &Context<Self>) -> InitializedModel<Self> {
+    async fn init(&mut self, context: &Context<Self>) {
         self.oh.propagate().await;
 
         context
@@ -83,8 +83,6 @@ impl Sensor {
                 (),
             )
             .unwrap();
-
-        self.into()
     }
 }
 

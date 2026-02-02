@@ -4,9 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{
-    BuildContext, Context, InitializedModel, Model, ProtoModel, SchedulableId, schedulable,
-};
+use nexosim::model::{BuildContext, Context, Model, ProtoModel, SchedulableId, schedulable};
 use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
 use nexosim::simulation::{EventKey, Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
@@ -68,14 +66,13 @@ fn multiple_models_scheduling(num_threads: usize) {
     #[Model]
     impl TestModel {
         #[nexosim(init)]
-        async fn init(self, cx: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+        async fn init(&mut self, cx: &Context<Self>, _: &mut ()) {
             cx.schedule_event(
                 Duration::from_secs(self.delay),
                 schedulable!(Self::action),
                 (),
             )
             .unwrap();
-            self.into()
         }
 
         // Does nothing, but alters the ModelRegistry

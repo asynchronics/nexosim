@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 use nexosim::ports::{
     EventQueueReader, EventSinkReader, EventSource, Output, SinkState, event_queue,
 };
@@ -156,11 +156,10 @@ impl Processor {
 
     /// Propagate all internal states.
     #[nexosim(init)]
-    async fn init(mut self) -> InitializedModel<Self> {
+    async fn init(&mut self) {
         self.state.propagate().await;
         self.acc.propagate().await;
         self.elc.propagate().await;
-        self.into()
     }
 }
 

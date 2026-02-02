@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{MonotonicTime, SystemClock};
@@ -30,11 +30,9 @@ impl RecurringModel {
     }
 
     #[nexosim(init)]
-    async fn init(self, cx: &Context<Self>, _: &mut ()) -> InitializedModel<Self> {
+    async fn init(&mut self, cx: &Context<Self>, _: &mut ()) {
         cx.schedule_periodic_event(self.delay, self.delay, schedulable!(Self::process), ())
             .unwrap();
-
-        self.into()
     }
 }
 

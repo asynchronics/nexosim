@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, schedulable};
+use nexosim::model::{Context, Model, schedulable};
 
 /// A ticker model.
 ///
@@ -74,10 +74,9 @@ impl Ticker {
     async fn tick(&mut self) {}
 
     #[nexosim(init)]
-    async fn init(self, cx: &Context<Self>, _: &()) -> InitializedModel<Self> {
+    async fn init(&mut self, cx: &Context<Self>, _: &()) {
         cx.schedule_periodic_event(self.tick, self.tick, schedulable!(Self::tick), ())
             .unwrap();
-        self.into()
     }
 }
 

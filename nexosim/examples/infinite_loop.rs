@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use nexosim::model::{Context, InitializedModel, Model, ProtoModel, schedulable};
+use nexosim::model::{Context, Model, ProtoModel, schedulable};
 use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
@@ -52,12 +52,10 @@ impl Listener {
 
     /// Initialize model.
     #[nexosim(init)]
-    async fn init(self, cx: &Context<Self>) -> InitializedModel<Self> {
+    async fn init(&mut self, cx: &Context<Self>) {
         // Schedule periodic function that processes external events.
         cx.schedule_periodic_event(DELTA, PERIOD, schedulable!(Self::process), ())
             .unwrap();
-
-        self.into()
     }
 
     /// Periodically scheduled function that processes external events.
