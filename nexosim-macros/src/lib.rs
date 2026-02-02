@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::{ToTokens, quote, quote_token};
 use syn::{
     Expr, ExprPath, FnArg, Generics, Ident, ImplItem, ImplItemFn, ItemType, Meta, Path,
-    PathArguments, PathSegment, Signature, Token, Type, TypeTuple, Visibility,
+    PathArguments, PathSegment, Signature, Token, Type, TypeTuple,
     punctuated::Punctuated,
     spanned::Spanned,
     token::{Paren, PathSep},
@@ -203,12 +203,6 @@ fn parse_tagged_methods(
                 schedulables.push(f.clone());
             }
             if attrs.contains(&INIT_ATTR) {
-                if let Visibility::Public(pub_token) = f.vis {
-                    return Err(syn::Error::new_spanned(
-                        pub_token,
-                        "methods annotated with `nexosim(init)` cannot be public",
-                    ));
-                }
                 init = Some(init_fn(&f.sig)?);
             }
         }
