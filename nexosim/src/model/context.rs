@@ -23,30 +23,8 @@ use crate::channel::Receiver;
 /// A local context for models.
 ///
 /// A `Context` is a handle to the global context associated to a model
-/// instance. It can be used by the model to retrieve the simulation time or
-/// schedule delayed actions on itself.
-///
-/// ### Caveat: self-scheduling `async` methods
-///
-/// Due to a current rustc issue, `async` methods that schedule themselves will
-/// not compile unless an explicit `Send` bound is added to the returned future.
-/// This can be done by replacing the `async` signature with a partially
-/// desugared signature such as:
-///
-/// ```ignore
-/// fn self_scheduling_method<'a>(
-///     &'a mut self,
-///     arg: MyEventType,
-///     cx: &'a Context<Self>
-/// ) -> impl Future<Output=()> + Send + 'a {
-///     async move {
-///         /* implementation */
-///     }
-/// }
-/// ```
-///
-/// Self-scheduling methods which are not `async` are not affected by this
-/// issue.
+/// instance. It can be used by the model to retrieve the model's [Path] and the
+/// simulation time, or to schedule delayed events on itself.
 ///
 /// # Examples
 ///
@@ -54,10 +32,9 @@ use crate::channel::Receiver;
 ///
 /// ```
 /// use std::time::Duration;
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::{schedulable, Context, Model};
 /// use nexosim::ports::Output;
-///
-/// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(Default, Serialize, Deserialize)]
 /// pub struct DelayedGreeter {
@@ -85,8 +62,6 @@ use crate::channel::Receiver;
 ///     }
 /// }
 /// ```
-// The self-scheduling caveat seems related to this issue:
-// https://github.com/rust-lang/rust/issues/78649
 pub struct Context<M: Model> {
     path: Path,
     scheduler: GlobalScheduler,
@@ -132,10 +107,8 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use std::time::Duration;
-    ///
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // A timer.
     /// #[derive(Serialize, Deserialize)]
@@ -183,11 +156,10 @@ impl<M: Model> Context<M> {
     /// # Examples
     ///
     /// ```
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // An alarm clock that can be cancelled.
     /// #[derive(Default, Serialize, Deserialize)]
@@ -246,11 +218,9 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use std::time::Duration;
-    ///
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::time::MonotonicTime;
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // An alarm clock beeping at 1Hz.
     /// #[derive(Serialize, Deserialize)]
@@ -306,12 +276,10 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use std::time::Duration;
-    ///
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // An alarm clock beeping at 1Hz that can be cancelled before it sets off, or
     /// // stopped after it sets off.
@@ -396,35 +364,41 @@ impl<M: Model> fmt::Debug for Context<M> {
     }
 }
 
-/// Context available when building a model from a model prototype.
+/// A context available when building a model from a model prototype.
 ///
-/// A `BuildContext` can be used to add the sub-models of a hierarchical model
-/// to the simulation bench.
+/// A `BuildContext` can be used for a variety of purposes, including:
+///
+/// - to spawn sub-models onto the simulation with
+///   [`BuildContext::add_submodel`],
+/// - to pass a [`ModelInjector`] retrieved with [`BuildContext::injector`] to
+///   any background thread that may need to communicate with the model,
+/// - to manually register a schedulable method with
+///   [`BuildContext::register_schedulable`],
+/// - to provide a clock reader to the model with
+///   [`BuildContext::clock_reader`].
 ///
 /// # Examples
 ///
 /// A model that multiplies its input by four using two sub-models that each
-/// multiply their input by two.
+/// multiply their input by two:
 ///
 /// ```text
 ///             ┌───────────────────────────────────────┐
-///             │ MyltiplyBy4                           │
+///             │              MultiplyBy4              │
 ///             │   ┌─────────────┐   ┌─────────────┐   │
 ///             │   │             │   │             │   │
 /// Input ●─────┼──►│ MultiplyBy2 ├──►│ MultiplyBy2 ├───┼─────► Output
 ///         f64 │   │             │   │             │   │ f64
 ///             │   └─────────────┘   └─────────────┘   │
-///             │                                       │
 ///             └───────────────────────────────────────┘
 /// ```
 ///
 /// ```
 /// use std::time::Duration;
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::{BuildContext, Model, ProtoModel};
 /// use nexosim::ports::Output;
 /// use nexosim::simulation::Mailbox;
-///
-/// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(Default, Serialize, Deserialize)]
 /// struct MultiplyBy2 {
@@ -527,8 +501,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Returns the path to the model.
     ///
-    /// The path is constituted by the name of the root model, followed by its
-    /// sub-models if any.
+    /// The path is constituted by the name of all parent models (if any) and of
+    /// this model, starting from the root.
     pub fn path(&self) -> &Path {
         self.path
     }
@@ -541,13 +515,14 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// Registers a self-schedulable input.
     ///
     /// Typically, registering self-schedulable inputs is not necessary since
-    /// the [`macro@Model`] procedural macro does this automatically, enabling
-    /// the convenient use of the [`schedulable!`](crate::model::schedulable!)
-    /// macro.
+    /// the [`macro@Model`] procedural macro does this automatically for methods
+    /// annotated with `[nexosim(schedulable)]`, enabling the use of the
+    /// [`schedulable!`](crate::model::schedulable!) macro and alleviating the
+    /// need to keep [`SchedulableId`] handles within the model.
     ///
     /// However, if the [`trait@Model`] trait is implemented manually or if a
-    /// non-method function with an input signature needs to be registered,
-    /// `register_schedulable` can be used to obtain a handle to such input.
+    /// non-method function needs to be scheduled, `register_schedulable` can be
+    /// used instead to obtain a [`SchedulableId`].
     pub fn register_schedulable<F, T, S>(&mut self, func: F) -> SchedulableId<P::Model, T>
     where
         F: for<'f> InputFn<'f, P::Model, T, S> + Clone + Sync,
@@ -562,9 +537,10 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Adds a sub-model to the simulation bench.
     ///
-    /// The `name` argument defines the [`Path`] to the sub-model relative to
-    /// this model (root path). Because model paths are used for logging and
-    /// error reports, the use of unique names is recommended.
+    /// The [`Path`] to the sub-model is formed by the concatenation of the path
+    /// to this parent model and of the `name` argument. Because model paths are
+    /// used for logging and error reporting, the use of unique names is
+    /// recommended.
     pub fn add_submodel<S>(&mut self, model: S, mailbox: Mailbox<S::Model>, name: &str)
     where
         S: ProtoModel,
@@ -601,7 +577,8 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
 
     /// Sets the model registry.
     ///
-    /// This is necessary prior to any call to [`injector`](Self::injector).
+    /// Warning: this method must be called prior to any call to
+    /// [`injector`](Self::injector).
     pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
         self.model_registry = Some(model_registry);
     }
@@ -617,11 +594,10 @@ impl<'a, P: ProtoModel> fmt::Debug for BuildContext<'a, P> {
     }
 }
 
-/// An internal registry of schedulable inputs.
+/// An internal registry of inputs that can be scheduled with the
+/// [`schedulable!`](crate::model::schedulable) macro.
 ///
-/// This is normally only used by procedural macro-generated code.
-///
-/// The `ModelRegistry` is automatically populated by the
+/// The `ModelRegistry` of each model is automatically populated by the
 /// [`Model`](crate::model) procedural macro based on the inputs decorated with
 /// `#[nexosim(schedulable)]`.
 #[derive(Debug, Default)]
@@ -636,17 +612,16 @@ impl ModelRegistry {
     }
 }
 
-/// Type-safe identifier for schedulable inputs.
+/// A type-safe identifier for schedulable model inputs.
 ///
 /// Typically, creating a `SchedulableId` manually is not necessary since the
-/// [`macro@Model`] procedural macro does this automatically. In such case, the
-/// [`schedulable!`](crate::model::schedulable!) convenience macro can be used
-/// to dynamically creates a `SchedulableId`.
+/// [`macro@Model`] procedural macro does this automatically and makes it
+/// possible to use the [`schedulable!`](crate::model::schedulable!) macro to
+/// dynamically creates a `SchedulableId`.
 ///
 /// However, if the [`trait@Model`] trait is implemented manually or if a
-/// non-method function with an input signature needs to be registered, a
-/// `SchedulableId` can be obtained by calling the
-/// [`BuildContext::register_schedulable`] method.
+/// non-method function or closure needs to be registered, a `SchedulableId` can
+/// be obtained by calling [`BuildContext::register_schedulable`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> SchedulableId<M, T> {
@@ -664,13 +639,14 @@ impl<M: Model, T> SchedulableId<M, T> {
         Self(id | Self::REGISTRY_MASK, PhantomData, PhantomData)
     }
 
-    // When a SchedulableId is created manually by calling
+    // When a `SchedulableId` is created with a manual call to
     // `BuildContext::register_schedulable`, its internal value directly
     // corresponds to its index within the `SchedulerRegistry`.
     //
     // However, as those indices are not known at compilation time, the
-    // proc-macro generated `SchedulableId`s for decorated methods have to use
-    // an indirection via the `ModelRegistry`.
+    // proc-macro generated `SchedulableId`s for decorated methods use
+    // indirection via the `ModelRegistry` to retrieve their entry in the
+    // `SchedulerRegistry`.
     pub(crate) fn source_id(&self, registry: &ModelRegistry) -> EventId<T> {
         match self.0 & Self::REGISTRY_MASK {
             0 => EventId(self.0, PhantomData),

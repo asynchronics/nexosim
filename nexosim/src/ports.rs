@@ -1,6 +1,5 @@
 //! Ports for event and query broadcasting.
 //!
-//!
 //! # Events and queries
 //!
 //! Models can exchange data via *events* and *queries*.
@@ -80,9 +79,8 @@
 //! #### Basic example
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{Model, Context};
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct MyModel {
@@ -162,11 +160,10 @@
 //! guaranteed.
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{BuildContext, Model, ProtoModel};
 //! use nexosim::ports::Output;
 //! use nexosim::simulation::Mailbox;
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct ParentModel {

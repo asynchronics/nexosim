@@ -1,3 +1,51 @@
+# 1.0.0 (2026-02-03)
+
+The following is merely a short summary of the main changes from the 0.3.x line:
+
+- Implementation of bench serialization and deserialization. This is by far the
+  largest change. This means that all models need to derive `Serialize` and
+  `Deserialize`, but can use an escape hatch in the form of a custom environment
+  associated type (`Model::Env`)
+- Introduction of a `Message` trait on endpoint types (and generally all event
+  types defined by a model), derived on `MonotonicTime` and most common types
+  ([#151])
+- Reworked endpoint registry API to enable its use in pure Rust benches ([#131],
+  [#138], [#139])
+- Introduction of a `Ticker` trait working along `Clock` to streamline real-time
+  simulation use-cases (issue [#129]) ([#148])
+- Addition of an injector queue to simplify the processing of external events
+  (e.g. network); this is tightly related to the above `Ticker` trait (issue
+  [#129]) ([#149])
+- Addition of a clonable `ClockReader` (issue [#123]) ([#136])
+- Introduction of endpoint and model paths rather than `String`s ([#141])
+- Modification of the `UniRequestor::send` to make it non-panicking (issue
+  [#117])
+- Rework of the `EventSink` trait to expose an async reading method to avoid
+  blocking the `tokio` thread when using a `server` ([#138], [#139], [#140])
+- Fix error on dropped unused address (issue [#125]) and left shift overflow in
+  MT executor (issue [#130]) ([#146], [#147])
+- Reworked, augmented, improved gRPC API ([#138], [#143])
+- Introduction of request scheduling ([#137], [#139])
+
+[#117]: https://github.com/asynchronics/nexosim/pull/117
+[#125]: https://github.com/asynchronics/nexosim/pull/125
+[#123]: https://github.com/asynchronics/nexosim/pull/123
+[#129]: https://github.com/asynchronics/nexosim/pull/129
+[#130]: https://github.com/asynchronics/nexosim/pull/130
+[#131]: https://github.com/asynchronics/nexosim/pull/131
+[#136]: https://github.com/asynchronics/nexosim/pull/136
+[#137]: https://github.com/asynchronics/nexosim/pull/137
+[#138]: https://github.com/asynchronics/nexosim/pull/138
+[#139]: https://github.com/asynchronics/nexosim/pull/139
+[#140]: https://github.com/asynchronics/nexosim/pull/140
+[#141]: https://github.com/asynchronics/nexosim/pull/141
+[#143]: https://github.com/asynchronics/nexosim/pull/143
+[#146]: https://github.com/asynchronics/nexosim/pull/146
+[#147]: https://github.com/asynchronics/nexosim/pull/147
+[#148]: https://github.com/asynchronics/nexosim/pull/148
+[#149]: https://github.com/asynchronics/nexosim/pull/149
+[#151]: https://github.com/asynchronics/nexosim/pull/151
+
 # 0.3.4 (2025-09-12)
 
 - Run CI on ARM ([#108])

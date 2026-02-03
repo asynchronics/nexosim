@@ -280,6 +280,12 @@ impl<M> Clone for Sender<M> {
     }
 }
 
+impl<M> fmt::Debug for Sender<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sender").finish_non_exhaustive()
+    }
+}
+
 /// A model-independent handle to a channel that can observe the current number
 /// of messages.
 pub(crate) trait ChannelObserver: Send {
@@ -308,12 +314,6 @@ pub(crate) struct Observer<M: 'static> {
 impl<M: Model> ChannelObserver for Observer<M> {
     fn len(&self) -> usize {
         self.inner.queue.len()
-    }
-}
-
-impl<M> fmt::Debug for Sender<M> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Address").finish_non_exhaustive()
     }
 }
 

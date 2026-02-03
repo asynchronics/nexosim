@@ -490,7 +490,7 @@ impl fmt::Debug for SimInit {
     }
 }
 
-/// Error returned when the construction of a simulation bench fails.
+/// An error returned when the construction of a simulation bench fails.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum BenchError {
@@ -525,7 +525,8 @@ impl fmt::Display for BenchError {
 }
 impl Error for BenchError {}
 
-/// Error returned when attempting to bind an event source to an existing path.
+/// An error returned when attempting to bind an event source to an existing
+/// path.
 pub struct DuplicateEventSourceError<T>
 where
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
@@ -571,7 +572,8 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> From<DuplicateEve
     }
 }
 
-/// Error returned when attempting to bind a query source to an existing path.
+/// An error returned when attempting to bind a query source to an existing
+/// path.
 pub struct DuplicateQuerySourceError<S> {
     /// Path to the query source.
     pub path: Path,
@@ -603,7 +605,7 @@ impl<S> From<DuplicateQuerySourceError<S>> for BenchError {
     }
 }
 
-/// Error returned when attempting to bind an event sink to an existing path.
+/// An error returned when attempting to bind an event sink to an existing path.
 #[derive(Debug)]
 pub struct DuplicateEventSinkError {
     /// Path to the event sink.

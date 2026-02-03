@@ -50,9 +50,16 @@ impl<M: Model> ModelInjector<M> {
 
     /// Injects an event to be processed as soon as possible.
     ///
-    /// The event will be processed at the simulation step that follows the one
-    /// that is being stepped into, whether the step coincides with a scheduled
-    /// event or a simulation tick.
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is executed
+    /// concurrently, the event will be processed at the deadline set by the
+    /// scheduler event or simulation tick that directly follows the one that is
+    /// being stepped into.
+    ///
+    /// If the event is injected while the simulation is at rest, the event will
+    /// be processed at the lapse of the next simulation step (next scheduler
+    /// event or simulation tick).
     pub fn inject_event<T>(&self, schedulable_id: &SchedulableId<M, T>, arg: T)
     where
         T: Send + Clone + 'static,
@@ -88,9 +95,16 @@ impl Injector {
 
     /// Injects an event to be processed as soon as possible.
     ///
-    /// The event will be processed at the simulation step that follows the one
-    /// that is being stepped into, whether the step coincides with a scheduled
-    /// event or a simulation tick.
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is executed
+    /// concurrently, the event will be processed at the deadline set by the
+    /// scheduler event or simulation tick that directly follows the one that is
+    /// being stepped into.
+    ///
+    /// If the event is injected while the simulation is at rest, the event will
+    /// be processed at the lapse of the next simulation step (next scheduler
+    /// event or simulation tick).
     pub fn inject_event<T>(&self, event_id: &EventId<T>, arg: T)
     where
         T: Send + Clone + 'static,
@@ -100,10 +114,6 @@ impl Injector {
     }
 
     /// Injects an already built event to be processed as soon as possible.
-    ///
-    /// The event will be processed at the simulation step that follows the one
-    /// that is being stepped into, whether the step coincides with a scheduled
-    /// event or a simulation tick.
     pub(crate) fn inject_built_event(&self, event: Event) {
         let mut queue = self.queue.lock().unwrap();
         queue.insert(GLOBAL_ORIGIN_ID, event);

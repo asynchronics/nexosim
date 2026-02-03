@@ -30,7 +30,7 @@ pub(crate) type EventKeyReg = Arc<Mutex<HashMap<usize, Arc<AtomicBool>>>>;
 // The maximum source identifier value that fits within the registry mask.
 const MAX_SOURCE_ID: usize = (1 << (usize::BITS - 1) as usize) - 1;
 
-/// A unique, type-safe event source identifier.
+/// A type-safe event source identifier.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EventId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
 
@@ -57,13 +57,10 @@ impl<T> From<&EventId<T>> for EventIdErased {
     }
 }
 
-/// A unique, type-safe query source id.
-/// `QueryId` is stable between bench runs, provided that the bench layout does
-/// not change.
+/// A type-safe query source identifier.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueryId<T, R>(pub(crate) usize, pub(crate) PhantomData<fn(T, R)>);
 
-// Manual clone and copy impl. to not enforce bounds on T.
 impl<T, R> Clone for QueryId<T, R> {
     fn clone(&self) -> Self {
         *self
@@ -71,7 +68,7 @@ impl<T, R> Clone for QueryId<T, R> {
 }
 impl<T, R> Copy for QueryId<T, R> {}
 
-/// Type erased `QueryId` variant.
+/// A type-erased `QueryId`.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct QueryIdErased(pub(crate) usize);
 
@@ -696,12 +693,12 @@ fn deserialize_arg<T: DeserializeOwned + Send + 'static>(
     ))
 }
 
-/// Managed handle to a scheduled event.
+/// A managed handle to a scheduled event.
 ///
-/// An `AutoEventKey` is a managed handle to a scheduled action that cancels
-/// its associated action on drop.
+/// An `AutoEventKey` is a managed handle to a scheduled event that cancels
+/// its associated event on drop.
 #[derive(Debug, Deserialize)]
-#[must_use = "dropping this key immediately cancels the associated action"]
+#[must_use = "dropping this key immediately cancels the associated event"]
 #[serde(from = "EventKey")]
 pub struct AutoEventKey {
     is_cancelled: Arc<AtomicBool>,
@@ -734,11 +731,11 @@ impl Serialize for AutoEventKey {
     }
 }
 
-/// Handle to a scheduled event.
+/// A handle to a scheduled event.
 ///
-/// An `EventKey` can be used to cancel a scheduled action.
+/// An `EventKey` can be used to cancel a scheduled event.
 #[derive(Clone, Debug)]
-#[must_use = "prefer unkeyed scheduling methods if the action is never cancelled"]
+#[must_use = "prefer unkeyed scheduling methods if the event is never cancelled"]
 pub struct EventKey {
     is_cancelled: Arc<AtomicBool>,
 }
@@ -751,22 +748,22 @@ impl EventKey {
         }
     }
 
-    /// Create a key from an existing atomic bool
+    /// Create a key from an existing atomic boolean.
     fn restore(is_cancelled: Arc<AtomicBool>) -> Self {
         Self { is_cancelled }
     }
 
-    /// Checks whether the action was cancelled.
+    /// Checks whether the event was cancelled.
     pub(crate) fn is_cancelled(&self) -> bool {
         self.is_cancelled.load(Ordering::Relaxed)
     }
 
-    /// Cancels the associated action.
+    /// Cancels the associated event.
     pub fn cancel(self) {
         self.is_cancelled.store(true, Ordering::Relaxed);
     }
 
-    /// Converts action key to a managed key.
+    /// Converts this key into a managed key.
     pub fn into_auto(self) -> AutoEventKey {
         AutoEventKey {
             is_cancelled: self.is_cancelled,

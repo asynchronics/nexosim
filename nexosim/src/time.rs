@@ -4,7 +4,9 @@
 //!
 //! * [`MonotonicTime`]: a monotonic timestamp based on the [TAI] time standard,
 //! * [`Clock`]: a trait for types that can synchronize a simulation,
-//!   implemented for instance by [`SystemClock`] and [`AutoSystemClock`].
+//!   implemented for instance by [`SystemClock`] and [`AutoSystemClock`],
+//! * [`Ticker`]: a trait to control the responsiveness of simulations,
+//!   implemented by [`PeriodicTicker`].
 //!
 //! [TAI]: https://en.wikipedia.org/wiki/International_Atomic_Time
 //!
@@ -15,10 +17,9 @@
 //! the specified timestamp.
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{schedulable, Context, Model};
 //! use nexosim::time::MonotonicTime;
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! // An alarm clock model.
 //! #[derive(Serialize, Deserialize)]
@@ -52,6 +53,12 @@ mod clock;
 mod monotonic_time;
 mod ticker;
 
+/// A monotonic timestamp with an epoch set at 1970-01-01 00:00:00 TAI.
+///
+/// `MonotonicTime` is re-exported from crate
+/// [`tai_time`](https://docs.rs/tai-time/latest/tai_time/).
+/// \
+/// \
 pub use tai_time::MonotonicTime;
 
 pub use clock::{AutoSystemClock, Clock, NoClock, SyncStatus, SystemClock};
@@ -86,20 +93,17 @@ impl Deadline for MonotonicTime {
     }
 }
 
-/// A cloneable clock reader, tracking current simulation time.
-///
-/// Note: it is discouraged to query the time before simulation is
-/// initialized as the returned value will have no useful meaning.
+/// A `Clone`-able clock reader to track the current simulation time.
 #[derive(Clone)]
 pub struct ClockReader(AtomicTimeReader);
 impl ClockReader {
     pub(crate) fn from_atomic_time_reader(reader: &AtomicTimeReader) -> Self {
         Self(reader.clone())
     }
-    /// Returns current simulation time.
+    /// Returns the current simulation time.
     ///
-    /// Note: it is discouraged to call this before simulation is initialized
-    /// as the returned value will have no useful meaning.
+    /// Note: it is discouraged to query the time before the simulation is
+    /// initialized as the returned value is then meaningless.
     pub fn time(&self) -> MonotonicTime {
         self.0.read()
     }

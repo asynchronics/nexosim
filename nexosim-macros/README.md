@@ -1,16 +1,13 @@
 # NeXosim macros
 
-This crate contains proc-macros utilized by the `nexosim` crate.
+This crate contains the procedural macros used by the `nexosim` crate:
 
-Currently it provides:
-
-- `Message`: derive macro which enables schema generation for the server endpoint data
-- `Model`: proc-macro which implements the `Model` trait and enables custom attributes:
-    - `#[nexosim(schedulable)]`: - registers model's input method for self-scheduling
-    - `#[nexosim(init)]`: - marks implementation of the `Model::init` method
-    - `#[nexosim(restore)]`: - marks implementation of the `Model::restore` method
-- `schedulable!`: function-like proc-macro that allows for easy model self-scheduling
-
-Check the [`examples`][ex] directory to learn more about common use-cases.
-
-[ex]: https://github.com/asynchronics/nexosim/tree/main/nexosim/examples
+- `Message`: a derive macro which enables schema generation for server endpoints,
+- `Model`: an attribute macro which automatically implements the `Model` trait
+  and recognizes the following attributes:
+  - `#[nexosim(schedulable)]`: registers a model input method as schedulable
+    with the `schedulable!` macro,
+  - `#[nexosim(init)]`: annotates a method implementating the `Model::init`
+    method,
+- `schedulable!`: a function-like macro that enables models to schedule their
+  own methods without need to register such method beforehand.
