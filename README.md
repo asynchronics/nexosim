@@ -10,7 +10,7 @@ to very large simulation benches with complex time-driven state machines.
 
 > **NeXosim 1.0 is out** 🎊🎉🛸!!!
 >
-> Now with **serialization** support, **event injection**, improved support for
+> Now with **simulation save/restore** support, **event injection**, improved support for
 > **real-time applications**, countless quality-of-life improvements ...and much
 > more!
 >
