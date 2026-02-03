@@ -1,7 +1,11 @@
 //! Registry for sinks and sources.
 //!
 //! This module provides the [`Endpoints`] object which associates each event
-//! sink, event source and query source in a simulation bench to a unique name.
+//! sink, event source and query source in a simulation bench to a unique path.
+//!
+//! This can be used for Rust-based local testing of bench generation functions
+//! created for simulation management from a [remote
+//! front-end](mod@crate::server).
 
 use std::fmt::Debug;
 
@@ -122,7 +126,7 @@ impl Endpoints {
     }
 
     /// Returns the [`QueryId`] corresponding to a
-    /// [`QuerySource`](crate::ports::QuerySource)`.
+    /// [`QuerySource`](crate::ports::QuerySource).
     ///
     /// The [`QueryId`] can be used to process or schedule queries.
     pub fn get_query_source_id<T, R>(

@@ -20,14 +20,13 @@
 //! 5. discrete-time simulation, which typically involves scheduling events and
 //!    incrementing simulation time while observing the models outputs.
 //!
-//! Most information necessary to run a simulation is available in the root
-//! crate [documentation](crate) and in the [`SimInit`] and [`Simulation`]
-//! documentation. The next section complement this information with a set of
-//! practical recommendations that can help run and troubleshoot simulations.
+//! The basic information necessary to run a simulation is available in the
+//! [crate-level documentation](crate), and in the [`SimInit`] and
+//! [`Simulation`] documentation. The next section complement this information
+//! with a set of practical recommendations that can help run and troubleshoot
+//! simulations.
 //!
-//! # Practical considerations
-//!
-//! ## Mailbox capacity
+//! # Mailbox capacity
 //!
 //! A [`Mailbox`] is a buffer that store incoming events and queries for a
 //! single model instance. Mailboxes have a bounded capacity, which defaults to
@@ -45,7 +44,7 @@
 //! mailboxes with a custom capacity by using [`Mailbox::with_capacity`] instead
 //! of [`Mailbox::new`].
 //!
-//! ## Avoiding deadlocks
+//! # Deadlocks
 //!
 //! While the underlying architecture of NeXosim—the actor model—should prevent
 //! most race conditions (including obviously data races which are not possible
@@ -75,6 +74,34 @@
 //! Deadlocks are reported as [`ExecutionError::Deadlock`] errors, which
 //! identify all involved models and the count of unprocessed messages (events
 //! or requests) in their mailboxes.
+//!
+//! # Pacing a simulation with a clock
+//!
+//! By default, the simulation uses [`NoClock`](crate::time::NoClock) and
+//! operates in tick-less mode, meaning that it effectively runs as fast as
+//! possible.
+//!
+//! In many applications such as hardware-in-the-loop testing, it is instead
+//! necessary to run with a real-time clock such as
+//! [`SystemClock`](crate::time::SystemClock) or
+//! [`AutoSystemClock`](crate::time::AutoSystemClock). Some applications may
+//! also require custom real-time or scaled-time clocks implementing the
+//! [`Clock`] trait. In all such cases, simulation stepping functions such as
+//! [`Simulation::step`] or [`Simulation::run`] would normally periodically
+//! block until the clock reaches the next scheduler deadline, making the
+//! simulation unresponsive towards [event injection](Injector), [event
+//! scheduling](Scheduler) and [halting](Scheduler::halt).
+//!
+//! To remedy this issue, a [`Ticker`] such as
+//! [`PeriodicTicker`](crate::time::PeriodicTicker) can be configured to force
+//! the clock to wake up at regular intervals, even if no events are scheduled.
+//! This ensures that the simulation regularly yields control back to the
+//! simulation controller.
+//!
+//! Most application requiring a non-default clock are therefore encouraged to
+//! set both a clock and a ticker with [`SimInit::with_clock`], although it is
+//! also possible to set a tick-less clock using
+//! [`SimInit::with_tickless_clock`].
 mod injector;
 mod mailbox;
 mod queue_items;
@@ -139,10 +166,9 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 // origin ID for a `ModelId`.
 const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
 
-/// Simulation environment.
+/// The simulation environment.
 ///
-/// A `Simulation` is created by calling
-/// [`SimInit::init`](crate::simulation::SimInit::init) on a simulation bench
+/// A `Simulation` is created by calling [`SimInit::init`] on a simulation bench
 /// initializer. It contains an asynchronous executor that runs all simulation
 /// models added beforehand to [`SimInit`].
 ///
@@ -151,14 +177,13 @@ const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
 /// itself, but also from models via the optional [`&mut
 /// Context`](crate::model::Context) argument of input and replier port methods.
 /// Likewise, simulation time can be accessed with the [`Simulation::time`]
-/// method, or from models with the
-/// [`Context::time`](crate::simulation::Context::time) method.
+/// method, or from models with the [`Context::time`] method.
 ///
 /// Events and queries can be scheduled immediately, *i.e.* for the current
 /// simulation time, using [`process_event`](Simulation::process_event) and
-/// [`process_query`](Simulation::process_query). Calling these methods will block
-/// until all computations triggered by such event or query have completed. In
-/// the case of queries, the response is returned.
+/// [`process_query`](Simulation::process_query). Calling these methods will
+/// block until all computations triggered by such event or query have
+/// completed. In the case of queries, the response is returned.
 ///
 /// Events can also be scheduled at a future simulation time using one of the
 /// [`schedule_*`](Scheduler::schedule_event) method. These methods queue an
@@ -175,7 +200,12 @@ const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
 /// 3. run all computations scheduled for the new simulation time.
 ///
 /// The [`step_until`](Simulation::step_until) method operates similarly but
-/// iterates until the target simulation time has been reached.
+/// iterates until the target simulation time has been reached. Finally, the
+/// [`run`](Simulation::run) iterates until there are no more events in the
+/// scheduler queue or, if a [`Ticker`] was provided, until the
+/// [`Scheduler::halt`] method is called.
+///
+/// See [the module-level documentation](self) for more.
 pub struct Simulation {
     executor: Executor,
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,

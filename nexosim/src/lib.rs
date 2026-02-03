@@ -56,10 +56,10 @@
 //!
 //! Models must implement the [`Model`](trait@model::Model) trait, which is most
 //! conveniently done by annotating the `impl` block of the model with the
-//! [`#[Model]`](macro@model::Model) macro. This trait allows models to specify a custom
-//! [`Model::init`](model::Model::init) method that is guaranteed to run exactly
-//! once when the simulation is initialized, _i.e._ after all models have been
-//! connected but before the simulation starts.
+//! [`#[Model]`](macro@model::Model) macro. This trait allows models to specify
+//! a custom [`Model::init`](model::Model::init) method that is guaranteed to
+//! run exactly once when the simulation is initialized, _i.e._ after all models
+//! have been connected but before the simulation starts.
 //!
 //! More complex models can be built with the [`ProtoModel`](model::ProtoModel)
 //! trait. The [`ProtoModel::build`](model::ProtoModel::build) method makes it
@@ -97,10 +97,9 @@
 //! `Multiplier` could be implemented as follows:
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::Model;
 //! use nexosim::ports::Output;
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Default, Serialize, Deserialize)]
 //! pub struct Multiplier {
@@ -128,9 +127,7 @@
 //!
 //! ```
 //! use std::time::Duration;
-//!
-//! use serde::{Serialize, Deserialize};
-//!
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{Context, Model, schedulable};
 //! use nexosim::ports::Output;
 //!
@@ -198,9 +195,7 @@
 //! ```
 //! # mod models {
 //! #     use std::time::Duration;
-//! #
-//! #     use serde::{Serialize, Deserialize};
-//! #
+//! #     use serde::{Deserialize, Serialize};
 //! #     use nexosim::model::{Context, Model, schedulable};
 //! #     use nexosim::ports::Output;
 //! #     #[derive(Default, Serialize, Deserialize)]
@@ -308,9 +303,7 @@
 //! ```
 //! # mod models {
 //! #     use std::time::Duration;
-//! #
-//! #     use serde::{Serialize, Deserialize};
-//! #
+//! #     use serde::{Deserialize, Serialize};
 //! #     use nexosim::model::{schedulable, Context, Model};
 //! #     use nexosim::ports::Output;
 //! #     #[derive(Default, Serialize, Deserialize)]
@@ -435,7 +428,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nexosim = { version = "0.4.0-alpha.1", features = ["tracing"] }
+//! nexosim = { version = "1", features = ["tracing"] }
 //! ```
 //!
 //! See the [`tracing`] module for more information.
@@ -447,7 +440,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! nexosim = { version = "0.4.0-alpha.1", features = ["server"] }
+//! nexosim = { version = "1", features = ["server"] }
 //! ```
 //!
 //! See the [`endpoints`] and [`server`] modules for more information.
@@ -485,12 +478,12 @@
 //!   models just like [`Output`](ports::Output) and
 //!   [`Requestor`](ports::Requestor) ports, but for use as simulation
 //!   endpoints.
-//! * the [`endpoints`] and [`server`] modules make it possible to manage and
-//!   monitor a simulation locally or remotely from a NeXosim Python client,
-//! * the [`simulation`] module discusses **mailbox capacity** and pathological
-//!   situations that may lead to a **deadlock**,
-//! * the [`time`] module introduces the [`time::MonotonicTime`] monotonic
-//!   timestamp object and **simulation clocks**.
+//! * the [`server`] modules makes it possible to remotely manage a simulation
+//!   bench via gRPC,
+//! * the [`simulation`] module discusses mailbox capacity, deadlocks and custom
+//!   clocks,
+//! * the [`time`] module introduces [`MonotonicTime`](time::MonotonicTime)
+//!   timestamps,  [`Clock`](time::Clock)s and [`Ticker`](time::Ticker)s.
 //! * the [`tracing`] module discusses time-stamping and filtering of `tracing`
 //!   events.
 #![warn(missing_docs, missing_debug_implementations, unreachable_pub)]

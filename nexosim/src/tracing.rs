@@ -8,17 +8,16 @@
 //! - name: `model`,
 //! - target: `nexosim`,
 //! - verbosity level: [`Level::INFO`](tracing::Level::INFO),
-//! - a unique field called `name`, associated to the model name provided in
+//! - a unique field called `name` that identifies the model path provided in
 //!   [`SimInit::add_model`](crate::simulation::SimInit::add_model).
 //!
 //! The emission of `model` spans can be readily used for [event
 //! filtering](#event-filtering-examples), using for instance the
-//! [`tracing_subscriber::fmt`][mod@tracing_subscriber::fmt] subscriber. By
-//! default, however, this subscriber will timestamp events with the wall clock
-//! time. Because it is often desirable to log events using the simulation time
-//! instead of (or on top of) the wall clock time, this module provides a custom
-//! [`SimulationTime`] timer compatible with
-//! [`tracing_subscriber::fmt`][mod@tracing_subscriber::fmt].
+//! `tracing_subscriber::fmt` subscriber. By default, however, this subscriber
+//! will timestamp events with the wall clock time. Because it is often
+//! desirable to log events using the simulation time instead of (or on top of)
+//! the wall clock time, this module provides a custom [`SimulationTime`] timer
+//! compatible with `tracing_subscriber::fmt`.
 //!
 //!
 //! # Configuration
@@ -111,11 +110,11 @@
 //!
 //! # Customization
 //!
-//! The [`tracing-subscriber`][tracing_subscriber] crate allows for
-//! customization such as logging to files or formatting logs with JSON.
+//! The `tracing-subscriber` crate allows for customization such as logging to
+//! files or formatting logs with JSON.
 //!
 //! Further customization is possible by implementing a
-//! [`tracing_subscriber::layer::Layer`] or a dedicated [`tracing::Subscriber`].
+//! `tracing_subscriber::layer::Layer` or a dedicated `tracing::Subscriber`.
 
 use std::fmt;
 
@@ -125,10 +124,10 @@ use tracing_subscriber::fmt::time::{FormatTime, SystemTime};
 use crate::executor::SIMULATION_CONTEXT;
 
 /// A timer that can be used in conjunction with the
-/// [`tracing-subscriber`][tracing_subscriber] crate to log events using the
+/// [`tracing-subscriber`](mod@tracing_subscriber) crate to log events using the
 /// simulation time instead of (or on top of) the wall clock time.
 ///
-/// See the [module-level documentation][crate::tracing] for more details.
+/// See the [module-level documentation](crate::tracing) for more details.
 #[derive(Default, Debug)]
 pub struct SimulationTime<const VERBOSE: bool, T> {
     sys_timer: T,

@@ -1,21 +1,20 @@
 # NeXosim
 
-NeXosim (né Asynchronix) is a developer-friendly, highly optimized
-discrete-event simulation framework written in Rust. It is meant to scale from
-small, simple simulations to very large simulation benches with complex
-time-driven state machines.
+NeXosim is a developer-friendly, highly optimized discrete-event simulation
+framework written in Rust. It is meant to scale from small, simple simulations
+to very large simulation benches with complex time-driven state machines.
 
 [![Cargo](https://img.shields.io/crates/v/nexosim.svg)](https://crates.io/crates/nexosim)
 [![Documentation](https://docs.rs/nexosim/badge.svg)](https://docs.rs/nexosim)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/asynchronics/nexosim#license)
 
-> Don't forget to check out [NeXosim-py](https://pypi.org/project/NeXosim-py/)!
+> **NeXosim 1.0 is out** 🎊🎉🛸!!!
 >
-> Our new Python front-end for NeXosim provides:
+> Now with **serialization** support, **event injection**, improved support for
+> **real-time applications**, countless quality-of-life improvements ...and much
+> more!
 >
-> - a simple interface to control and monitor simulations over HTTP/2 or unix domain sockets,
-> - an elegant API for the (de)serialization of Rust types,
-> - `asyncio` support for concurrent simulation control & monitoring.
+> 👉 Head to the [CHANGELOG](CHANGELOG.md).
 
 ## Overview
 
@@ -66,7 +65,8 @@ To use the latest version, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-nexosim = "0.3.4"
+nexosim = "1"
+serde = "1"
 ```
 
 ## Example
@@ -80,28 +80,34 @@ nexosim = "0.3.4"
 // Input ●─────►│ multiplier 1 ├─────►│ multiplier 2 ├─────► Output
 //              │              │      │              │
 //              └──────────────┘      └──────────────┘
-use std::time::Duration;
 
-use nexosim::model::{Context, Model};
-use nexosim::ports::{EventSlot, Output};
+use std::time::Duration;use nexosim::model::{Context, Model, schedulable};
+use serde::{Deserialize, Serialize};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 // A model that doubles its input and forwards it with a 1s delay.
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct DelayedMultiplier {
     pub output: Output<f64>,
 }
+#[Model]
 impl DelayedMultiplier {
-    pub fn input(&mut self, value: f64, ctx: &mut Context<Self>) {
-        ctx.schedule_event(Duration::from_secs(1), Self::send, 2.0 * value)
-            .unwrap();
+    pub fn input(&mut self, value: f64, cx: &Context<Self>) {
+        cx.schedule_event(
+            Duration::from_secs(1),
+            schedulable!(Self::send),
+            2.0 * value,
+        )
+        .unwrap();
     }
+
+    #[nexosim(schedulable)]
     async fn send(&mut self, value: f64) {
         self.output.send(value).await;
     }
 }
-impl Model for DelayedMultiplier {}
 
 fn main() -> Result<(), SimulationError> {
     // Instantiate models and their mailboxes.
@@ -115,31 +121,36 @@ fn main() -> Result<(), SimulationError> {
         .output
         .connect(DelayedMultiplier::input, &multiplier2_mbox);
 
-    // Keep handles to the main input and output.
-    let mut output_slot = EventSlot::new();
-    multiplier2.output.connect_sink(&output_slot);
-    let input_address = multiplier1_mbox.address();
+    // Instantiate the simulation bench.
+    let mut bench = SimInit::new();
 
-    // Instantiate the simulator
+    // Keep handles to the bench endpoints.
+    let (sink, mut output) = event_slot(SinkState::Enabled);
+    multiplier2.output.connect_sink(sink);
+
+    let input = EventSource::new()
+        .connect(DelayedMultiplier::input, &multiplier1_mbox)
+        .register(&mut bench);
+
+    // Instantiate the simulator.
     let t0 = MonotonicTime::EPOCH; // arbitrary start time
-    let mut simu = SimInit::new()
+    let mut simu = bench
         .add_model(multiplier1, multiplier1_mbox, "multiplier 1")
         .add_model(multiplier2, multiplier2_mbox, "multiplier 2")
-        .init(t0)?
-        .0;
+        .init(t0)?;
 
     // Send a value to the first multiplier.
-    simu.process_event(DelayedMultiplier::input, 3.5, &input_address)?;
+    simu.process_event(&input, 3.5)?;
 
     // Advance time to the next event.
     simu.step()?;
     assert_eq!(simu.time(), t0 + Duration::from_secs(1));
-    assert_eq!(output_slot.next(), None);
+    assert_eq!(output.try_read(), None);
 
     // Advance time to the next event.
     simu.step()?;
     assert_eq!(simu.time(), t0 + Duration::from_secs(2));
-    assert_eq!(output_slot.next(), Some(14.0));
+    assert_eq!(output.try_read(), Some(14.0));
 
     Ok(())
 }

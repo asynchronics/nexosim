@@ -32,7 +32,7 @@
 //! a plain [`trait@Model`] type.
 //!
 //! The [`trait@Model`] trait is most frequently implemented by annotating the
-//! main `impl` block of the model with the [`#[Model]`][`macro@Model`] macro.
+//! main `impl` block of the model with the [`#[Model]`](`macro@Model`) macro.
 //!
 //! The [`Model::init`] method can be provided via a private method annotated
 //! with the `#[nexosim(init)]` attribute. Note that unlike [`Model::init`], it
@@ -51,8 +51,8 @@
 //! implementation of the [`trait@Model`] trait with `()` as the [`Model::Env`]:
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::Model;
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct SimpleModel {
@@ -67,8 +67,8 @@
 //! or, equivalently:
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::Model;
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct SimpleModel {
@@ -86,9 +86,8 @@
 //! the `&mut self` receiver):
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{Context, Model};
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct SimpleModel {
@@ -111,9 +110,7 @@
 //!
 //! ```
 //! use std::time::Duration;
-//!
-//! use serde::{Serialize, Deserialize};
-//!
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{schedulable, Context, Model};
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -146,10 +143,9 @@
 //!
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{BuildContext, Model, ProtoModel};
 //! use nexosim::ports::Output;
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! /// The final model.
 //! #[derive(Serialize, Deserialize)]
@@ -218,7 +214,7 @@
 //! ```
 //! use std::fs::File;
 //! use std::io::Read;
-//! use serde::{Serialize, Deserialize};
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{BuildContext, Model, ProtoModel};
 //!
 //! #[derive(Serialize, Deserialize)]
@@ -275,11 +271,10 @@
 //!     https://github.com/asynchronics/nexosim/tree/main/nexosim/examples/assembly.rs
 //!
 //! ```
+//! use serde::{Deserialize, Serialize};
 //! use nexosim::model::{BuildContext, Model, ProtoModel};
 //! use nexosim::ports::Output;
 //! use nexosim::simulation::Mailbox;
-//!
-//! use serde::{Serialize, Deserialize};
 //!
 //! #[derive(Serialize, Deserialize)]
 //! pub struct ParentModel {
@@ -348,6 +343,7 @@ use crate::simulation::{
 use crate::util::serialization::serialization_config;
 
 pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
+
 /// [`Model`](trait@Model) trait generation macro.
 ///
 /// This macro is to be used as an attribute on the `impl` block of a model. It
@@ -367,7 +363,7 @@ pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
 /// [`Model::Env`]:
 ///
 /// ```
-/// use serde::{Serialize, Deserialize};
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::Model;
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -387,7 +383,7 @@ pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
 /// ```
 /// use std::fs::File;
 /// use std::io::Read;
-/// use serde::{Serialize, Deserialize};
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::{Context, Model};
 /// use nexosim::ports::Output;
 ///
@@ -416,10 +412,10 @@ pub use context::{BuildContext, Context, ModelRegistry, SchedulableId};
 ///     }
 /// }
 /// ```
-///
 pub use nexosim_macros::Model;
-/// A macro returning a [`SchedulableId`] reference from the qualified name of a
-/// model's input.
+
+/// A macro returning a [`SchedulableId`] reference from the qualified name of
+/// an input method.
 ///
 /// # Example
 ///
@@ -428,7 +424,7 @@ pub use nexosim_macros::Model;
 ///
 /// ```
 /// use std::time::Duration;
-/// use serde::{Serialize, Deserialize};
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::{Context, Model, schedulable};
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -453,14 +449,28 @@ mod context;
 /// Trait to be implemented by simulation models.
 ///
 /// This trait enables models to perform specific actions during initialization.
-/// The [`Model::init`] method is run only once all models have been connected
-/// and migrated to the simulation bench, but before the simulation actually
-/// starts. A common use for `init` is to send messages to connected models at
-/// the beginning of the simulation.
+/// The [`Model::init`] method runs only once all models have been connected and
+/// migrated to the simulation bench, before the first increment of simulation
+/// time. A common use for `init` is to send messages to connected models at the
+/// beginning of the simulation.
 ///
-/// The `init` function converts the model to the opaque `InitializedModel` type
-/// to prevent an already initialized model from being added to the simulation
-/// bench.
+/// The [`Model::Env`] associated type can be used to define the environment of
+/// the model, *i.e.* the non-serialized part of its state. This environment is
+/// then made available via a mutable reference provided as the fourth, optional
+/// argument to input and requestor methods. If [`Model::Env`] implements
+/// [`Default`], a default implementation of [`ProtoModel`] on the model itself
+/// automatically initializes the environment in [`ProtoModel::build`].
+/// Otherwise, [`ProtoModel::build`] must perform this initialization
+/// explicitly.
+///
+/// While this trait can be implemented manually, it is most frequently
+/// implemented by annotating the main `impl` block of a model with the
+/// [`#[Model]`](`macro@Model`) macro. In that case, the [`Model::init`] method
+/// can be provided via a private method annotated with the `#[nexosim(init)]`
+/// attribute which, unlike [`Model::init`], takes an `&mut self` receiver
+/// argument and allows the remaining arguments to be omitted.
+///
+/// See [the module-level documentation](self) for more.
 pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     /// Helper struct for internal non-state model data that cannot (or should
     /// not) be serialized and persisted.
@@ -472,44 +482,48 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
     /// simulation when the [`SimInit::init`](crate::simulation::SimInit::init)
     /// method is called. Since `InitializedModel` is an opaque type, it cannot
     /// be called by the user before the model is added to the simulation.
-    /// Likewise, its implementation through the [`#[Model]`](macro@Model) macro
-    /// with the `nexosim(init)` attributes is not possible since the annotated
-    /// method is not public.
     ///
     /// This method is not called when the model is restored from a serialized
     /// state.
     ///
     /// The default implementation simply converts the model to an
-    /// `InitializedModel` without any side effect.
+    /// [`InitializedModel`] without any side effect.
     ///
-    /// # Examples
+    /// # Implementation Note
+    ///
+    /// This method can be implemented within a manual trait implementation with
+    /// the standard `async fn` notation:
     ///
     /// ```
-    /// use std::future::Future;
-    /// use std::pin::Pin;
+    /// # use serde::{Deserialize, Serialize};
+    /// # use nexosim::model::{Context, InitializedModel, Model};
+    /// # #[derive(Serialize, Deserialize)]
+    /// # struct MyModel;
+    /// # impl Model for MyModel {
+    /// #     type Env = ();
+    /// async fn init(self, cx: &Context<Self>, env: &mut Self::Env) -> InitializedModel<Self> {
+    ///     // ...
+    ///     self.into()
+    /// }
+    /// # }
+    /// ```
+    /// or within an `impl` block annotated with the [`#[Model]`](macro@Model)
+    /// macro (note the `&mut self` receiver and absence of return type):
     ///
-    /// use serde::{Serialize, Deserialize};
-    ///
-    /// use nexosim::model::{Context, InitializedModel, Model};
-    ///
-    /// #[derive(Serialize, Deserialize)]
-    /// pub struct MyModel {
+    /// ```
+    /// # use serde::{Deserialize, Serialize};
+    /// # use nexosim::model::{Context, Model};
+    /// # #[derive(Serialize, Deserialize)]
+    /// # struct MyModel;
+    /// # #[Model]
+    /// # impl MyModel {
+    /// // The `cx` and `env` argument are optional. It is idiomatic but not mandated
+    /// // to shadow the name of the trait's method.
+    /// #[nexosim(init)]
+    /// async fn init(&mut self, cx: &Context<Self>, env: &mut <Self as Model>::Env) {
     ///     // ...
     /// }
-    ///
-    /// impl Model for MyModel {
-    ///     type Env = ();
-    ///
-    ///     async fn init(
-    ///         self,
-    ///         cx: &Context<Self>,
-    ///         env: &mut Self::Env
-    ///     ) -> InitializedModel<Self> {
-    ///         println!("...initialization...");
-    ///
-    ///         self.into()
-    ///     }
-    /// }
+    /// # }
     /// ```
     fn init(
         self,
@@ -519,16 +533,18 @@ pub trait Model: Serialize + DeserializeOwned + Sized + Send + 'static {
         async { self.into() }
     }
 
-    /// Generates the model's registry's of self-schedulable inputs.
+    /// Generates a registry of inputs schedulable with the [`schedulable!`]
+    /// macro.
     ///
-    /// This is exclusively used by the [`macro@Model`] procedural macro and is
-    /// not meant for manual implementation.
+    /// This is exclusively used by the [`#[Model]`](`macro@Model`) procedural
+    /// macro. A default implementation generating an empty registry is provided
+    /// for the case where the `Model` trait is implemented manually.
     fn register_schedulables(_: &mut BuildContext<impl ProtoModel<Model = Self>>) -> ModelRegistry {
         ModelRegistry::default()
     }
 }
 
-/// Opaque type containing an initialized model.
+/// An opaque type containing an initialized model.
 ///
 /// `InitializedModel` serves to guarantee that a user cannot add a model to the
 /// simulation after a call to [`Model::init`]. The implementation of the
@@ -549,11 +565,12 @@ impl<M: Model> From<M> for InitializedModel<M> {
 /// This trait makes it possible to build the final model from a builder type
 /// when it is added to the simulation.
 ///
-/// The [`ProtoModel::build`] method consumes the prototype. It is
-/// automatically called when a model or submodel prototype is added to the
-/// simulation using
+/// The [`ProtoModel::build`] method consumes the prototype. It is automatically
+/// called when a model prototype is added to the simulation using
 /// [`Simulation::add_model`](crate::simulation::SimInit::add_model) or
 /// [`BuildContext::add_submodel`].
+///
+/// See [the module-level documentation](self) for more.
 pub trait ProtoModel: Sized {
     /// Type of the model to be built.
     type Model: Model;
@@ -566,8 +583,6 @@ pub trait ProtoModel: Sized {
     fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, <Self::Model as Model>::Env);
 }
 
-// Every model can be used as a prototype for itself,
-// if it's environment implements [`Default`] trait.
 impl<M: Model<Env = E>, E: Default> ProtoModel for M {
     type Model = Self;
 
@@ -659,14 +674,20 @@ pub(crate) async fn deserialize_model<M: Model>(
     Ok(())
 }
 
-/// Type alias for the generated schema type.
+/// A type alias for the schema generated by the [`Message`] trait.
 pub type MessageSchema = String;
 
-/// An optional helper trait for event and query input / output arguments.
-/// Enables json schema generation to precisely describe the types of exchanged
-/// data.
+/// Trait providing type introspection for events, queries and replies.
+///
+/// Deriving the `Message` trait on an event, query or reply automatically
+/// generates a schema for this type. Because this type information can be
+/// retrieved via gRPC to display, edit or reflect endpoint messages in the
+/// front-end, users are strongly encouraged to derive `Message` whenever
+/// possible.
+///
+/// The `Message` trait is derived for all primitive Rust types.
 pub trait Message {
-    /// Returns a schema defining message type.
+    /// Returns a schema of the message type.
     fn schema() -> MessageSchema;
 }
 impl<T> Message for T

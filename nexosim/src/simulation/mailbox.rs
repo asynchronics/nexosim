@@ -15,7 +15,7 @@ impl<M: Model> Mailbox<M> {
     /// Default capacity when created with `new` or `Default::default`.
     pub const DEFAULT_CAPACITY: usize = 16;
 
-    /// Creates a new mailbox with capacity `Self::DEFAULT_CAPACITY`.
+    /// Creates a new mailbox with capacity [`Mailbox::DEFAULT_CAPACITY`].
     pub fn new() -> Self {
         Self(Receiver::new(Self::DEFAULT_CAPACITY))
     }
@@ -50,15 +50,14 @@ impl<M: Model> fmt::Debug for Mailbox<M> {
     }
 }
 
-/// Handle to a model mailbox.
+/// A handle to a model mailbox.
 ///
 /// An address always points to the same mailbox. Unlike a [`Mailbox`], however,
 /// an address can be cloned and shared between threads.
 ///
 /// For the sake of convenience, methods that require an address by value will
-/// typically also accept an `&Address` or an `&Mailbox` since these references
-/// implement the `Into<Address>` trait, automatically invoking
-/// `Address::clone` or `Mailbox::address` as appropriate.
+/// typically also accept an `&Address` or an [`&Mailbox`](Mailbox) since these
+/// references implement the `Into<Address>` trait.
 pub struct Address<M: Model>(pub(crate) Sender<M>);
 
 impl<M: Model> Clone for Address<M> {

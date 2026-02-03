@@ -22,15 +22,14 @@ use super::GLOBAL_ORIGIN_ID;
 /// threads.
 ///
 /// When scheduling an event or query, it is important to consider that its
-/// deadline must be in the future of the current simulation time. Note that
+/// deadline must be in the future of the current simulation time and that
 /// stepping method such as
 /// [`Simulation::step`](crate::simulation::Simulation::step) or
 /// [`Simulation::run`](crate::simulation::Simulation::run) eagerly advance the
-/// simulation time to that the next event or simulation tick when waiting for
-/// the target time to be reached. When such a method is being executed
-/// concurrently, events or queries can only be scheduled after the date of the
-/// next scheduler event or simulation tick.
-/// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted).
+/// simulation time to the deadline of the next scheduled event or simulation
+/// tick. If a stepping method is executed concurrently, therefore, events or
+/// queries can only be scheduled after the deadline associated with the next
+/// scheduler event or simulation tick.
 #[derive(Clone, Debug)]
 pub struct Scheduler(GlobalScheduler);
 
@@ -86,7 +85,7 @@ impl Scheduler {
     /// Schedules an event at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
-    /// current simulation time (or of the simulation time being stepped into).
+    /// current simulation time.
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
@@ -106,7 +105,7 @@ impl Scheduler {
     /// Schedules a cancellable event at a future time and returns an event key.
     ///
     /// An error is returned if the specified time is not in the future of the
-    /// current simulation time (or of the simulation time being stepped into).
+    /// current simulation time.
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
@@ -123,11 +122,10 @@ impl Scheduler {
             .schedule_keyed_event_from(deadline, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
-    /// Schedules a periodically recurring event by its id at a future time.
+    /// Schedules a periodically recurring event at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
-    /// current simulation time (or of the simulation time being stepped into),
-    /// or if the specified period is null.
+    /// current simulation time, or if the specified period is null.
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
@@ -145,12 +143,11 @@ impl Scheduler {
             .schedule_periodic_event_from(deadline, period, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
-    /// Schedules a cancellable, periodically recurring event by its id at a
-    /// future time and returns an event key.
+    /// Schedules a cancellable, periodically recurring event at a future time
+    /// and returns an event key.
     ///
     /// An error is returned if the specified time is not in the future of the
-    /// current simulation time  (or of the simulation time being stepped into),
-    /// or if the specified period is null.
+    /// current simulation time, or if the specified period is null.
     ///
     /// Events scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
@@ -168,10 +165,10 @@ impl Scheduler {
             .schedule_keyed_periodic_event_from(deadline, period, event_id, arg, GLOBAL_ORIGIN_ID)
     }
 
-    /// Schedules a query by its id at a future time.
+    /// Schedules a query at a future time.
     ///
     /// An error is returned if the specified time is not in the future of the
-    /// current simulation (or of the simulation time being stepped into).
+    /// current simulation.
     ///
     /// Queries scheduled for the same time and targeting the same model are
     /// guaranteed to be processed according to the scheduling order.
@@ -204,15 +201,17 @@ impl Scheduler {
     ///
     /// In all cases, once
     /// [`ExecutionError::Halted`](crate::simulation::ExecutionError::Halted) is
-    /// returned, the `halt` flag is cleared and the simulation can be resumed
-    /// at any moment with another call to one of the `Simulation::step*` or
-    /// `Simulation::process*` methods.
+    /// returned, the simulation can be resumed at any moment with another call
+    /// to a stepping method or a
+    /// [`Simulation::process_*`](crate::simulation::Simulation::process_event)
+    /// methods.
     pub fn halt(&self) {
         self.0.halt()
     }
 }
 
-/// Error returned when the scheduled time or the repetition period are invalid.
+/// An error returned when the scheduled time or the repetition period are
+/// invalid.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub enum SchedulingError {
@@ -280,8 +279,9 @@ impl GlobalScheduler {
         self.time.read()
     }
 
+    /// Returns a clock reader.
     pub(crate) fn clock_reader(&self) -> ClockReader {
-        ClockReader::from_atomic_time_reader(&idself.time)
+        ClockReader::from_atomic_time_reader(&self.time)
     }
 
     /// Schedules a readily-built event identified by its origin at a future

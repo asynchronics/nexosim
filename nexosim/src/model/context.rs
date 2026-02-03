@@ -32,10 +32,9 @@ use crate::channel::Receiver;
 ///
 /// ```
 /// use std::time::Duration;
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::{schedulable, Context, Model};
 /// use nexosim::ports::Output;
-///
-/// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(Default, Serialize, Deserialize)]
 /// pub struct DelayedGreeter {
@@ -108,10 +107,8 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use std::time::Duration;
-    ///
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // A timer.
     /// #[derive(Serialize, Deserialize)]
@@ -159,11 +156,10 @@ impl<M: Model> Context<M> {
     /// # Examples
     ///
     /// ```
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // An alarm clock that can be cancelled.
     /// #[derive(Default, Serialize, Deserialize)]
@@ -222,11 +218,9 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use std::time::Duration;
-    ///
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::time::MonotonicTime;
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // An alarm clock beeping at 1Hz.
     /// #[derive(Serialize, Deserialize)]
@@ -282,12 +276,10 @@ impl<M: Model> Context<M> {
     ///
     /// ```
     /// use std::time::Duration;
-    ///
+    /// use serde::{Deserialize, Serialize};
     /// use nexosim::model::{schedulable, Context, Model};
     /// use nexosim::simulation::EventKey;
     /// use nexosim::time::MonotonicTime;
-    ///
-    /// use serde::{Serialize, Deserialize};
     ///
     /// // An alarm clock beeping at 1Hz that can be cancelled before it sets off, or
     /// // stopped after it sets off.
@@ -372,9 +364,9 @@ impl<M: Model> fmt::Debug for Context<M> {
     }
 }
 
-/// Context available when building a model from a model prototype.
+/// A context available when building a model from a model prototype.
 ///
-/// A `BuildContext` can be used for a variety of purposes, for instance:
+/// A `BuildContext` can be used for a variety of purposes, including:
 ///
 /// - to spawn sub-models onto the simulation with
 ///   [`BuildContext::add_submodel`],
@@ -382,7 +374,8 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///   any background thread that may need to communicate with the model,
 /// - to manually register a schedulable method with
 ///   [`BuildContext::register_schedulable`],
-/// - to provide a clock reader to the model with [`BuildContext::clock_reader`].
+/// - to provide a clock reader to the model with
+///   [`BuildContext::clock_reader`].
 ///
 /// # Examples
 ///
@@ -402,11 +395,10 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// ```
 /// use std::time::Duration;
+/// use serde::{Deserialize, Serialize};
 /// use nexosim::model::{BuildContext, Model, ProtoModel};
 /// use nexosim::ports::Output;
 /// use nexosim::simulation::Mailbox;
-///
-/// use serde::{Serialize, Deserialize};
 ///
 /// #[derive(Default, Serialize, Deserialize)]
 /// struct MultiplyBy2 {
@@ -602,11 +594,10 @@ impl<'a, P: ProtoModel> fmt::Debug for BuildContext<'a, P> {
     }
 }
 
-/// An internal registry of schedulable inputs.
+/// An internal registry of inputs that can be scheduled with the
+/// [`schedulable!`](crate::model::schedulable) macro.
 ///
-/// This is normally only used by procedural macro-generated code.
-///
-/// The `ModelRegistry` is automatically populated by the
+/// The `ModelRegistry` of each model is automatically populated by the
 /// [`Model`](crate::model) procedural macro based on the inputs decorated with
 /// `#[nexosim(schedulable)]`.
 #[derive(Debug, Default)]
@@ -621,17 +612,16 @@ impl ModelRegistry {
     }
 }
 
-/// Type-safe identifier for schedulable inputs.
+/// A type-safe identifier for schedulable model inputs.
 ///
 /// Typically, creating a `SchedulableId` manually is not necessary since the
-/// [`macro@Model`] procedural macro does this automatically. In such case, the
-/// [`schedulable!`](crate::model::schedulable!) convenience macro can be used
-/// to dynamically creates a `SchedulableId`.
+/// [`macro@Model`] procedural macro does this automatically and makes it
+/// possible to use the [`schedulable!`](crate::model::schedulable!) macro to
+/// dynamically creates a `SchedulableId`.
 ///
 /// However, if the [`trait@Model`] trait is implemented manually or if a
-/// non-method function with an input signature needs to be registered, a
-/// `SchedulableId` can be obtained by calling the
-/// [`BuildContext::register_schedulable`] method.
+/// non-method function or closure needs to be registered, a `SchedulableId` can
+/// be obtained by calling [`BuildContext::register_schedulable`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> SchedulableId<M, T> {
@@ -649,13 +639,14 @@ impl<M: Model, T> SchedulableId<M, T> {
         Self(id | Self::REGISTRY_MASK, PhantomData, PhantomData)
     }
 
-    // When a SchedulableId is created manually by calling
+    // When a `SchedulableId` is created with a manual call to
     // `BuildContext::register_schedulable`, its internal value directly
     // corresponds to its index within the `SchedulerRegistry`.
     //
     // However, as those indices are not known at compilation time, the
-    // proc-macro generated `SchedulableId`s for decorated methods have to use
-    // an indirection via the `ModelRegistry`.
+    // proc-macro generated `SchedulableId`s for decorated methods use
+    // indirection via the `ModelRegistry` to retrieve their entry in the
+    // `SchedulerRegistry`.
     pub(crate) fn source_id(&self, registry: &ModelRegistry) -> EventId<T> {
         match self.0 & Self::REGISTRY_MASK {
             0 => EventId(self.0, PhantomData),

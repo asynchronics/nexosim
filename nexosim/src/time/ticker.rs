@@ -4,7 +4,7 @@ use crate::time::MonotonicTime;
 
 /// A simulation time step generator.
 ///
-/// When simulations run in "tick-less" mode, operations like
+/// When simulations run in tick-less mode, operations like
 /// [`Simulation::step`](crate::simulation::Simulation::step) will advance
 /// simulation time directly to the next scheduled event.
 ///
@@ -29,6 +29,8 @@ use crate::time::MonotonicTime;
 ///
 /// A ticker can be attached to a simulation using
 /// [`SimInit::with_clock`](crate::simulation::SimInit::with_clock).
+///
+/// See also [PeriodicTicker].
 pub trait Ticker: Send + 'static {
     /// Returns the next clock tick strictly after the provided time.
     ///
