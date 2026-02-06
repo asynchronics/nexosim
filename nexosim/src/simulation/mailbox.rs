@@ -86,6 +86,26 @@ impl<M: Model> From<&Mailbox<M>> for Address<M> {
     }
 }
 
+impl<M: Model> From<&mut Address<M>> for Address<M> {
+    /// Converts an [`Address`] mutable reference into an [`Address`].
+    ///
+    /// This clones the reference and returns the clone.
+    #[inline]
+    fn from(s: &mut Address<M>) -> Address<M> {
+        s.clone()
+    }
+}
+
+impl<M: Model> From<&mut Mailbox<M>> for Address<M> {
+    /// Converts a [Mailbox] mutable reference into an [`Address`].
+    ///
+    /// This calls [`Mailbox::address`] on the mailbox and returns the address.
+    #[inline]
+    fn from(s: &mut Mailbox<M>) -> Address<M> {
+        s.address()
+    }
+}
+
 impl<M: Model> fmt::Debug for Address<M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Address")
