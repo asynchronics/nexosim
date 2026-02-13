@@ -192,15 +192,16 @@ const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
 /// Finally, the [`Simulation`] instance manages simulation time. A call to
 /// [`step`](Simulation::step) will:
 ///
-/// 1. increment simulation time until that of the next scheduled event in
-///    chronological order, then
+/// 1. increment simulation time until that of the next tick (if a [Ticker] was
+///    configured) or of the next scheduled event, whichever is earlier, then
 /// 2. call [`Clock::synchronize`] which, unless the simulation is configured to
 ///    run as fast as possible, blocks until the desired wall clock time, and
 ///    finally
-/// 3. run all computations scheduled for the new simulation time.
+/// 3. process all events scheduled for that target time (if any) and all
+///    pending injected events.
 ///
 /// The [`step_until`](Simulation::step_until) method operates similarly but
-/// iterates until the target simulation time has been reached. Finally, the
+/// iterates until the specified simulation time has been reached. Finally,
 /// [`run`](Simulation::run) iterates until there are no more events in the
 /// scheduler queue or, if a [`Ticker`] was provided, until the
 /// [`Scheduler::halt`] method is called.
@@ -270,7 +271,7 @@ impl Simulation {
         )
     }
 
-    /// Reset the simulation clock and (re)set the ticker.
+    /// Resets the simulation clock and (re)sets the ticker.
     ///
     /// This can in particular be used to resume a simulation driven by a
     /// real-time clock after it was halted, using a new clock with an update
@@ -282,7 +283,8 @@ impl Simulation {
         self.ticker = Some(Box::new(ticker));
     }
 
-    /// Reset the simulation clock and run the simulation in tickless mode.
+    /// Resets the simulation clock and configures the simulation to run in
+    /// tickless mode.
     ///
     /// This can in particular be used to resume a simulation driven by a
     /// real-time clock after it was halted, using instead a clock running as
@@ -313,23 +315,23 @@ impl Simulation {
         self.time.read()
     }
 
-    /// Advances simulation time to that of the next scheduled event, processing
-    /// that event as well as all other events scheduled for the same time.
+    /// Advances simulation time to that of the next tick or next scheduled
+    /// event (whichever is earlier), processing all pending injected events
+    /// and/or all events scheduled at that time time.
     ///
-    /// Processing is gated by a (possibly blocking) call to
-    /// [`Clock::synchronize`] on the configured simulation clock. This method
-    /// blocks until all newly processed events have completed.
+    /// The new simulation time is synchronized with the [`Clock`].
     pub fn step(&mut self) -> Result<(), ExecutionError> {
         self.step_to_next(None).map(|_| ())
     }
 
-    /// Iteratively advances the simulation time until the specified deadline,
-    /// as if by calling [`Simulation::step`] repeatedly.
+    /// Iteratively advances the simulation time as if by calling
+    /// [`Simulation::step`] repeatedly until the specified deadline.
     ///
-    /// This method blocks until all events scheduled up to the specified target
-    /// time have completed. The simulation time upon completion is equal to the
-    /// specified target time, whether or not an event was scheduled for that
-    /// time.
+    /// This method processes all events injected or scheduled up to the
+    /// specified target time, synchronizing each intermediate time step with
+    /// the configured [`Clock`]. Upon completion, the simulation time is always
+    /// equal to the specified target time and synchronized with the clock,
+    /// whether or not an event was scheduled for that time.
     pub fn step_until(&mut self, deadline: impl Deadline) -> Result<(), ExecutionError> {
         let now = self.time.read();
         let target_time = deadline.into_time(now);
@@ -342,20 +344,15 @@ impl Simulation {
     /// Iteratively advances the simulation time, as if by calling
     /// [`Simulation::step`] repeatedly.
     ///
-    /// This method blocks until the simulation is halted or all scheduled
-    /// events have completed.
+    /// In tickless mode, this method returns once all scheduled events have
+    /// been processed.
+    ///
+    /// When a [`Ticker`] is configured, even if all scheduled events have
+    /// already been processed, this method will wait for new injected events
+    /// and will not return until
+    /// [`Scheduler::halt`](crate::simulation::Scheduler::halt) is called.
     pub fn run(&mut self) -> Result<(), ExecutionError> {
         self.step_until_unchecked(None)
-    }
-
-    /// Processes a future immediately, blocking until completion.
-    fn process_future(
-        &mut self,
-        fut: impl Future<Output = ()> + Send + 'static,
-    ) -> Result<(), ExecutionError> {
-        self.take_halt_flag()?;
-        self.executor.spawn_and_forget(fut);
-        self.run_executor()
     }
 
     /// Processes an event immediately, blocking until completion.
@@ -371,27 +368,6 @@ impl Simulation {
             .ok_or(ExecutionError::InvalidEventId(event_id.0))?;
 
         let fut = source.future_owned(Box::new(arg), None)?;
-
-        self.process_future(fut)
-    }
-
-    /// Processes an event immediately, blocking until completion.
-    ///
-    /// Simulation time remains unchanged.
-    #[cfg(feature = "server")]
-    pub(crate) fn process_event_erased(
-        &mut self,
-        event_source: &dyn EventSourceEntryAny,
-        arg: Box<dyn Any>,
-    ) -> Result<(), ExecutionError> {
-        let source = self
-            .scheduler_registry
-            .get_event_source(&event_source.get_event_id())
-            .ok_or(ExecutionError::InvalidEventId(
-                event_source.get_event_id().0,
-            ))?;
-
-        let fut = source.future_owned(arg, None)?;
 
         self.process_future(fut)
     }
@@ -423,6 +399,37 @@ impl Simulation {
         // If the future resolves successfully it should be
         // guaranteed that the reply is present.
         Ok(rx.read().unwrap().next().unwrap())
+    }
+
+    /// Processes a future immediately, blocking until completion.
+    fn process_future(
+        &mut self,
+        fut: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), ExecutionError> {
+        self.take_halt_flag()?;
+        self.executor.spawn_and_forget(fut);
+        self.run_executor()
+    }
+
+    /// Processes an event immediately, blocking until completion.
+    ///
+    /// Simulation time remains unchanged.
+    #[cfg(feature = "server")]
+    pub(crate) fn process_event_erased(
+        &mut self,
+        event_source: &dyn EventSourceEntryAny,
+        arg: Box<dyn Any>,
+    ) -> Result<(), ExecutionError> {
+        let source = self
+            .scheduler_registry
+            .get_event_source(&event_source.get_event_id())
+            .ok_or(ExecutionError::InvalidEventId(
+                event_source.get_event_id().0,
+            ))?;
+
+        let fut = source.future_owned(arg, None)?;
+
+        self.process_future(fut)
     }
 
     /// Processes a query immediately, blocking until completion.
@@ -562,9 +569,10 @@ impl Simulation {
         Ok(())
     }
 
-    /// Advances simulation time to that of the next tick or the next scheduled
+    /// Advances simulation time to that of the next tick or next scheduled
     /// event (whichever is earlier) that does not exceed the specified bound,
-    /// processing all events scheduled or injected until that time.
+    /// processing all pending injected events and all events scheduled for that
+    /// time (if any).
     ///
     /// If at least one event or tick satisfies the time bound, the
     /// corresponding new simulation time is returned.
@@ -712,8 +720,8 @@ impl Simulation {
     /// up to the specified target time.
     ///
     /// Once the method returns it is guaranteed that (i) all events scheduled
-    /// up to the specified target time have completed and (ii) the final
-    /// simulation time matches the target time.
+    /// or injected up to the specified target time have completed and (ii) the
+    /// final simulation time matches the target time.
     ///
     /// This method does not check whether the specified time lies in the future
     /// of the current simulation time.

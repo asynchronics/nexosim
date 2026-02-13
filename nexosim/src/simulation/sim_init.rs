@@ -118,16 +118,20 @@ impl SimInit {
     ///
     /// A [`Ticker`] forces the synchronization clock to wake up at regular
     /// intervals, independent of the events in the scheduler. This improves
-    /// responsiveness towards injected events and interruption requests with
-    /// [`Scheduler::halt`](crate::simulation::Scheduler::halt).
+    /// responsiveness towards the processing of injected events and
+    /// [`Scheduler::halt`](crate::simulation::Scheduler::halt) requests.
     ///
     /// A [`Ticker`] also relaxes the constraints on concurrent event
-    /// scheduling. In tickless mode, calls to methods such as
-    /// [`Simulation::step`] or [`Simulation::run`] cause the simulation to
-    /// block until the clock reaches the time of the next event, prohibiting
-    /// the concurrent scheduling of events within the current idle window. With
-    /// a [`Ticker`], this window is reduced to at most the interval between
+    /// scheduling. In tickless mode, calls to [`Simulation::step`],
+    /// [`Simulation::step_until`] and [`Simulation::run`] cause the simulation
+    /// to block until the clock reaches the target time, prohibiting the
+    /// concurrent scheduling of events within the current idle window. With a
+    /// [`Ticker`], this window is reduced to at most the interval between
     /// ticks.
+    ///
+    /// Note that when a [`Ticker`] is configured, calls to [`Simulation::run`]
+    /// will wait for new injected events and will not return until
+    /// [`Scheduler::halt`](crate::simulation::Scheduler::halt) is called.
     pub fn with_clock(mut self, clock: impl Clock, ticker: impl Ticker) -> Self {
         self.clock = Box::new(clock);
         self.ticker = Some(Box::new(ticker));
@@ -145,7 +149,7 @@ impl SimInit {
     ///
     /// Tickless mode is only recommended when the simulation runs as fast as
     /// possible, for instance with the default [`NoClock`] clock. In other
-    /// cases, [`SimInit::with_clock`] should be preferred.
+    /// cases, [`SimInit::with_clock`] is usually the right choice.
     pub fn with_tickless_clock(mut self, clock: impl Clock) -> Self {
         self.clock = Box::new(clock);
         self.ticker = None;
