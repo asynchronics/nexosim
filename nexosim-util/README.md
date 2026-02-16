@@ -4,9 +4,8 @@ This crate contains utilities for [NeXosim][NX]-based simulations.
 
 [NX]: https://github.com/asynchronics/nexosim
 
-At the moment the following modules are included:
+At the moment the following module is included:
 
-- `models`: models useful for simulation bench construction,
 - `observable`: types that enable the automatic propagation of state changes to
   an associated output.
 
