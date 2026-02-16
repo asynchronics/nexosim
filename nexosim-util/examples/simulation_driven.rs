@@ -34,8 +34,7 @@ use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queu
 use nexosim::simulation::{
     AutoEventKey, EventKey, ExecutionError, Mailbox, SimInit, SimulationError,
 };
-use nexosim::time::{AutoSystemClock, MonotonicTime};
-use nexosim_util::models::Ticker;
+use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
 use nexosim_util::observable::Observable;
 
 /// Switch ON delay.
@@ -169,9 +168,6 @@ impl Detector {
     }
 
     /// Generates a pulse.
-    ///
-    /// Note: self-scheduling async methods must be for now defined with an
-    /// explicit signature instead of `async fn` due to a rustc issue.
     #[nexosim(schedulable)]
     async fn pulse<'a>(&'a mut self, _: (), cx: &'a Context<Self>) {
         self.pulse.send(()).await;
@@ -204,13 +200,9 @@ fn main() -> Result<(), SimulationError> {
     // The counter model.
     let mut counter = Counter::new(INITIAL);
 
-    // The ticker model that keeps simulation alive.
-    let ticker = Ticker::new(TICK);
-
     // Mailboxes.
     let detector_mbox = Mailbox::new();
     let counter_mbox = Mailbox::new();
-    let ticker_mbox = Mailbox::new();
 
     // Connections.
     detector.pulse.connect(Counter::pulse, &counter_mbox);
@@ -235,11 +227,10 @@ fn main() -> Result<(), SimulationError> {
 
     // Assembly and initialization.
     let t0 = MonotonicTime::EPOCH; // arbitrary since models do not depend on absolute time
-    let mut simu = SimInit::new()
+    let mut simu = bench
         .add_model(detector, detector_mbox, "detector")
         .add_model(counter, counter_mbox, "counter")
-        .add_model(ticker, ticker_mbox, "ticker")
-        .with_tickless_clock(AutoSystemClock::new())
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(TICK))
         .init(t0)?;
 
     let scheduler = simu.scheduler();

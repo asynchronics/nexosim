@@ -181,6 +181,16 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
 
+      - name: Run cargo miri simulation_driven (single-threaded executor)
+        run: cargo miri run --example simulation_driven
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=1
+
+      - name: Run cargo miri simulation_driven (multi-threaded executor)
+        run: cargo miri run --example simulation_driven
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
+
       - name: Run cargo miri bench_save_restore (single-threaded executor)
         run: cargo miri run --example bench_save_restore
         env:

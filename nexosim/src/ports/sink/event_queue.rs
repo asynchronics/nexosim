@@ -100,7 +100,7 @@ impl<T: Send + 'static> EventSinkReader<T> for EventQueueReader<T> {
     }
 
     fn try_read(&mut self) -> Option<T> {
-        self.receiver.try_next().ok().and_then(|event| event)
+        self.receiver.try_recv().ok()
     }
 
     fn read(&mut self) -> Option<T> {
