@@ -850,7 +850,6 @@ impl Simulation {
                     |e| RestoreError::SimulationStateDeserializationError { cause: Box::new(e) },
                 )?;
 
-            self.time.write(state.time);
             self.restore_models(state.models, &event_key_reg)?;
             self.restore_queue(&state.scheduler_queue)?;
             Ok::<_, ExecutionError>(state.time)
