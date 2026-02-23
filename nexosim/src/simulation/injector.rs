@@ -26,7 +26,6 @@ pub(crate) type InjectorQueue = PriorityQueue<usize, Event>;
 /// used to request events to be processed as soon as possible rather than at a
 /// specific deadline. A `ModelInjector` is always associated to a model
 /// instance.
-#[derive(Clone)]
 pub struct ModelInjector<M: Model> {
     queue: Arc<Mutex<InjectorQueue>>,
     origin_id: usize,
@@ -75,6 +74,17 @@ impl<M: Model> fmt::Debug for ModelInjector<M> {
         f.debug_struct("ModelInjector")
             .field("origin_id", &self.origin_id)
             .finish_non_exhaustive()
+    }
+}
+
+impl<M: Model> Clone for ModelInjector<M> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+            origin_id: self.origin_id,
+            model_registry: self.model_registry.clone(),
+            _model: PhantomData,
+        }
     }
 }
 
