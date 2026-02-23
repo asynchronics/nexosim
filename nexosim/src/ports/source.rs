@@ -32,11 +32,11 @@ use super::ReplierFn;
 /// port in that it can send events to connected input ports. It is not meant,
 /// however, to be instantiated as a member of a model, but rather as a
 /// simulation control endpoint instantiated during bench assembly.
-pub struct EventSource<T: Serialize + DeserializeOwned + Clone + Send + 'static> {
+pub struct EventSource<T: Clone + Send + 'static> {
     broadcaster: EventBroadcaster<T>,
 }
 
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
+impl<T: Clone + Send + 'static> EventSource<T> {
     /// Creates a disconnected `EventSource` port.
     pub fn new() -> Self {
         Self::default()
@@ -113,16 +113,6 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
         self
     }
 
-    /// Converts an event source to an [`EventId`] that can later be used to
-    /// schedule and process events within the simulation instance being built.
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// Rust. For simulations controlled by a remote client, use
-    /// [`EventSource::bind_endpoint`] or [`EventSource::bind_endpoint_raw`].
-    pub fn register(self, sim_init: &mut SimInit) -> EventId<T> {
-        sim_init.link_event_source(self)
-    }
-
     /// Returns a future for a broadcast of the event provided in argument.
     ///
     /// This method can be e.g. used to spawn scheduled events from the queue.
@@ -133,6 +123,18 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
         async {
             fut.await.unwrap_or_throw();
         }
+    }
+}
+
+impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
+    /// Converts an event source to an [`EventId`] that can later be used to
+    /// schedule and process events within the simulation instance being built.
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// Rust. For simulations controlled by a remote client, use
+    /// [`EventSource::bind_endpoint`] or [`EventSource::bind_endpoint_raw`].
+    pub fn register(self, sim_init: &mut SimInit) -> EventId<T> {
+        sim_init.link_event_source(self)
     }
 }
 
@@ -175,7 +177,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> EventSource<T> {
     }
 }
 
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> Default for EventSource<T> {
+impl<T: Clone + Send + 'static> Default for EventSource<T> {
     fn default() -> Self {
         Self {
             broadcaster: EventBroadcaster::default(),
@@ -200,14 +202,11 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> fmt::Debug for Ev
 /// connected replier ports and receive replies. It is not meant, however, to be
 /// instantiated as a member of a model, but rather as a simulation monitoring
 /// endpoint instantiated during bench assembly.
-pub struct QuerySource<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static>
-{
+pub struct QuerySource<T: Clone + Send + 'static, R: Send + 'static> {
     broadcaster: QueryBroadcaster<T, R>,
 }
 
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static>
-    QuerySource<T, R>
-{
+impl<T: Clone + Send + 'static, R: Send + 'static> QuerySource<T, R> {
     /// Creates a disconnected `EventSource` port.
     pub fn new() -> Self {
         Self::default()
@@ -302,16 +301,6 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
         self
     }
 
-    /// Converts a query source to a [`QueryId`] that can later be used to
-    /// schedule and process events within the simulation instance being built.
-    ///
-    /// This is typically only of interest when controlling the simulation from
-    /// Rust. For simulations controlled by a remote client, use
-    /// [`QuerySource::bind_endpoint`] or [`QuerySource::bind_endpoint_raw`].
-    pub fn register(self, sim_init: &mut SimInit) -> QueryId<T, R> {
-        sim_init.link_query_source(self)
-    }
-
     pub(crate) fn query_future(
         &self,
         arg: T,
@@ -329,6 +318,19 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static
     }
 }
 
+impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static>
+    QuerySource<T, R>
+{
+    /// Converts a query source to a [`QueryId`] that can later be used to
+    /// schedule and process events within the simulation instance being built.
+    ///
+    /// This is typically only of interest when controlling the simulation from
+    /// Rust. For simulations controlled by a remote client, use
+    /// [`QuerySource::bind_endpoint`] or [`QuerySource::bind_endpoint_raw`].
+    pub fn register(self, sim_init: &mut SimInit) -> QueryId<T, R> {
+        sim_init.link_query_source(self)
+    }
+}
 impl<
     T: Message + Serialize + DeserializeOwned + Clone + Send + 'static,
     R: Message + Serialize + Send + 'static,
@@ -374,9 +376,7 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Serialize + Se
     }
 }
 
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static, R: Send + 'static> Default
-    for QuerySource<T, R>
-{
+impl<T: Clone + Send + 'static, R: Send + 'static> Default for QuerySource<T, R> {
     fn default() -> Self {
         Self {
             broadcaster: QueryBroadcaster::default(),
