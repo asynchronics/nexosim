@@ -110,7 +110,7 @@ mod sim_init;
 
 pub use injector::{Injector, ModelInjector};
 pub use mailbox::{Address, Mailbox};
-pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
+pub use queue_items::{AutoEventKey, EventId, EventKey, ImmediateEvent, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
 pub use sim_init::{
     BenchError, DuplicateEventSinkError, DuplicateEventSourceError, DuplicateQuerySourceError,

@@ -16,6 +16,7 @@ use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
 use crate::simulation::InjectorQueue;
 use crate::simulation::injector::Injector;
+use crate::simulation::queue_items::ImmediateEvent;
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime, Ticker,
 };
@@ -218,6 +219,16 @@ impl SimInit {
         T: Serialize + DeserializeOwned + Clone + Send + 'static,
     {
         self.scheduler_registry.add_event_source(source)
+    }
+
+    pub(crate) fn link_event_source_raw<T>(
+        &mut self,
+        source: EventSource<T>,
+    ) -> EventId<T, ImmediateEvent>
+    where
+        T: Clone + Send + 'static,
+    {
+        self.scheduler_registry.add_event_source_raw(source)
     }
 
     /// Converts a query source to a [`QueryId`] that can later be used to

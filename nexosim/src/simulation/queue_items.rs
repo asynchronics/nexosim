@@ -144,6 +144,15 @@ impl SchedulerRegistry {
     {
         self.event_registry.add(source)
     }
+    pub(crate) fn add_event_source_raw<T>(
+        &mut self,
+        source: impl TypedEventSource<T>,
+    ) -> EventId<T, ImmediateEvent>
+    where
+        T: Clone + Send + 'static,
+    {
+        self.event_registry.add_raw(source)
+    }
     pub(crate) fn get_event_source(
         &self,
         event_id: &EventIdErased,

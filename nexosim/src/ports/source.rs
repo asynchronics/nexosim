@@ -13,7 +13,8 @@ use crate::model::{Message, Model};
 use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
-    Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, QueryId, SimInit,
+    Address, DuplicateEventSourceError, DuplicateQuerySourceError, EventId, ImmediateEvent,
+    QueryId, SimInit,
 };
 use crate::util::unwrap_or_throw::UnwrapOrThrow;
 
@@ -123,6 +124,10 @@ impl<T: Clone + Send + 'static> EventSource<T> {
         async {
             fut.await.unwrap_or_throw();
         }
+    }
+
+    pub fn register_raw(self, sim_init: &mut SimInit) -> EventId<T, ImmediateEvent> {
+        sim_init.link_event_source_raw(self)
     }
 }
 
