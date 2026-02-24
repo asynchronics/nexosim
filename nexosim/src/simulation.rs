@@ -358,7 +358,11 @@ impl Simulation {
     /// Processes an event immediately, blocking until completion.
     ///
     /// Simulation time remains unchanged.
-    pub fn process_event<T>(&mut self, event_id: &EventId<T>, arg: T) -> Result<(), ExecutionError>
+    pub fn process_event<T, S>(
+        &mut self,
+        event_id: &EventId<T, S>,
+        arg: T,
+    ) -> Result<(), ExecutionError>
     where
         T: Serialize + DeserializeOwned + Send + Clone + 'static,
     {

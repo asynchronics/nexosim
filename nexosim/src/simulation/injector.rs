@@ -105,7 +105,7 @@ impl Injector {
     /// If the event is injected while the simulation is at rest, the event will
     /// be processed at the lapse of the next simulation step (next scheduler
     /// event or simulation tick).
-    pub fn inject_event<T>(&self, event_id: &EventId<T>, arg: T)
+    pub fn inject_event<T, S>(&self, event_id: &EventId<T, S>, arg: T)
     where
         T: Send + Clone + 'static,
     {

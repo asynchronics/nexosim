@@ -32,27 +32,27 @@ const MAX_SOURCE_ID: usize = (1 << (usize::BITS - 1) as usize) - 1;
 
 /// A type-safe event source identifier.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct EventId<T>(pub(crate) usize, pub(crate) PhantomData<fn(T)>);
+pub struct EventId<T, S = SchedulableEvent>(pub(crate) usize, pub(crate) PhantomData<fn((T, S))>);
 
-impl<T> Clone for EventId<T> {
+impl<T, S> Clone for EventId<T, S> {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl<T> Copy for EventId<T> {}
+impl<T, S> Copy for EventId<T, S> {}
 
 /// A type-erased `EventId`.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) struct EventIdErased(pub(crate) usize);
 
-impl<T> From<EventId<T>> for EventIdErased {
-    fn from(value: EventId<T>) -> Self {
+impl<T, S> From<EventId<T, S>> for EventIdErased {
+    fn from(value: EventId<T, S>) -> Self {
         Self(value.0)
     }
 }
 
-impl<T> From<&EventId<T>> for EventIdErased {
-    fn from(value: &EventId<T>) -> Self {
+impl<T, S> From<&EventId<T, S>> for EventIdErased {
+    fn from(value: &EventId<T, S>) -> Self {
         Self(value.0)
     }
 }
@@ -84,7 +84,55 @@ impl<T, R> From<&QueryId<T, R>> for QueryIdErased {
     }
 }
 
-#[derive(Default, Debug)]
+// FIXME naming
+pub struct SchedulableEvent;
+pub struct ImmediateEvent;
+
+trait ErasedSerializer: Send + 'static {
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
+}
+
+struct Serializer<T: Serialize + DeserializeOwned + Send + 'static>(PhantomData<T>);
+impl<T> Serializer<T>
+where
+    T: Serialize + DeserializeOwned + Send + 'static,
+{
+    fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+impl<T> ErasedSerializer for Serializer<T>
+where
+    T: Serialize + DeserializeOwned + Send + 'static,
+{
+    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+        let value = arg
+            .downcast_ref::<T>()
+            .ok_or(SaveError::ArgumentTypeMismatch {
+                type_name: type_name::<T>(),
+            })?;
+        bincode::serde::encode_to_vec(value, serialization_config()).map_err(|e| {
+            SaveError::ArgumentSerializationError {
+                type_name: type_name::<T>(),
+                cause: Box::new(e),
+            }
+            .into()
+        })
+    }
+    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
+        Ok(Box::new(
+            bincode::serde::borrow_decode_from_slice::<T, _>(arg, serialization_config())
+                .map_err(|e| RestoreError::ArgumentDeserializationError {
+                    type_name: type_name::<T>(),
+                    cause: Box::new(e),
+                })?
+                .0,
+        ))
+    }
+}
+
+#[derive(Default)]
 pub(crate) struct SchedulerRegistry {
     event_registry: SchedulerEventRegistry,
     query_registry: SchedulerQueryRegistry,
@@ -127,8 +175,13 @@ impl SchedulerRegistry {
 /// Event registration has to take place before simulation is started / resumed.
 /// Therefore the `add` method should only be accessible from `SimInit` or
 /// `BuildContext` instances.
-#[derive(Default, Debug)]
-pub(crate) struct SchedulerEventRegistry(Vec<Box<dyn SchedulerEventSource>>);
+#[derive(Default)]
+pub(crate) struct SchedulerEventRegistry(
+    Vec<(
+        Box<dyn SchedulerEventSource>,
+        Option<Box<dyn ErasedSerializer>>,
+    )>,
+);
 impl SchedulerEventRegistry {
     fn add<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T>
     where
@@ -136,11 +189,27 @@ impl SchedulerEventRegistry {
     {
         assert!(self.0.len() <= MAX_SOURCE_ID);
         let event_id = EventId(self.0.len(), PhantomData);
-        self.0.push(Box::new(source));
+        self.0
+            .push((Box::new(source), Some(Box::new(Serializer::<T>::new()))));
+        event_id
+    }
+    fn add_raw<T>(&mut self, source: impl TypedEventSource<T>) -> EventId<T, ImmediateEvent>
+    where
+        T: Clone + Send + 'static,
+    {
+        assert!(self.0.len() <= MAX_SOURCE_ID);
+        let event_id = EventId(self.0.len(), PhantomData);
+        self.0.push((Box::new(source), None));
         event_id
     }
     fn get(&self, event_id: &EventIdErased) -> Option<&dyn SchedulerEventSource> {
-        self.0.get(event_id.0).map(|s| s.as_ref())
+        self.0.get(event_id.0).map(|s| s.0.as_ref())
+    }
+    fn get_serializer(&self, event_id: &EventIdErased) -> Option<&dyn ErasedSerializer> {
+        self.0
+            .get(event_id.0)
+            .and_then(|s| s.1.as_ref())
+            .map(|s| s.as_ref())
     }
 }
 
@@ -164,8 +233,9 @@ impl SchedulerQueryRegistry {
 
 /// Internal SchedulerSourceRegistry entry interface.
 pub(crate) trait SchedulerEventSource: std::fmt::Debug + Send + 'static {
-    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
-    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError>;
+    // fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError>;
+    // fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>,
+    // ExecutionError>;
     fn future_borrowed(
         &self,
         arg: &dyn Any,
@@ -283,12 +353,12 @@ where
     S: Send + Sync + 'static,
     T: Serialize + DeserializeOwned + Clone + Send + 'static,
 {
-    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        serialize_arg::<T>(arg)
-    }
-    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        deserialize_arg::<T>(arg)
-    }
+    // fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+    //     serialize_arg::<T>(arg)
+    // }
+    // fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>,
+    // ExecutionError> {     deserialize_arg::<T>(arg)
+    // }
     fn future_borrowed(
         &self,
         arg: &dyn Any,
@@ -316,21 +386,19 @@ where
     }
 }
 
-impl<T> TypedEventSource<T> for EventSource<T> where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static
-{
-}
+impl<T> TypedEventSource<T> for EventSource<T> where T: Clone + Send + 'static {}
 
 impl<T> SchedulerEventSource for EventSource<T>
 where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    T: Clone + Send + 'static,
 {
-    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        serialize_arg::<T>(arg)
-    }
-    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        deserialize_arg::<T>(arg)
-    }
+    // fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+    //     self.1.serialize_arg(arg)
+    //     // serialize_arg::<T>(arg)
+    // }
+    // fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>,
+    // ExecutionError> {     deserialize_arg::<T>(arg)
+    // }
     fn future_borrowed(
         &self,
         arg: &dyn Any,
@@ -360,20 +428,17 @@ where
     }
 }
 
-impl<T> TypedEventSource<T> for Arc<EventSource<T>> where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static
-{
-}
+impl<T> TypedEventSource<T> for Arc<EventSource<T>> where T: Clone + Send + 'static {}
 impl<T> SchedulerEventSource for Arc<EventSource<T>>
 where
-    T: Serialize + DeserializeOwned + Clone + Send + 'static,
+    T: Clone + Send + 'static,
 {
-    fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
-        self.as_ref().serialize_arg(arg)
-    }
-    fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>, ExecutionError> {
-        self.as_ref().deserialize_arg(arg)
-    }
+    // fn serialize_arg(&self, arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
+    //     self.as_ref().serialize_arg(arg)
+    // }
+    // fn deserialize_arg(&self, arg: &[u8]) -> Result<Box<dyn Any + Send>,
+    // ExecutionError> {     self.as_ref().deserialize_arg(arg)
+    // }
     fn future_borrowed(
         &self,
         arg: &dyn Any,
@@ -519,7 +584,7 @@ impl QueueItem {
 
 /// A possibly periodic, possibly cancellable event that can be scheduled on
 /// the event queue.
-// #[derive(Debug)]
+#[derive(Debug)]
 pub(crate) struct Event {
     pub event_id: EventIdErased,
     pub arg: Box<dyn Any + Send>,
@@ -527,7 +592,7 @@ pub(crate) struct Event {
     pub key: Option<EventKey>,
 }
 impl Event {
-    pub(crate) fn new<T: Send + 'static>(event_id: &EventId<T>, arg: T) -> Self {
+    pub(crate) fn new<T: Send + 'static, S>(event_id: &EventId<T, S>, arg: T) -> Self {
         Self {
             event_id: event_id.into(),
             arg: Box::new(arg),
@@ -554,12 +619,13 @@ impl Event {
         &self,
         registry: &SchedulerEventRegistry,
     ) -> Result<SerializableEvent, ExecutionError> {
-        let source = registry
-            .get(&self.event_id)
+        let serializer = registry
+            .get_serializer(&self.event_id)
+            // FIXME different error kind?
             .ok_or(SaveError::EventNotFound {
                 event_id: self.event_id.0,
             })?;
-        let arg = source.serialize_arg(&*self.arg)?;
+        let arg = serializer.serialize_arg(&*self.arg)?;
         Ok(SerializableEvent {
             event_id: self.event_id,
             arg,
@@ -572,12 +638,13 @@ impl Event {
         mut event: SerializableEvent,
         registry: &SchedulerEventRegistry,
     ) -> Result<Self, ExecutionError> {
-        let source = registry
-            .get(&event.event_id)
+        let serializer = registry
+            .get_serializer(&event.event_id)
+            // FIXME error kind
             .ok_or(RestoreError::EventNotFound {
                 event_id: event.event_id.0,
             })?;
-        let arg = source.deserialize_arg(&event.arg)?;
+        let arg = serializer.deserialize_arg(&event.arg)?;
 
         Ok(Self {
             event_id: event.event_id,
@@ -666,6 +733,7 @@ struct SerializableQuery {
     arg: Vec<u8>,
 }
 
+// FIXME to remove
 fn serialize_arg<T: Serialize + Send + 'static>(arg: &dyn Any) -> Result<Vec<u8>, ExecutionError> {
     let value = arg
         .downcast_ref::<T>()
@@ -680,6 +748,8 @@ fn serialize_arg<T: Serialize + Send + 'static>(arg: &dyn Any) -> Result<Vec<u8>
         .into()
     })
 }
+
+// FIXME to remove
 fn deserialize_arg<T: DeserializeOwned + Send + 'static>(
     arg: &[u8],
 ) -> Result<Box<dyn Any + Send>, ExecutionError> {

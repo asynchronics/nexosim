@@ -185,7 +185,7 @@ impl<T: Clone + Send + 'static> Default for EventSource<T> {
     }
 }
 
-impl<T: Serialize + DeserializeOwned + Clone + Send + 'static> fmt::Debug for EventSource<T> {
+impl<T: Clone + Send + 'static> fmt::Debug for EventSource<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
