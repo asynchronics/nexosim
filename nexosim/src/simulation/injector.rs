@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 
 use recycle_box::{RecycleBox, coerce_box};
 
-use crate::channel::Sender;
 use crate::model::{Model, ModelRegistry, SchedulableId};
 use crate::ports::InputFn;
 use crate::simulation::queue_items::Event;
@@ -68,7 +67,7 @@ pub(crate) enum InjectorItem {
 pub struct EventInjector<T> {
     queue: Arc<Mutex<InjectorQueue>>,
     origin_id: usize,
-    inner: Box<dyn InjectorFutGen<T>>,
+    inner: Box<dyn InjectorFutGen<T> + Send + 'static>,
 }
 
 impl<T> EventInjector<T>
@@ -95,6 +94,44 @@ where
                       env,
                       recycle_box: RecycleBox<()>|
                       -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
+                    let fut = func.call(model, arg, scheduler, env);
+                    coerce_box!(RecycleBox::recycle(recycle_box, fut))
+                }
+            ).await;
+            };
+        let inner = InjectorInner::new(inner);
+
+        Self {
+            inner: Box::new(inner),
+            queue,
+            origin_id,
+        }
+    }
+
+    pub(crate) fn mapped<M, C, F, U, S>(
+        func: F,
+        map: C,
+        address: impl Into<Address<M>>,
+        queue: Arc<Mutex<InjectorQueue>>,
+        origin_id: usize,
+    ) -> Self
+    where
+        M: Model,
+        C: for<'a> Fn(&'a T) -> U + Clone + Send + Sync + 'static,
+        F: for<'a> InputFn<'a, M, U, S> + Clone + Sync,
+        U: Send + 'static,
+        S: Send + Sync,
+    {
+        let sender = address.into().0;
+        let inner =
+            move |arg: T| async move {
+                let _ = sender.send(
+                move |model: &mut M,
+                      scheduler,
+                      env,
+                      recycle_box: RecycleBox<()>|
+                      -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
+                    let arg = map(&arg);
                     let fut = func.call(model, arg, scheduler, env);
                     coerce_box!(RecycleBox::recycle(recycle_box, fut))
                 }

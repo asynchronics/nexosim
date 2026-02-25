@@ -10,8 +10,8 @@ use crate::executor::{Executor, Signal};
 use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
-    self, Address, EventId, EventIdErased, EventKey, GlobalScheduler, InjectorQueue, InputSource,
-    Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
+    self, Address, EventId, EventIdErased, EventInjector, EventKey, GlobalScheduler, InjectorQueue,
+    InputSource, Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -581,6 +581,37 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// [`injector`](Self::injector).
     pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
         self.model_registry = Some(model_registry);
+    }
+
+    pub fn event_injector<F, T, S>(&self, func: F) -> EventInjector<T>
+    where
+        F: for<'b> InputFn<'b, P::Model, T, S> + Clone + Sync,
+        T: Clone + Send + 'static,
+        S: Send + Sync,
+    {
+        EventInjector::new(
+            func,
+            self.mailbox.address(),
+            self.injector.clone(),
+            self.origin_id,
+        )
+    }
+
+    pub fn mapped_event_injector<F, C, T, U, S>(&self, func: F, map: C) -> EventInjector<T>
+    where
+        F: for<'b> InputFn<'b, P::Model, U, S> + Clone + Sync,
+        C: for<'b> Fn(&'b T) -> U + Clone + Send + Sync + 'static,
+        T: Clone + Send + 'static,
+        U: Send + 'static,
+        S: Send + Sync,
+    {
+        EventInjector::mapped(
+            func,
+            map,
+            self.mailbox.address(),
+            self.injector.clone(),
+            self.origin_id,
+        )
     }
 }
 
