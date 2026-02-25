@@ -153,6 +153,7 @@ use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{ReplierFn, query_replier};
+use crate::simulation::injector::InjectorItem;
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus, Ticker};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -686,13 +687,19 @@ impl Simulation {
             if let Some(mut origin_id) = injector_queue.peek().map(|item| *item.0) {
                 has_events = true;
                 let mut event_seq = SeqFuture::new();
-                while let Some((id, event)) = injector_queue.pull() {
-                    let source = self
-                        .scheduler_registry
-                        .get_event_source(&event.event_id)
-                        .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
+                while let Some((id, item)) = injector_queue.pull() {
+                    let fut = match item {
+                        InjectorItem::Event(event) => {
+                            let source = self
+                                .scheduler_registry
+                                .get_event_source(&event.event_id)
+                                .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
 
-                    let fut = source.future_owned(event.arg, event.key)?;
+                            source.future_owned(event.arg, event.key)?
+                        }
+                        InjectorItem::Future(fut) => fut,
+                    };
+
                     if id != origin_id {
                         self.executor.spawn_and_forget(event_seq);
                         event_seq = SeqFuture::new();
