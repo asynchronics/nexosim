@@ -11,7 +11,7 @@ use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
     self, Address, EventId, EventIdErased, EventInjector, EventKey, GlobalScheduler, InjectorQueue,
-    InputSource, Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
+    InputSource, Mailbox, SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -566,15 +566,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.scheduler.clock_reader()
     }
 
-    /// Returns an injector associated to this model.
-    pub fn injector(&self) -> ModelInjector<P::Model> {
-        ModelInjector::new(
-            self.injector.clone(),
-            self.origin_id,
-            self.model_registry.unwrap().clone(),
-        )
-    }
-
     /// Sets the model registry.
     ///
     /// Warning: this method must be called prior to any call to
@@ -583,6 +574,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.model_registry = Some(model_registry);
     }
 
+    /// Returns an injector associated to a specific input of this model.
     pub fn event_injector<F, T, S>(&self, func: F) -> EventInjector<T>
     where
         F: for<'b> InputFn<'b, P::Model, T, S> + Clone + Sync,
@@ -597,6 +589,10 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         )
     }
 
+    /// Returns an auto-converting injector associated to a specific input of
+    /// this model.
+    ///
+    /// Event arguments are mapped to another type using the closure provided.
     pub fn mapped_event_injector<F, C, T, U, S>(&self, func: F, map: C) -> EventInjector<T>
     where
         F: for<'b> InputFn<'b, P::Model, U, S> + Clone + Sync,
