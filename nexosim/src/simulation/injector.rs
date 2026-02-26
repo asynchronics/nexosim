@@ -145,6 +145,16 @@ impl<T> fmt::Debug for EventInjector<T> {
     }
 }
 
+impl<T> Clone for EventInjector<T> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+            origin_id: self.origin_id,
+            inner: self.inner.clone(),
+        }
+    }
+}
+
 /// An injector for events to be processed as soon as possible.
 ///
 /// An `Injector` is similar to a [`Scheduler`](crate::simulation::Scheduler)
@@ -219,12 +229,13 @@ impl fmt::Debug for Injector {
 /// Private trait that allows type-erased cloneable future generation.
 trait InjectorFutGen<T> {
     fn future(&self, arg: T) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+    fn clone(&self) -> Box<dyn InjectorFutGen<T> + Send + 'static>;
 }
 
 /// Typed event future generator.
 struct InjectorInner<G, F, T>
 where
-    G: (FnOnce(T) -> F) + Clone + 'static,
+    G: (FnOnce(T) -> F) + Send + Clone + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     generator: G,
@@ -232,7 +243,7 @@ where
 }
 impl<G, F, T> InjectorInner<G, F, T>
 where
-    G: (FnOnce(T) -> F) + Clone + 'static,
+    G: (FnOnce(T) -> F) + Send + Clone + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
     fn new(generator: G) -> Self {
@@ -244,12 +255,18 @@ where
 }
 impl<G, F, T> InjectorFutGen<T> for InjectorInner<G, F, T>
 where
-    G: (FnOnce(T) -> F) + Clone,
+    G: (FnOnce(T) -> F) + Send + Clone + 'static,
     F: Future<Output = ()> + Send + 'static,
     T: Clone + Send + 'static,
 {
     fn future(&self, arg: T) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let f = self.generator.clone()(arg);
         Box::pin(f)
+    }
+    fn clone(&self) -> Box<dyn InjectorFutGen<T> + Send + 'static> {
+        Box::new(Self {
+            generator: self.generator.clone(),
+            _marker: PhantomData,
+        })
     }
 }
