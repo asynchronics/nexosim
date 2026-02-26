@@ -1,3 +1,8 @@
+# 1.?.? (2026-??-??)
+
+- Derive `Clone` on `ModelInjector` even if the model doesn't implement clone
+  ([#165]).
+
 # 1.0.0 (2026-02-03)
 
 The following is merely a short summary of the main changes from the 0.3.x line:
@@ -45,6 +50,7 @@ The following is merely a short summary of the main changes from the 0.3.x line:
 [#148]: https://github.com/asynchronics/nexosim/pull/148
 [#149]: https://github.com/asynchronics/nexosim/pull/149
 [#151]: https://github.com/asynchronics/nexosim/pull/151
+[#165]: https://github.com/asynchronics/nexosim/pull/165
 
 # 0.3.4 (2025-09-12)
 
