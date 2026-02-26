@@ -837,20 +837,24 @@ impl Simulation {
     }
 
     /// Restore simulation state from a serialized data.
-    pub(crate) fn restore<R: std::io::Read>(&mut self, mut state: R) -> Result<(), ExecutionError> {
+    ///
+    /// On successful restore, current simulation time is returned.
+    pub(crate) fn restore<R: std::io::Read>(
+        &mut self,
+        mut state: R,
+    ) -> Result<MonotonicTime, ExecutionError> {
         let event_key_reg = Arc::new(Mutex::new(HashMap::new()));
-        EVENT_KEY_REG.set(&event_key_reg, || {
+        let time = EVENT_KEY_REG.set(&event_key_reg, || {
             let state: SimulationState =
                 bincode::serde::decode_from_std_read(&mut state, serialization_config()).map_err(
                     |e| RestoreError::SimulationStateDeserializationError { cause: Box::new(e) },
                 )?;
 
-            self.time.write(state.time);
             self.restore_models(state.models, &event_key_reg)?;
             self.restore_queue(&state.scheduler_queue)?;
-            Ok::<_, ExecutionError>(())
+            Ok::<_, ExecutionError>(state.time)
         })?;
-        Ok(())
+        Ok(time)
     }
 }
 

@@ -365,7 +365,15 @@ impl SimInit {
 
         let mut simulation = self.build();
 
-        simulation.restore(state)?;
+        let restored_time = simulation.restore(state)?;
+
+        simulation.time.write(restored_time);
+        if let SyncStatus::OutOfSync(lag) = simulation.clock.synchronize(simulation.time())
+            && let Some(tolerance) = &simulation.clock_tolerance
+            && &lag > tolerance
+        {
+            return Err(ExecutionError::OutOfSync(lag).into());
+        }
 
         if let Some(callback) = callback {
             callback(&mut simulation)?;
