@@ -31,7 +31,7 @@ pub(crate) enum InjectorItem {
 
 /// An injector for events to be processed by a model as soon as possible.
 ///
-/// The [`EventInjector::event`] method is similar to
+/// The [`EventInjector::inject`] method is similar to
 /// [`Context::schedule_event`](crate::model::Context::schedule_event) but is
 /// used to request events to be processed as soon as possible rather than at a
 /// specific deadline. A `EventInjector` is always associated to a model
