@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use recycle_box::{RecycleBox, coerce_box};
 
 use crate::model::Model;
-use crate::ports::InputFn;
-use crate::simulation::queue_items::Event;
-use crate::simulation::{Address, EventId};
+use crate::ports::{InputFn, ReplyReader};
+use crate::simulation::queue_items::{Event, Query};
+use crate::simulation::{Address, EventId, QueryId};
 use crate::util::priority_queue::PriorityQueue;
 
 use super::GLOBAL_ORIGIN_ID;
@@ -25,6 +25,7 @@ pub(crate) type InjectorQueue = PriorityQueue<usize, InjectorItem>;
 
 pub(crate) enum InjectorItem {
     Event(Event),
+    Query(Query),
     Future(Pin<Box<dyn Future<Output = ()> + Send>>),
 }
 
@@ -183,6 +184,29 @@ impl Injector {
     pub(crate) fn inject_built_event(&self, event: Event) {
         let mut queue = self.queue.lock().unwrap();
         queue.insert(GLOBAL_ORIGIN_ID, InjectorItem::Event(event));
+    }
+
+    /// Injects a query to be processed as soon as possible.
+    ///
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is executed
+    /// concurrently, the event will be processed at the deadline set by the
+    /// scheduler event or simulation tick that directly follows the one that is
+    /// being stepped into.
+    ///
+    /// If the query is injected while the simulation is at rest, the query will
+    /// be processed at the lapse of the next simulation step (next scheduler
+    /// event or simulation tick).
+    pub fn inject_query<T, R>(&self, query_id: &QueryId<T, R>, arg: T) -> ReplyReader<R>
+    where
+        T: Send + Clone + 'static,
+        R: Send + 'static,
+    {
+        let (query, rx) = Query::new(query_id, arg);
+        let mut queue = self.queue.lock().unwrap();
+        queue.insert(GLOBAL_ORIGIN_ID, InjectorItem::Query(query));
+        rx
     }
 }
 

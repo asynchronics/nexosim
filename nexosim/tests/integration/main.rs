@@ -2,7 +2,7 @@
 // https://matklad.github.io/2021/02/27/delete-cargo-integration-tests.html
 
 #[cfg(not(miri))]
-mod event_injector;
+mod injector;
 mod model_scheduling;
 mod serialization;
 #[cfg(not(miri))]

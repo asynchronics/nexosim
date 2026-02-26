@@ -7,8 +7,8 @@ use nexosim::model::Context;
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(miri))]
-use nexosim::model::{BuildContext, Model, ProtoModel, schedulable};
-use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
+use nexosim::model::{BuildContext, Model, ProtoModel};
+use nexosim::ports::{EventSinkReader, EventSource, Output, QuerySource, SinkState, event_queue};
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
 
@@ -58,10 +58,13 @@ impl TestModel {
     async fn schedulable_trigger(&mut self, payload: usize, cx: &Context<Self>) {
         self.output.send((payload, cx.time())).await;
     }
+    async fn calc(&mut self, arg: usize) -> usize {
+        arg * 13
+    }
     fn dummy(&mut self) {}
 }
 
-fn injector_basic(num_threads: usize) {
+fn event_injector_basic(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
     let t_end = t0 + Duration::from_secs(1);
     let tick_period = Duration::from_millis(250);
@@ -89,7 +92,7 @@ fn injector_basic(num_threads: usize) {
     );
 }
 
-fn injector_tickless(num_threads: usize) {
+fn event_injector_tickless(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
     let t_end = t0 + Duration::from_secs(1);
     let pseudo_tick_period = Duration::from_millis(250);
@@ -123,9 +126,66 @@ fn injector_tickless(num_threads: usize) {
     );
 }
 
+fn global_injector_event(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let tick_period = Duration::from_millis(250);
+
+    // Make internal injections later than this test's end.
+    let mut model = TestProtoModel::new(Duration::from_millis(2000), Duration::from_millis(2500));
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench = SimInit::with_num_threads(num_threads)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period));
+
+    let event_id = EventSource::new()
+        .connect(TestModel::schedulable_trigger, &mbox)
+        .register(&mut bench);
+
+    let injector = bench.injector();
+    injector.inject_event(&event_id, 17);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.step_until(t_end).unwrap();
+    assert_eq!(
+        output.try_read(),
+        Some((17, MonotonicTime::EPOCH + Duration::from_millis(250)))
+    );
+}
+
+fn global_injector_query(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let tick_period = Duration::from_millis(250);
+
+    // Make internal injections later than this test's end.
+    let model = TestProtoModel::new(Duration::from_millis(2000), Duration::from_millis(2500));
+    let mbox = Mailbox::new();
+
+    let mut bench = SimInit::with_num_threads(num_threads)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period));
+
+    let query_id = QuerySource::new()
+        .connect(TestModel::calc, &mbox)
+        .register(&mut bench);
+
+    let injector = bench.injector();
+    let rx = injector.inject_query(&query_id, 19);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.step_until(t_end).unwrap();
+    let result = rx.read().unwrap().next().unwrap();
+    assert_eq!(result, 13 * 19);
+}
+
 #[cfg(not(miri))]
 #[test]
-fn injector_ordering_mt() {
+fn event_injector_ordering_mt() {
     const NUM_THREAD: usize = 16;
     let t0 = MonotonicTime::EPOCH;
     let tick_period = Duration::from_millis(500);
@@ -158,24 +218,48 @@ fn injector_ordering_mt() {
 
 #[cfg(not(miri))]
 #[test]
-fn injector_basic_st() {
-    injector_basic(1);
+fn event_injector_basic_st() {
+    event_injector_basic(1);
 }
 
 #[cfg(not(miri))]
 #[test]
-fn injector_basic_mt() {
-    injector_basic(MT_NUM_THREADS);
+fn event_injector_basic_mt() {
+    event_injector_basic(MT_NUM_THREADS);
 }
 
 #[cfg(not(miri))]
 #[test]
-fn injector_tickless_st() {
-    injector_tickless(1);
+fn event_injector_tickless_st() {
+    event_injector_tickless(1);
 }
 
 #[cfg(not(miri))]
 #[test]
-fn injector_tickless_mt() {
-    injector_tickless(MT_NUM_THREADS);
+fn event_injector_tickless_mt() {
+    event_injector_tickless(MT_NUM_THREADS);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_event_st() {
+    global_injector_event(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_event_mt() {
+    global_injector_event(MT_NUM_THREADS);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_query_st() {
+    global_injector_query(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_query_mt() {
+    global_injector_query(MT_NUM_THREADS);
 }
