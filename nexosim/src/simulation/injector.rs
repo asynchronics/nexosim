@@ -34,7 +34,7 @@ pub(crate) enum InjectorItem {
 /// [`Context::schedule_event`](crate::model::Context::schedule_event) but is
 /// used to request events to be processed as soon as possible rather than at a
 /// specific deadline. A `EventInjector` is always associated to a model
-/// instance and a specific input method.
+/// instance and its specific input method.
 pub struct EventInjector<T> {
     queue: Arc<Mutex<InjectorQueue>>,
     origin_id: usize,

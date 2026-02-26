@@ -33,18 +33,14 @@ impl ProtoModel for TestProtoModel {
     type Model = TestModel;
 
     fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, ()) {
-        let injector = cx.injector();
-        let manual_schedulable_trigger =
-            cx.register_schedulable(TestModel::manual_schedulable_trigger);
+        let injector = cx.event_injector(TestModel::schedulable_trigger);
 
         thread::spawn(move || {
             thread::sleep(self.delay1);
-            // Use the `schedulable` macro.
-            injector.inject_event(schedulable!(TestModel::auto_schedulable_trigger), 1);
+            injector.inject(1);
 
-            // Use a manually registered schedulable.
             thread::sleep(self.delay2);
-            injector.inject_event(&manual_schedulable_trigger, 2);
+            injector.inject(2);
         });
 
         (TestModel::new(self.output), ())
@@ -59,11 +55,7 @@ impl TestModel {
     fn new(output: Output<(usize, MonotonicTime)>) -> Self {
         Self { output }
     }
-    #[nexosim(schedulable)]
-    async fn auto_schedulable_trigger(&mut self, payload: usize, cx: &Context<Self>) {
-        self.output.send((payload, cx.time())).await;
-    }
-    async fn manual_schedulable_trigger(&mut self, payload: usize, cx: &Context<Self>) {
+    async fn schedulable_trigger(&mut self, payload: usize, cx: &Context<Self>) {
         self.output.send((payload, cx.time())).await;
     }
     fn dummy(&mut self) {}
