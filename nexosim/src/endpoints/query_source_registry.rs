@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 #[cfg(feature = "server")]
 use ciborium;
@@ -13,6 +14,8 @@ use serde::de::DeserializeOwned;
 
 use crate::path::Path;
 use crate::ports::QuerySource;
+#[cfg(feature = "server")]
+use crate::simulation::Query;
 use crate::simulation::{QueryId, QueryIdErased, SchedulerRegistry};
 
 #[cfg(feature = "server")]
@@ -196,6 +199,12 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
 
     #[cfg(feature = "server")]
     fn replier(&self) -> (Box<dyn ReplyWriterAny>, Box<dyn ReplyReaderAny>);
+
+    #[cfg(feature = "server")]
+    fn query(
+        &self,
+        serialized_arg: &[u8],
+    ) -> Result<(Query, Box<dyn ReplyReaderAny>), DeserializationError>;
 }
 
 struct QuerySourceEntry<T, R, F>
@@ -243,6 +252,15 @@ where
         let (tx, rx) = query_replier::<R>();
         (Box::new(tx), Box::new(rx))
     }
+    #[cfg(feature = "server")]
+    fn query(
+        &self,
+        serialized_arg: &[u8],
+    ) -> Result<(Query, Box<dyn ReplyReaderAny>), DeserializationError> {
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| Query::new(&self.inner, arg))
+            .map(|(q, r)| (q, Box::new(r) as Box<dyn ReplyReaderAny>))
+    }
 }
 
 #[cfg(feature = "server")]
@@ -254,9 +272,13 @@ impl<R: Send + 'static> ReplyWriterAny for ReplyWriter<R> {}
 
 #[cfg(feature = "server")]
 /// A type-erased reply reader that returns CBOR-encoded replies.
-pub(crate) trait ReplyReaderAny {
+pub(crate) trait ReplyReaderAny: Send {
     /// Take the replies, if any, encode them and collect them in a vector.
     fn take_collect(&mut self) -> Option<Result<Vec<Vec<u8>>, SerializationError>>;
+    #[allow(clippy::type_complexity)]
+    fn take_collect_fut(
+        self: Box<Self>,
+    ) -> Pin<Box<dyn Future<Output = Option<Result<Vec<Vec<u8>>, SerializationError>>> + Send>>;
 }
 
 #[cfg(feature = "server")]
@@ -276,5 +298,25 @@ impl<R: Serialize + Send + 'static> ReplyReaderAny for ReplyReader<R> {
         })();
 
         Some(encoded_replies)
+    }
+
+    fn take_collect_fut(
+        self: Box<Self>,
+    ) -> Pin<Box<dyn Future<Output = Option<Result<Vec<Vec<u8>>, SerializationError>>> + Send>>
+    {
+        let fut = async move {
+            let replies = self.await?;
+
+            let encoded_replies = replies
+                .map(|r| {
+                    let mut w = Vec::new();
+                    ciborium::into_writer(&r, &mut w)?;
+                    Ok(w)
+                })
+                .collect::<Result<Vec<Vec<u8>>, SerializationError>>();
+
+            Some(encoded_replies)
+        };
+        Box::pin(fut)
     }
 }

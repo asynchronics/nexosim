@@ -165,7 +165,7 @@ impl ControllerService {
 
         let source_path: &NexosimPath = &request
             .source
-            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing event source path"))?
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing query source path"))?
             .segments
             .into();
         let request = &request.request;

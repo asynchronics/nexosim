@@ -330,6 +330,22 @@ message ProcessEventReply {
   }
 }
 
+message ScheduleQueryRequest {
+  oneof deadline { // Expects exactly 1 variant.
+    google.protobuf.Timestamp time = 1;
+    google.protobuf.Duration duration = 2;
+  }
+  Path source = 3;
+  bytes request = 4;
+}
+message ScheduleQueryReply {
+  repeated bytes replies = 1;
+  oneof result { // Always returns exactly 1 variant.
+    google.protobuf.Empty empty = 10;
+    Error error = 100;
+  }
+}
+
 message ProcessQueryRequest {
   Path source = 1;
   bytes request = 2;
@@ -415,6 +431,7 @@ service Simulation {
   rpc ScheduleEvent(ScheduleEventRequest) returns (ScheduleEventReply);
   rpc CancelEvent(CancelEventRequest) returns (CancelEventReply);
   rpc ProcessEvent(ProcessEventRequest) returns (ProcessEventReply);
+  rpc ScheduleQuery(ScheduleQueryRequest) returns (ScheduleQueryReply);
   rpc ProcessQuery(ProcessQueryRequest) returns (ProcessQueryReply);
   rpc TryReadEvents(TryReadEventsRequest) returns (TryReadEventsReply);
   rpc ReadEvent(ReadEventRequest) returns (ReadEventReply);
