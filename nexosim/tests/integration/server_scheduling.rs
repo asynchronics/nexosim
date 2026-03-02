@@ -170,7 +170,7 @@ async fn query_schedule_simple() {
             .await
     });
 
-    // Wait a bit so the 'later' query gets already scheduled scheduled and has a
+    // Wait a bit so the 'later' query gets already scheduled and has a
     // replier pending.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
