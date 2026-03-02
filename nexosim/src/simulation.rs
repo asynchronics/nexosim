@@ -1445,7 +1445,7 @@ fn peek_next_key(
 
 /// Spawn scheduled items matching given key.
 ///
-/// If successsful returns a bool value indicating whether at least one item has
+/// If successful returns a bool value indicating whether at least one item has
 /// been spawned.
 fn handle_scheduler_step(
     mut scheduler_queue: MutexGuard<SchedulerQueue>,
