@@ -88,7 +88,7 @@ where
     // Make sure the server is up.
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let mut client = SimulationClient::connect(format!("http://0.0.0.0:{port}"))
+    let mut client = SimulationClient::connect(format!("http://127.0.0.1:{port}"))
         .await
         .unwrap();
 
