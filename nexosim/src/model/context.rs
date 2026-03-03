@@ -598,7 +598,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     pub fn mapped_event_injector<F, C, T, U, S>(&self, func: F, map: C) -> EventInjector<T>
     where
         F: for<'b> InputFn<'b, P::Model, U, S> + Clone + Sync,
-        C: for<'b> Fn(&'b T) -> U + Clone + Send + Sync + 'static,
+        C: Fn(T) -> U + Clone + Send + Sync + 'static,
         T: Clone + Send + 'static,
         U: Send + 'static,
         S: Send + Sync,

@@ -44,7 +44,7 @@ pub struct EventInjector<T> {
 
 impl<T> EventInjector<T>
 where
-    T: Clone + Send + 'static,
+    T: Send + 'static,
 {
     pub(crate) fn new<M, F, S>(
         func: F,
@@ -89,7 +89,7 @@ where
     ) -> Self
     where
         M: Model,
-        C: for<'a> Fn(&'a T) -> U + Clone + Send + Sync + 'static,
+        C: FnOnce(T) -> U + Clone + Send + Sync + 'static,
         F: for<'a> InputFn<'a, M, U, S> + Clone + Sync,
         U: Send + 'static,
         S: Send + Sync,
@@ -103,7 +103,7 @@ where
                       env,
                       recycle_box: RecycleBox<()>|
                       -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
-                    let arg = map(&arg);
+                    let arg = map(arg);
                     let fut = func.call(model, arg, scheduler, env);
                     coerce_box!(RecycleBox::recycle(recycle_box, fut))
                 }
@@ -257,7 +257,7 @@ impl<G, F, T> InjectorFutGen<T> for InjectorInner<G, F, T>
 where
     G: (FnOnce(T) -> F) + Send + Clone + 'static,
     F: Future<Output = ()> + Send + 'static,
-    T: Clone + Send + 'static,
+    T: Send + 'static,
 {
     fn future(&self, arg: T) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let f = self.generator.clone()(arg);
