@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::executor::{Executor, Signal};
 use crate::path::Path;
 use crate::ports::InputFn;
+#[allow(deprecated)]
 use crate::simulation::{
     self, Address, EventId, EventIdErased, EventInjector, EventKey, GlobalScheduler, InjectorQueue,
-    InputSource, Mailbox, SchedulerRegistry, SchedulingError,
+    InputSource, Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -566,6 +567,17 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     /// Returns a clock reader instance.
     pub fn clock_reader(&self) -> ClockReader {
         self.scheduler.clock_reader()
+    }
+
+    /// Returns an injector associated to this model.
+    #[deprecated = "please use `event_injector` method instead"]
+    #[allow(deprecated)]
+    pub fn injector(&self) -> ModelInjector<P::Model> {
+        ModelInjector::new(
+            self.injector.clone(),
+            self.origin_id,
+            self.model_registry.unwrap().clone(),
+        )
     }
 
     /// Sets the model registry.

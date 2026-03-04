@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use recycle_box::{RecycleBox, coerce_box};
 
-use crate::model::Model;
+use crate::model::{Model, ModelRegistry, SchedulableId};
 use crate::ports::{InputFn, ReplyReader};
 use crate::simulation::queue_items::{Event, Query};
 use crate::simulation::{Address, EventId, QueryId};
@@ -268,5 +268,78 @@ where
             generator: self.generator.clone(),
             _marker: PhantomData,
         })
+    }
+}
+
+/// An injector for events to be processed by a model as soon as possible.
+///
+/// The [`ModelInjector::inject_event`] method is similar to
+/// [`Context::schedule_event`](crate::model::Context::schedule_event) but is
+/// used to request events to be processed as soon as possible rather than at a
+/// specific deadline. A `ModelInjector` is always associated to a model
+/// instance.
+#[deprecated = "please use `EventInjector` instead"]
+pub struct ModelInjector<M: Model> {
+    queue: Arc<Mutex<InjectorQueue>>,
+    origin_id: usize,
+    model_registry: Arc<ModelRegistry>,
+    _model: PhantomData<M>,
+}
+
+#[allow(deprecated)]
+impl<M: Model> ModelInjector<M> {
+    pub(crate) fn new(
+        queue: Arc<Mutex<InjectorQueue>>,
+        origin_id: usize,
+        model_registry: Arc<ModelRegistry>,
+    ) -> Self {
+        Self {
+            queue,
+            origin_id,
+            model_registry,
+            _model: PhantomData,
+        }
+    }
+
+    /// Injects an event to be processed as soon as possible.
+    ///
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is executed
+    /// concurrently, the event will be processed at the deadline set by the
+    /// scheduler event or simulation tick that directly follows the one that is
+    /// being stepped into.
+    ///
+    /// If the event is injected while the simulation is at rest, the event will
+    /// be processed at the lapse of the next simulation step (next scheduler
+    /// event or simulation tick).
+    pub fn inject_event<T>(&self, schedulable_id: &SchedulableId<M, T>, arg: T)
+    where
+        T: Send + Clone + 'static,
+    {
+        let mut queue = self.queue.lock().unwrap();
+        let event = Event::new(&schedulable_id.source_id(&self.model_registry), arg);
+        queue.insert(self.origin_id, InjectorItem::Event(event));
+    }
+}
+
+#[allow(deprecated)]
+impl<M: Model> fmt::Debug for ModelInjector<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModelInjector")
+            .field("origin_id", &self.origin_id)
+            .finish_non_exhaustive()
+    }
+}
+
+#[allow(deprecated)]
+impl<M: Model> Clone for ModelInjector<M> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+            origin_id: self.origin_id,
+            model_registry: self.model_registry.clone(),
+            _model: PhantomData,
+        }
     }
 }
