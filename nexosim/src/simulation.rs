@@ -608,6 +608,8 @@ impl Simulation {
         self.time.write(time);
 
         // Spawn next scheduled items (if any).
+        // SchedulerQueue mutex guard is consumed by the function
+        // and therefore the mutex is unlocked after it returns.
         let mut has_events = handle_scheduler_step(
             scheduler_queue,
             &self.executor,
@@ -618,6 +620,8 @@ impl Simulation {
 
         // Spawn currently injected items.
         let injector_queue = self.injector_queue.lock().unwrap();
+        // InjectorQueue mutex guard is consumed by the function
+        // and therefore the mutex is unlocked after it returns.
         has_events |=
             handle_injector_step(injector_queue, &self.executor, &self.scheduler_registry)?;
 
@@ -1445,8 +1449,11 @@ fn peek_next_key(
 
 /// Spawn scheduled items matching given key.
 ///
-/// If successsful returns a bool value indicating whether at least one item has
+/// If successful returns a bool value indicating whether at least one item has
 /// been spawned.
+/// Note: this function consumes SchedulerQueue mutex guard,
+/// which means that the guard is dropped on return and
+/// subsequently the mutex is unlocked.
 fn handle_scheduler_step(
     mut scheduler_queue: MutexGuard<SchedulerQueue>,
     executor: &Executor,
@@ -1454,10 +1461,13 @@ fn handle_scheduler_step(
     mut next_key: Option<(MonotonicTime, usize)>,
     time: MonotonicTime,
 ) -> Result<bool, ExecutionError> {
-    let mut has_events = false;
+    // Spawn scheduled events only if they match the current time stamp.
+    match &next_key {
+        Some((t, _)) if *t == time => (),
+        _ => return Ok(false),
+    }
 
-    // Spawn scheduled events matching the current time stamp.
-    while next_key.map(|key| key.0 == time).unwrap_or(false) {
+    while next_key.is_some() {
         // Merge all events with the same origin in a single future to
         // preserve event ordering.
         let mut event_seq = SeqFuture::new();
@@ -1497,16 +1507,18 @@ fn handle_scheduler_step(
         // Spawn a compound future that sequentially polls all events
         // targeting the same mailbox.
         executor.spawn_and_forget(event_seq);
-        has_events = true;
     }
-    Ok(has_events)
+    Ok(true)
 }
 
 /// Spawn injector items. The items are assumed to be non-periodic
 /// and non-cancellable.
 ///
-/// If successsful returns a bool value indicating whether at least one item has
+/// If successful returns a bool value indicating whether at least one item has
 /// been spawned.
+/// Note: this function consumes InjectorQueue mutex guard,
+/// which means that the guard is dropped on return and
+/// subsequently the mutex is unlocked.
 fn handle_injector_step(
     mut injector_queue: MutexGuard<InjectorQueue>,
     executor: &Executor,
