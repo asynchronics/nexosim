@@ -570,8 +570,9 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     /// Returns an injector associated to this model.
-    #[deprecated = "please use `event_injector` method instead"]
+    #[deprecated = "please use the `event_injector` method instead"]
     #[allow(deprecated)]
+    #[doc(hidden)]
     pub fn injector(&self) -> ModelInjector<P::Model> {
         ModelInjector::new(
             self.injector.clone(),
@@ -597,27 +598,6 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     {
         EventInjector::new(
             func,
-            self.mailbox.address(),
-            self.injector.clone(),
-            self.origin_id,
-        )
-    }
-
-    /// Returns an auto-converting injector associated to a specific input of
-    /// this model.
-    ///
-    /// Event arguments are mapped to another type using the closure provided.
-    pub fn mapped_event_injector<F, C, T, U, S>(&self, func: F, map: C) -> EventInjector<T>
-    where
-        F: for<'b> InputFn<'b, P::Model, U, S> + Clone + Sync,
-        C: Fn(T) -> U + Clone + Send + Sync + 'static,
-        T: Clone + Send + 'static,
-        U: Send + 'static,
-        S: Send + Sync,
-    {
-        EventInjector::mapped(
-            func,
-            map,
             self.mailbox.address(),
             self.injector.clone(),
             self.origin_id,

@@ -1,7 +1,7 @@
 # 1.?.? (2026-??-??)
 
-- Derive `Clone` on `ModelInjector` even if the model doesn't implement clone
-  ([#165]).
+- `ModelInjector` has been deprecated in favour of `EventInjector` bound to
+  a single model input ([#167]).
 
 # 1.0.0 (2026-02-03)
 
