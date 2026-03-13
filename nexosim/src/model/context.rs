@@ -372,9 +372,8 @@ impl<M: Model> fmt::Debug for Context<M> {
 /// - to spawn sub-models onto the simulation with
 ///   [`BuildContext::add_submodel`],
 /// - to pass an [`EventInjector`] retrieved with
-///   [`BuildContext::event_injector`] or
-///   [`BuildContext::mapped_event_injector`] to any background thread that may
-///   need to communicate with the model,
+///   [`BuildContext::event_injector`] to any background thread that may need to
+///   communicate with the model,
 /// - to manually register a schedulable method with
 ///   [`BuildContext::register_schedulable`],
 /// - to provide a clock reader to the model with
