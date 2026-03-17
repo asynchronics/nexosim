@@ -234,7 +234,7 @@ where
     }
     fn into_event_sink_reader(self: Box<Self>) -> Box<dyn Any> {
         // Make sure we box the trait object and not the concrete sink reader.
-        let event_sink_reader: Box<dyn EventSinkReader<T>> = Box::new(self.sink);
+        let event_sink_reader: Box<dyn EventSinkReader<T> + Send> = Box::new(self.sink);
 
         Box::new(event_sink_reader)
     }
@@ -260,5 +260,21 @@ where
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.sink.size_hint()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ports::{SinkState, event_slot};
+
+    use super::*;
+
+    #[test]
+    fn add_and_take() {
+        let mut registry = EventSinkRegistry::default();
+        let (_, rx) = event_slot::<u8>(SinkState::Enabled);
+        registry.add(rx, "reader".into()).unwrap();
+        // Verify that inner downcasting does not fail.
+        let _ = registry.take::<u8>("reader".into()).unwrap();
     }
 }
