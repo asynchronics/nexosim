@@ -30,6 +30,7 @@ enum ErrorCode {
   DUPLICATE_QUERY_SOURCE = 24;
   DUPLICATE_EVENT_SINK = 25;
   INVALID_BENCH_CONFIG = 26;
+  BENCH_NOT_IDLE = 27;
   
   // Simulation runtime error.
   SIMULATION_PANIC = 40;

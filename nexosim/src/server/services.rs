@@ -5,6 +5,7 @@ mod monitor_service;
 mod scheduler_service;
 
 use std::error;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -52,6 +53,7 @@ pub(crate) struct GrpcSimulationService {
     scheduler_service: Mutex<SchedulerService>,
     monitor_service: Mutex<MonitorService>,
     bench_service: RwLock<BenchService>,
+    idle: AtomicBool,
 }
 
 impl GrpcSimulationService {
@@ -72,6 +74,7 @@ impl GrpcSimulationService {
             scheduler_service: Mutex::new(SchedulerService::Halted),
             monitor_service: Mutex::new(MonitorService::Halted),
             bench_service: RwLock::new(BenchService::Halted),
+            idle: AtomicBool::new(true),
         }
     }
 
@@ -310,6 +313,8 @@ impl simulation_server::Simulation for GrpcSimulationService {
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
 
+        self.idle.store(true, Ordering::Relaxed);
+
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
         }))
@@ -322,6 +327,19 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildReply>, Status> {
         let request = request.into_inner();
 
+        if self
+            .idle
+            .compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+        {
+            return Ok(Response::new(BuildReply {
+                result: Some(build_reply::Result::Error(to_error(
+                    ErrorCode::BenchNotIdle,
+                    "bench is not idle",
+                ))),
+            }));
+        }
+
         let reply = self.build_service.lock().unwrap().build(request).map(
             |(event_sink_info_registry, event_source_registry, query_source_registry, injector)| {
                 self.start_init_services(
@@ -332,6 +350,10 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 );
             },
         );
+
+        if reply.is_err() {
+            self.idle.store(true, Ordering::Relaxed);
+        }
 
         Ok(Response::new(BuildReply {
             result: Some(match reply {
@@ -344,6 +366,8 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
 
+        // No need for a separate atomic lock as init takes an owned bench object
+        // under a mutex guard.
         let reply = self.build_service.lock().unwrap().init(request).map(
             |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
                 self.start_simulation_services(
@@ -354,6 +378,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 );
             },
         );
+
+        if reply.is_err() {
+            // The bench is in a possibly unknown state - force a rebuild.
+            self.idle.store(true, Ordering::Relaxed);
+        }
 
         Ok(Response::new(InitReply {
             result: Some(match reply {
@@ -370,6 +399,8 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let init_request = InitRequest { time: request.time };
 
+        // No need for a separate atomic lock as init takes an owned bench object
+        // under a mutex guard.
         let reply = self.build_service.lock().unwrap().init(init_request).map(
             |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
                 self.start_simulation_services(
@@ -388,7 +419,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 self.execute_controller_fn(RunRequest {}, ControllerService::run)
                     .await
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                // The bench is in a possibly unknown state - force a rebuild.
+                self.idle.store(true, Ordering::Relaxed);
+                Err(e)
+            }
         };
 
         Ok(Response::new(InitAndRunReply {
@@ -414,6 +449,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 );
             },
         );
+
+        if reply.is_err() {
+            // The bench is in a possibly unknown state - force a rebuild.
+            self.idle.store(true, Ordering::Relaxed);
+        }
 
         Ok(Response::new(RestoreReply {
             result: Some(match reply {
@@ -460,7 +500,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 self.execute_controller_fn(RunRequest {}, ControllerService::run)
                     .await
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                // The bench is in a possibly unknown state - force a rebuild.
+                self.idle.store(true, Ordering::Relaxed);
+                Err(e)
+            }
         };
 
         Ok(Response::new(RestoreAndRunReply {
@@ -732,9 +776,14 @@ impl simulation_server::Simulation for GrpcSimulationService {
     }
     async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
         let request = request.into_inner();
+        let halt_result = self.scheduler_service.lock().unwrap().halt(request);
+
+        if halt_result.is_ok() {
+            self.idle.store(true, Ordering::Relaxed);
+        }
 
         Ok(Response::new(HaltReply {
-            result: Some(match self.scheduler_service.lock().unwrap().halt(request) {
+            result: Some(match halt_result {
                 Ok(()) => halt_reply::Result::Empty(()),
                 Err(e) => halt_reply::Result::Error(e),
             }),
