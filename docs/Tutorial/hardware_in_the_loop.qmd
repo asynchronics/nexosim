@@ -127,7 +127,7 @@ a connection with the port at the specified path is opened, in a
 platform-specific way. Since we won't be using a physical connection we can set
 the baud rate to zero.
 
-We'll add methods for I/O operations on the stream  and a method for registering
+We'll add methods for I/O operations on the stream and a method for registering
 the stream as an event source.
 
 ```rust
@@ -370,7 +370,7 @@ When an event has the `STREAM_TOKEN` the `SerialPortInner` reads the data
 from the serial stream and we inject an event containing the received data to
 the `SerialPort` model using the provided `ModelInjector` and `SchedulableId`.
 The stream is read in a loop until an error with `ErrorKind::WouldBlock` is
-returned, indicating there isn't anymore data to read. Other errors cause the
+returned, indicating there is no more data to read. Other errors cause the
 loop to exit.
 
 ```rust
@@ -412,7 +412,7 @@ _ => (),
 ```
 
 Finally, we construct our `IoThread` instance. We wrap the spawned thread in
-a thread guard with a pre action. The closure simply changes the `is_halted`
+a thread guard with a pre-action. The closure simply changes the `is_halted`
 boolean to true and wakes up the Poll causing the event loop to exit.
 The waker clone is returned from the closure to prevent unexpected behaviour due
 to the waker being dropped before the waking could be registered.
@@ -477,10 +477,10 @@ impl SerialPort {
 We've marked the `bytes_out` input with `#[nexosim(schedulable)]`. This way we
 will be later able to retrieve the port's `SchedulableId` for event injection.
 
-Next is the `bytes_in`port, for which we'll need an `IoThread` instance, to be
-able to send data to the serial port. You might've already noticed the problem
-we're facing. NeXosim models must be serializable, but we won't be able to
-serialize `IoThread`.
+Next is the `bytes_in` port, for which we'll need an `IoThread` instance, to be
+able to send data to the serial port. However, before we start implementing the
+method, there is an issue we have to address. NeXosim models must be
+serializable, but we won't be able to serialize `IoThread`.
 
 For such cases, where a model needs to use a non-serializable component, NeXosim
 provides a workaround in the form of model environments:
@@ -886,7 +886,7 @@ use nexosim::ports::{SinkState, event_queue};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
 
-use my_serial_port::{ProtoSerialPort, SerialPort};
+use serial_port_model::{ProtoSerialPort, SerialPort};
 
 // ...
 
@@ -1201,7 +1201,7 @@ use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
-use my_serial_port::{ProtoSerialPort, SerialPort};
+use serial_port_model::{ProtoSerialPort, SerialPort};
 use nexosim::model::Model;
 use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
 use nexosim::simulation::{ExecutionError, Mailbox, SimInit, SimulationError};
