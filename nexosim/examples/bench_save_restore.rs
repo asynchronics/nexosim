@@ -114,7 +114,7 @@ fn run_simulation(
     mut simu: Simulation,
     registry: Endpoints,
     mut t: MonotonicTime,
-    flow_rate: &mut Box<dyn EventSinkReader<f64>>,
+    flow_rate: &mut Box<dyn EventSinkReader<f64> + Send>,
 ) -> Result<(), SimulationError> {
     let scheduler = simu.scheduler();
 

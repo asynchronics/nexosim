@@ -55,7 +55,7 @@ impl EventSinkRegistry {
     pub(crate) fn take<T>(
         &mut self,
         path: Path,
-    ) -> Result<Box<dyn EventSinkReader<T>>, EndpointError>
+    ) -> Result<Box<dyn EventSinkReader<T> + Send>, EndpointError>
     where
         T: Clone + Send + 'static,
     {
@@ -69,7 +69,7 @@ impl EventSinkRegistry {
                             .1
                             .unwrap()
                             .into_event_sink_reader()
-                            .downcast::<Box<dyn EventSinkReader<T>>>()
+                            .downcast::<Box<dyn EventSinkReader<T> + Send>>()
                             .unwrap();
 
                         return Ok(*sink);
