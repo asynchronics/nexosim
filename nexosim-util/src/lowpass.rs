@@ -127,7 +127,7 @@ mod tests {
             let filter = LowPassFilter::from_frequency(cutoff_hz, sample_rate);
             let alpha = filter.get_alpha();
             assert!(
-                (alpha >= 0.0) && (alpha <= 1.0),
+                (0.0..=1.0).contains(&alpha),
                 "alpha out of range for cutoff {cutoff_hz}, sample_rate {sample_rate}"
             );
         }
