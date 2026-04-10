@@ -459,6 +459,7 @@ impl Simulation {
 
     /// Processes a request on an arbitrary replier function.
     ///
+    /// Does not check for the halt flag.
     /// This is currently only used for (de)serialization.
     pub(crate) fn process_replier_fn<M, F, T, R, S>(
         &mut self,
@@ -495,7 +496,8 @@ impl Simulation {
                 .await;
         };
 
-        self.process_future(fut)?;
+        self.executor.spawn_and_forget(fut);
+        self.run_executor()?;
 
         reply_reader
             .try_read()
