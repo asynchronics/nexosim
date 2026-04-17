@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::executor::{Executor, Signal};
 use crate::path::Path;
 use crate::ports::InputFn;
-#[allow(deprecated)]
 use crate::simulation::{
     self, Address, EventId, EventIdErased, EventInjector, EventKey, GlobalScheduler, InjectorQueue,
     InputSource, Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
