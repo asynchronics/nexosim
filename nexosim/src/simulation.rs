@@ -108,7 +108,6 @@ mod queue_items;
 mod scheduler;
 mod sim_init;
 
-#[allow(deprecated)]
 pub use injector::{EventInjector, Injector, ModelInjector};
 pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};

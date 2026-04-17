@@ -371,9 +371,10 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// - to spawn sub-models onto the simulation with
 ///   [`BuildContext::add_submodel`],
-/// - to pass an [`EventInjector`] retrieved with
-///   [`BuildContext::event_injector`] to any background thread that may need to
-///   communicate with the model,
+/// - to pass a [`ModelInjector`] or [`EventInjector`] retrieved with
+///   [`BuildContext::model_injector`] or [`BuildContext::event_injector`]
+///   respectively to any background thread that may need to communicate with
+///   the model,
 /// - to manually register a schedulable method with
 ///   [`BuildContext::register_schedulable`],
 /// - to provide a clock reader to the model with
@@ -569,7 +570,7 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     /// Returns an injector associated to this model.
-    #[deprecated = "please use the `event_injector` method instead"]
+    #[deprecated = "please use the `model_injector` method instead"]
     #[allow(deprecated)]
     #[doc(hidden)]
     pub fn injector(&self) -> ModelInjector<P::Model> {
@@ -580,12 +581,13 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         )
     }
 
-    /// Sets the model registry.
-    ///
-    /// Warning: this method must be called prior to any call to
-    /// [`injector`](Self::injector).
-    pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
-        self.model_registry = Some(model_registry);
+    /// Returns an injector associated to this model.
+    pub fn model_injector(&self) -> ModelInjector<P::Model> {
+        ModelInjector::new(
+            self.injector.clone(),
+            self.origin_id,
+            self.model_registry.unwrap().clone(),
+        )
     }
 
     /// Returns an injector associated to a specific input of this model.
@@ -601,6 +603,14 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
             self.injector.clone(),
             self.origin_id,
         )
+    }
+
+    /// Sets the model registry.
+    ///
+    /// Warning: this method must be called prior to any call to
+    /// [`injector`](Self::injector).
+    pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
+        self.model_registry = Some(model_registry);
     }
 }
 

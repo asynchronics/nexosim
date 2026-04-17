@@ -1,7 +1,9 @@
 # 1.?.? (2026-??-??)
 
-- `ModelInjector` has been deprecated in favour of `EventInjector` bound to
-  a single model input ([#167]).
+- Derive `Clone` on `ModelInjector` even if the model doesn't implement clone                       │    │
+  ([#165]).
+- Introduce an `EventInjector` bound to a single model input ([#167]).
+- Add a possibility to inject queries via the global `Injector`.
 
 # 1.0.0 (2026-02-03)
 
