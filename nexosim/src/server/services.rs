@@ -5,7 +5,7 @@ mod monitor_service;
 mod scheduler_service;
 
 use std::error;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -53,7 +53,7 @@ pub(crate) struct GrpcSimulationService {
     scheduler_service: Mutex<SchedulerService>,
     monitor_service: Mutex<MonitorService>,
     bench_service: RwLock<BenchService>,
-    state: AtomicU8,
+    busy: AtomicBool,
 }
 
 impl GrpcSimulationService {
@@ -74,7 +74,7 @@ impl GrpcSimulationService {
             scheduler_service: Mutex::new(SchedulerService::Halted),
             monitor_service: Mutex::new(MonitorService::Halted),
             bench_service: RwLock::new(BenchService::Halted),
-            state: AtomicU8::new(STATE_IDLE),
+            busy: AtomicBool::new(false),
         }
     }
 
@@ -298,40 +298,6 @@ pub(crate) fn to_strictly_positive_duration(duration: prost_types::Duration) -> 
     ))
 }
 
-const STATE_IDLE: u8 = 0;
-const STATE_BUILT: u8 = 1;
-const STATE_RUNNING: u8 = 2;
-
-fn state_to_str(state: u8) -> &'static str {
-    match state {
-        STATE_IDLE => "idle",
-        STATE_BUILT => "built",
-        STATE_RUNNING => "running",
-        _ => "<unknown>",
-    }
-}
-
-/// Verifies the requested state change. On failue returns from the current
-/// function with an error response.
-macro_rules! validate_state_change {
-    ($state:expr, $required:expr, $next:expr, $reply:ident, $reply_mod:ident) => {
-        if let Err(found) =
-            $state.compare_exchange($required, $next, Ordering::AcqRel, Ordering::Relaxed)
-        {
-            return Ok(Response::new($reply {
-                result: Some($reply_mod::Result::Error(to_error(
-                    ErrorCode::InvalidBenchState,
-                    format!(
-                        "invalid bench state: expected {}, found: {}",
-                        state_to_str($required),
-                        state_to_str(found)
-                    ),
-                ))),
-            }));
-        }
-    };
-}
-
 #[tonic::async_trait]
 impl simulation_server::Simulation for GrpcSimulationService {
     //-----------
@@ -347,7 +313,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
 
-        self.state.store(STATE_IDLE, Ordering::Relaxed);
+        self.busy.store(false, Ordering::Relaxed);
 
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
@@ -361,8 +327,18 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildReply>, Status> {
         let request = request.into_inner();
 
-        validate_state_change!(self.state, STATE_IDLE, STATE_BUILT, BuildReply, build_reply);
-
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return Ok(Response::new(BuildReply {
+                result: Some(build_reply::Result::Error(to_error(
+                    ErrorCode::BenchAlreadyBuilt,
+                    "bench is already built",
+                ))),
+            }));
+        }
         let reply = self.build_service.lock().unwrap().build(request).map(
             |(event_sink_info_registry, event_source_registry, query_source_registry, injector)| {
                 self.start_init_services(
@@ -375,7 +351,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         );
 
         if reply.is_err() {
-            self.state.store(STATE_IDLE, Ordering::Relaxed);
+            self.busy.store(false, Ordering::Relaxed);
         }
 
         Ok(Response::new(BuildReply {
@@ -389,14 +365,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
 
-        validate_state_change!(
-            self.state,
-            STATE_BUILT,
-            STATE_RUNNING,
-            InitReply,
-            init_reply
-        );
-
         let reply = self.build_service.lock().unwrap().init(request).map(
             |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
                 self.start_simulation_services(
@@ -407,11 +375,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 );
             },
         );
-
-        if reply.is_err() {
-            // The bench is in a possibly unknown state - force a rebuild.
-            self.state.store(STATE_IDLE, Ordering::Relaxed);
-        }
 
         Ok(Response::new(InitReply {
             result: Some(match reply {
@@ -427,14 +390,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
         // This is a composite request that is split into 2 sub-requests.
         let request = request.into_inner();
         let init_request = InitRequest { time: request.time };
-
-        validate_state_change!(
-            self.state,
-            STATE_BUILT,
-            STATE_RUNNING,
-            InitAndRunReply,
-            init_and_run_reply
-        );
 
         let reply = self.build_service.lock().unwrap().init(init_request).map(
             |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
@@ -454,11 +409,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 self.execute_controller_fn(RunRequest {}, ControllerService::run)
                     .await
             }
-            Err(e) => {
-                // The bench is in a possibly unknown state - force a rebuild.
-                self.state.store(STATE_IDLE, Ordering::Relaxed);
-                Err(e)
-            }
+            Err(e) => Err(e),
         };
 
         Ok(Response::new(InitAndRunReply {
@@ -474,14 +425,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<RestoreReply>, Status> {
         let request = request.into_inner();
 
-        validate_state_change!(
-            self.state,
-            STATE_BUILT,
-            STATE_RUNNING,
-            RestoreReply,
-            restore_reply
-        );
-
         let reply = self.build_service.lock().unwrap().restore(request).map(
             |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
                 self.start_simulation_services(
@@ -492,11 +435,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 );
             },
         );
-
-        if reply.is_err() {
-            // The bench is in a possibly unknown state - force a rebuild.
-            self.state.store(STATE_IDLE, Ordering::Relaxed);
-        }
 
         Ok(Response::new(RestoreReply {
             result: Some(match reply {
@@ -514,14 +452,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let restore_request = RestoreRequest {
             state: request.state,
         };
-
-        validate_state_change!(
-            self.state,
-            STATE_BUILT,
-            STATE_RUNNING,
-            RestoreAndRunReply,
-            restore_and_run_reply
-        );
 
         let reply = self
             .build_service
@@ -551,11 +481,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 self.execute_controller_fn(RunRequest {}, ControllerService::run)
                     .await
             }
-            Err(e) => {
-                // The bench is in a possibly unknown state - force a rebuild.
-                self.state.store(STATE_IDLE, Ordering::Relaxed);
-                Err(e)
-            }
+            Err(e) => Err(e),
         };
 
         Ok(Response::new(RestoreAndRunReply {
@@ -827,14 +753,9 @@ impl simulation_server::Simulation for GrpcSimulationService {
     }
     async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
         let request = request.into_inner();
-        let halt_result = self.scheduler_service.lock().unwrap().halt(request);
-
-        if halt_result.is_ok() {
-            self.state.store(STATE_IDLE, Ordering::Relaxed);
-        }
 
         Ok(Response::new(HaltReply {
-            result: Some(match halt_result {
+            result: Some(match self.scheduler_service.lock().unwrap().halt(request) {
                 Ok(()) => halt_reply::Result::Empty(()),
                 Err(e) => halt_reply::Result::Error(e),
             }),
