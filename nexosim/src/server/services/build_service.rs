@@ -22,18 +22,25 @@ type SimGen = Box<
         + 'static,
 >;
 
+#[allow(clippy::large_enum_variant)]
+enum BuildState {
+    None,
+    Built(
+        SimInit,
+        EventSinkRegistry,
+        Arc<EventSourceRegistry>,
+        Arc<QuerySourceRegistry>,
+    ),
+    Initialized,
+}
+
 /// Protobuf-based simulation initializer.
 ///
 /// A `BuildService` creates a new simulation bench based on a serialized
 /// initialization configuration.
 pub(crate) struct BuildService {
     sim_gen: SimGen,
-    bench: Option<(
-        SimInit,
-        EventSinkRegistry,
-        Arc<EventSourceRegistry>,
-        Arc<QuerySourceRegistry>,
-    )>,
+    state: BuildState,
 }
 
 impl BuildService {
@@ -60,7 +67,7 @@ impl BuildService {
 
         Self {
             sim_gen: Box::new(sim_gen),
-            bench: None,
+            state: BuildState::None,
         }
     }
 
@@ -77,6 +84,13 @@ impl BuildService {
         ),
         Error,
     > {
+        let BuildState::None = self.state else {
+            return Err(to_error(
+                ErrorCode::BenchAlreadyBuilt,
+                "bench is already built",
+            ));
+        };
+
         panic::catch_unwind(AssertUnwindSafe(|| {
             (self.sim_gen)(&request.cfg)
                 .map_err(from_config_deserialization_error)
@@ -96,12 +110,12 @@ impl BuildService {
             let query_source_registry = Arc::new(query_source_registry);
             let injector = bench.injector();
 
-            self.bench = Some((
+            self.state = BuildState::Built(
                 bench,
                 event_sink_registry,
                 event_source_registry.clone(),
                 query_source_registry.clone(),
-            ));
+            );
 
             (
                 event_sink_info_registry,
@@ -135,8 +149,15 @@ impl BuildService {
                 )
             })?;
 
-        let (bench, event_sink_registry, event_source_registry, query_source_registry) =
-            self.bench.take().ok_or_else(bench_not_built_error)?;
+        let BuildState::Built(
+            bench,
+            event_sink_registry,
+            event_source_registry,
+            query_source_registry,
+        ) = std::mem::replace(&mut self.state, BuildState::Initialized)
+        else {
+            return Err(bench_not_built_error());
+        };
 
         bench
             .init(start_time)
@@ -164,8 +185,15 @@ impl BuildService {
         ),
         Error,
     > {
-        let (bench, event_sink_registry, event_source_registry, query_source_registry) =
-            self.bench.take().ok_or_else(bench_not_built_error)?;
+        let BuildState::Built(
+            bench,
+            event_sink_registry,
+            event_source_registry,
+            query_source_registry,
+        ) = std::mem::replace(&mut self.state, BuildState::Initialized)
+        else {
+            return Err(bench_not_built_error());
+        };
 
         bench
             .restore(&request.state[..])
@@ -178,6 +206,13 @@ impl BuildService {
                     query_source_registry,
                 )
             })
+    }
+
+    /// Sets state to `BuildState::None`.
+    ///
+    /// `None` variant is required for the `build` method to execute.
+    pub(crate) fn reset_state(&mut self) {
+        self.state = BuildState::None;
     }
 }
 

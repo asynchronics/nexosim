@@ -5,7 +5,6 @@ mod monitor_service;
 mod scheduler_service;
 
 use std::error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -53,7 +52,6 @@ pub(crate) struct GrpcSimulationService {
     scheduler_service: Mutex<SchedulerService>,
     monitor_service: Mutex<MonitorService>,
     bench_service: RwLock<BenchService>,
-    busy: AtomicBool,
 }
 
 impl GrpcSimulationService {
@@ -74,7 +72,6 @@ impl GrpcSimulationService {
             scheduler_service: Mutex::new(SchedulerService::Halted),
             monitor_service: Mutex::new(MonitorService::Halted),
             bench_service: RwLock::new(BenchService::Halted),
-            busy: AtomicBool::new(false),
         }
     }
 
@@ -312,8 +309,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         *self.bench_service.write().unwrap() = BenchService::Halted;
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
-
-        self.busy.store(false, Ordering::Relaxed);
+        self.build_service.lock().unwrap().reset_state();
 
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
@@ -327,18 +323,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildReply>, Status> {
         let request = request.into_inner();
 
-        if self
-            .busy
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_err()
-        {
-            return Ok(Response::new(BuildReply {
-                result: Some(build_reply::Result::Error(to_error(
-                    ErrorCode::BenchAlreadyBuilt,
-                    "bench is already built",
-                ))),
-            }));
-        }
         let reply = self.build_service.lock().unwrap().build(request).map(
             |(event_sink_info_registry, event_source_registry, query_source_registry, injector)| {
                 self.start_init_services(
@@ -349,10 +333,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 );
             },
         );
-
-        if reply.is_err() {
-            self.busy.store(false, Ordering::Relaxed);
-        }
 
         Ok(Response::new(BuildReply {
             result: Some(match reply {
