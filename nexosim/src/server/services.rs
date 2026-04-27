@@ -125,6 +125,7 @@ impl GrpcSimulationService {
         *self.scheduler_service.lock().unwrap() = SchedulerService::Started {
             scheduler,
             event_source_registry,
+            query_source_registry,
             key_registry: KeyRegistry::default(),
         };
     }
@@ -781,6 +782,37 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Err(error) => cancel_event_reply::Result::Error(error),
             }),
         }))
+    }
+    async fn schedule_query(
+        &self,
+        request: Request<ScheduleQueryRequest>,
+    ) -> Result<Response<ScheduleQueryReply>, Status> {
+        let request = request.into_inner();
+
+        let result = self
+            .scheduler_service
+            .lock()
+            .unwrap()
+            .schedule_query(request);
+
+        let reply = match result {
+            Ok(fut) => match fut.await {
+                Ok(replies) => ScheduleQueryReply {
+                    replies,
+                    result: Some(schedule_query_reply::Result::Empty(())),
+                },
+                Err(error) => ScheduleQueryReply {
+                    replies: Vec::new(),
+                    result: Some(schedule_query_reply::Result::Error(error)),
+                },
+            },
+            Err(error) => ScheduleQueryReply {
+                replies: Vec::new(),
+                result: Some(schedule_query_reply::Result::Error(error)),
+            },
+        };
+
+        Ok(Response::new(reply))
     }
 
     //-----------------

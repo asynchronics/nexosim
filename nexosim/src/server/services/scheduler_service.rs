@@ -1,18 +1,37 @@
+use std::pin::Pin;
 use std::sync::Arc;
 
 use prost_types::Timestamp;
 
-use crate::endpoints::EventSourceRegistry;
+use crate::endpoints::{EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
 use crate::server::key_registry::{KeyRegistry, KeyRegistryId};
 use crate::server::services::from_endpoint_error;
-use crate::simulation::Scheduler;
+use crate::simulation::{QueueItem, Scheduler};
 
 use super::super::codegen::simulation::*;
 use super::{
     from_scheduling_error, monotonic_to_timestamp, simulation_not_started_error,
     timestamp_to_monotonic, to_error, to_strictly_positive_duration,
 };
+
+macro_rules! match_deadline {
+    ($deadline:ident, $time:expr, $request:ident) => {
+        match $deadline {
+            $request::Deadline::Time(time) => timestamp_to_monotonic(time)
+                .ok_or_else(|| to_error(ErrorCode::InvalidTime, "out-of-range nanosecond field"))?,
+            $request::Deadline::Duration(duration) => {
+                let duration = to_strictly_positive_duration(duration).ok_or_else(|| {
+                    to_error(
+                        ErrorCode::InvalidDeadline,
+                        "the specified scheduling deadline is not in the future",
+                    )
+                })?;
+                $time + duration
+            }
+        }
+    };
+}
 
 /// Protobuf-based simulation scheduler.
 ///
@@ -23,6 +42,7 @@ pub(crate) enum SchedulerService {
     Started {
         scheduler: Scheduler,
         event_source_registry: Arc<EventSourceRegistry>,
+        query_source_registry: Arc<QuerySourceRegistry>,
         key_registry: KeyRegistry,
     },
 }
@@ -66,6 +86,7 @@ impl SchedulerService {
             scheduler,
             event_source_registry,
             key_registry,
+            ..
         } = self
         else {
             return Err(simulation_not_started_error());
@@ -121,20 +142,7 @@ impl SchedulerService {
             .deadline
             .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing deadline argument"))?;
 
-        let deadline = match deadline {
-            schedule_event_request::Deadline::Time(time) => timestamp_to_monotonic(time)
-                .ok_or_else(|| to_error(ErrorCode::InvalidTime, "out-of-range nanosecond field"))?,
-            schedule_event_request::Deadline::Duration(duration) => {
-                let duration = to_strictly_positive_duration(duration).ok_or_else(|| {
-                    to_error(
-                        ErrorCode::InvalidDeadline,
-                        "the specified scheduling deadline is not in the future",
-                    )
-                })?;
-
-                scheduler.time() + duration
-            }
-        };
+        let deadline = match_deadline!(deadline, scheduler.time(), schedule_event_request);
 
         let key_id = event_key.map(|event_key| {
             key_registry.remove_expired_keys(scheduler.time());
@@ -147,7 +155,7 @@ impl SchedulerService {
         });
 
         scheduler
-            .schedule(deadline, event)
+            .schedule(deadline, QueueItem::Event(event))
             .map_err(from_scheduling_error)?;
 
         Ok(key_id)
@@ -183,5 +191,76 @@ impl SchedulerService {
         key.cancel();
 
         Ok(())
+    }
+
+    /// Schedules a query at a future time.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn schedule_query(
+        &mut self,
+        request: ScheduleQueryRequest,
+    ) -> Result<Pin<Box<dyn Future<Output = Result<Vec<Vec<u8>>, Error>> + Send>>, Error> {
+        let Self::Started {
+            scheduler,
+            query_source_registry,
+            ..
+        } = self
+        else {
+            return Err(simulation_not_started_error());
+        };
+
+        let source_path: &NexosimPath = &request
+            .source
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing query source path"))?
+            .segments
+            .into();
+
+        let arg = &request.request;
+
+        let source = query_source_registry
+            .get(source_path)
+            .map_err(from_endpoint_error)?;
+
+        let (query, rx) = source.query(arg).map_err(|e| {
+            to_error(
+                ErrorCode::InvalidMessage,
+                format!(
+                    "the request could not be deserialized as type '{}': {}",
+                    source.request_type_name(),
+                    e
+                ),
+            )
+        })?;
+
+        let deadline = request
+            .deadline
+            .ok_or_else(|| to_error(ErrorCode::MissingArgument, "missing deadline argument"))?;
+
+        let deadline = match_deadline!(deadline, scheduler.time(), schedule_query_request);
+
+        scheduler
+            .schedule(deadline, QueueItem::Query(query))
+            .map_err(from_scheduling_error)?;
+
+        let reply_type_name = source.reply_type_name().to_string();
+
+        let fut = async move {
+            let replies = rx.take_collect_fut().await.ok_or_else(|| {
+                to_error(
+                    ErrorCode::SimulationBadQuery,
+                    "a reply to the query was expected but none was available; maybe the target model was not added to the simulation?".to_string(),
+                )
+            })?;
+
+            replies.map_err(|e| {
+                to_error(
+                    ErrorCode::InvalidMessage,
+                    format!(
+                        "the reply could not be serialized as type '{}': {}",
+                        reply_type_name, e
+                    ),
+                )
+            })
+        };
+        Ok(Box::pin(fut))
     }
 }

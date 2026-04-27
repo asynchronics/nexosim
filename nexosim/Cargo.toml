@@ -94,6 +94,9 @@ tokio-stream = { version = "0.1.10", features = ["net"], optional = true }
 futures-util = "0.3"
 futures-executor = "0.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tonic = { version = "0.14", default-features = false, features = [
+    "channel"
+] }
 
 [target.'cfg(nexosim_loom)'.dev-dependencies]
 loom = "0.7"

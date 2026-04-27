@@ -561,6 +561,46 @@ pub mod process_event_reply {
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ScheduleQueryRequest {
+    #[prost(message, optional, tag = "3")]
+    pub source: ::core::option::Option<Path>,
+    #[prost(bytes = "vec", tag = "4")]
+    pub request: ::prost::alloc::vec::Vec<u8>,
+    /// Expects exactly 1 variant.
+    #[prost(oneof = "schedule_query_request::Deadline", tags = "1, 2")]
+    pub deadline: ::core::option::Option<schedule_query_request::Deadline>,
+}
+/// Nested message and enum types in `ScheduleQueryRequest`.
+pub mod schedule_query_request {
+    /// Expects exactly 1 variant.
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Deadline {
+        #[prost(message, tag = "1")]
+        Time(::prost_types::Timestamp),
+        #[prost(message, tag = "2")]
+        Duration(::prost_types::Duration),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct ScheduleQueryReply {
+    #[prost(bytes = "vec", repeated, tag = "1")]
+    pub replies: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    /// Always returns exactly 1 variant.
+    #[prost(oneof = "schedule_query_reply::Result", tags = "10, 100")]
+    pub result: ::core::option::Option<schedule_query_reply::Result>,
+}
+/// Nested message and enum types in `ScheduleQueryReply`.
+pub mod schedule_query_reply {
+    /// Always returns exactly 1 variant.
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag = "10")]
+        Empty(()),
+        #[prost(message, tag = "100")]
+        Error(super::Error),
+    }
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ProcessQueryRequest {
     #[prost(message, optional, tag = "1")]
     pub source: ::core::option::Option<Path>,
@@ -947,6 +987,13 @@ pub mod simulation_server {
             request: tonic::Request<super::ProcessEventRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ProcessEventReply>,
+            tonic::Status,
+        >;
+        async fn schedule_query(
+            &self,
+            request: tonic::Request<super::ScheduleQueryRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ScheduleQueryReply>,
             tonic::Status,
         >;
         async fn process_query(
@@ -2019,6 +2066,51 @@ pub mod simulation_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = ProcessEventSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/simulation.v1.Simulation/ScheduleQuery" => {
+                    #[allow(non_camel_case_types)]
+                    struct ScheduleQuerySvc<T: Simulation>(pub Arc<T>);
+                    impl<
+                        T: Simulation,
+                    > tonic::server::UnaryService<super::ScheduleQueryRequest>
+                    for ScheduleQuerySvc<T> {
+                        type Response = super::ScheduleQueryReply;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ScheduleQueryRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Simulation>::schedule_query(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ScheduleQuerySvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

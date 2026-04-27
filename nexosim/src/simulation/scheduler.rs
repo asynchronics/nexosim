@@ -77,9 +77,9 @@ impl Scheduler {
     pub(crate) fn schedule(
         &self,
         deadline: impl Deadline,
-        event: Event,
+        item: QueueItem,
     ) -> Result<(), SchedulingError> {
-        self.0.schedule_from(deadline, event, GLOBAL_ORIGIN_ID)
+        self.0.schedule_from(deadline, item, GLOBAL_ORIGIN_ID)
     }
 
     /// Schedules an event at a future time.
@@ -290,7 +290,7 @@ impl GlobalScheduler {
     pub(crate) fn schedule_from(
         &self,
         deadline: impl Deadline,
-        event: Event,
+        item: QueueItem,
         origin_id: usize,
     ) -> Result<(), SchedulingError> {
         // The scheduler queue must always be locked when reading the time,
@@ -308,7 +308,7 @@ impl GlobalScheduler {
             return Err(SchedulingError::InvalidScheduledTime);
         }
 
-        scheduler_queue.insert((time, origin_id), QueueItem::Event(event));
+        scheduler_queue.insert((time, origin_id), item);
 
         Ok(())
     }

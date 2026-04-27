@@ -118,12 +118,12 @@ pub use sim_init::{
 };
 
 pub(crate) use injector::InjectorQueue;
-#[cfg(feature = "server")]
-pub(crate) use queue_items::Event;
 pub(crate) use queue_items::{
     EVENT_KEY_REG, EventIdErased, EventKeyReg, InputSource, QueryIdErased, QueueItem,
     SchedulerRegistry,
 };
+#[cfg(feature = "server")]
+pub(crate) use queue_items::{Event, Query};
 pub(crate) use scheduler::GlobalScheduler;
 
 use std::any::{Any, TypeId};

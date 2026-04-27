@@ -5,6 +5,8 @@
 mod injector;
 mod model_scheduling;
 mod serialization;
+#[cfg(all(feature = "server", not(miri)))]
+mod server_scheduling;
 #[cfg(not(miri))]
 mod simulation_clock_sync;
 mod simulation_deadlock;
