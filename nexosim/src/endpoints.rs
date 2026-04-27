@@ -79,7 +79,7 @@ impl Endpoints {
     pub fn take_event_sink<T>(
         &mut self,
         path: impl Into<Path>,
-    ) -> Result<Box<dyn EventSinkReader<T>>, EndpointError>
+    ) -> Result<Box<dyn EventSinkReader<T> + Send>, EndpointError>
     where
         T: Clone + Send + 'static,
     {
