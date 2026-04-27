@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 
-use nexosim::model::Model;
+use nexosim::model::{Context, Model};
 use nexosim::ports::{EventSource, Output, QuerySource, SinkState, event_slot_endpoint};
 use nexosim::simulation::{Mailbox, SimInit};
 
@@ -14,10 +14,20 @@ mod grpc_client {
     include!("../codegen/simulation.v1.rs");
 }
 use grpc_client::{
-    BuildRequest, InitRequest, ReadEventRequest, RunRequest, ScheduleEventRequest,
-    ScheduleQueryRequest, read_event_reply, schedule_event_request, schedule_query_request,
-    simulation_client::SimulationClient,
+    BuildRequest, InitRequest, ReadEventRequest, ScheduleEventRequest, ScheduleQueryRequest,
+    StepUntilRequest, read_event_reply, schedule_event_request, schedule_query_request,
+    simulation_client::SimulationClient, step_until_request,
 };
+
+/// Helper macro to generate namespaced deadline argument for gRPC requests.
+macro_rules! some_deadline_secs {
+    ($seconds:expr, $request:ident) => {
+        Some($request::Deadline::Duration(prost_types::Duration {
+            seconds: $seconds,
+            ..Default::default()
+        }))
+    };
+}
 
 #[derive(Default, Serialize, Deserialize)]
 struct SimpleModel {
@@ -28,8 +38,8 @@ impl SimpleModel {
     async fn input(&mut self, value: u32) {
         self.output.send(3 * value).await;
     }
-    async fn query(&mut self, value: u32) -> u32 {
-        7 * value
+    async fn query(&mut self, value: i64, cx: &Context<Self>) -> i64 {
+        7 * value * cx.time().as_secs()
     }
 }
 
@@ -114,17 +124,31 @@ async fn event_schedule_simple() {
             event: vec![7],
             period: None,
             with_key: false,
-            deadline: Some(schedule_event_request::Deadline::Duration(
-                prost_types::Duration {
-                    seconds: 1,
-                    ..Default::default()
-                },
-            )),
+            deadline: some_deadline_secs!(1, schedule_event_request),
         })
         .await
         .unwrap();
 
-    let _ = client.run(RunRequest {}).await.unwrap();
+    let _ = client
+        .schedule_event(ScheduleEventRequest {
+            source: Some(grpc_client::Path {
+                segments: vec!["input".to_string()],
+            }),
+            event: vec![7],
+            period: None,
+            with_key: false,
+            deadline: some_deadline_secs!(3, schedule_event_request),
+        })
+        .await
+        .unwrap();
+
+    // Check output between scheduled events.
+    let _ = client
+        .step_until(StepUntilRequest {
+            deadline: some_deadline_secs!(2, step_until_request),
+        })
+        .await
+        .unwrap();
 
     let response = client
         .read_event(ReadEventRequest {
@@ -138,7 +162,30 @@ async fn event_schedule_simple() {
         })
         .await
         .unwrap();
+    assert!(
+        matches!(response.into_inner().result.unwrap(), read_event_reply::Result::Event(a) if a  == vec![21])
+    );
 
+    // Check the final output.
+    let _ = client
+        .step_until(StepUntilRequest {
+            deadline: some_deadline_secs!(3, step_until_request),
+        })
+        .await
+        .unwrap();
+
+    let response = client
+        .read_event(ReadEventRequest {
+            sink: Some(grpc_client::Path {
+                segments: vec!["sink".to_string()],
+            }),
+            timeout: Some(prost_types::Duration {
+                seconds: 1,
+                ..Default::default()
+            }),
+        })
+        .await
+        .unwrap();
     assert!(
         matches!(response.into_inner().result.unwrap(), read_event_reply::Result::Event(a) if a  == vec![21])
     );
@@ -160,19 +207,10 @@ async fn query_schedule_simple() {
                     segments: vec!["query".to_string()],
                 }),
                 request: vec![5],
-                deadline: Some(schedule_query_request::Deadline::Duration(
-                    prost_types::Duration {
-                        seconds: 3,
-                        ..Default::default()
-                    },
-                )),
+                deadline: some_deadline_secs!(3, schedule_query_request),
             })
             .await
     });
-
-    // Wait a bit so the 'later' query gets already scheduled and has a
-    // replier pending.
-    tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut query_client = client.clone();
     let response_earlier = tokio::spawn(async move {
@@ -182,29 +220,27 @@ async fn query_schedule_simple() {
                     segments: vec!["query".to_string()],
                 }),
                 request: vec![11],
-                deadline: Some(schedule_query_request::Deadline::Duration(
-                    prost_types::Duration {
-                        seconds: 1,
-                        ..Default::default()
-                    },
-                )),
+                deadline: some_deadline_secs!(1, schedule_query_request),
             })
             .await
     });
 
-    // This is necessary to make 'sure' that the queries get scheduled before the
-    // simulation is started. (otherwise they won't be executed!)
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let _ = client.run(RunRequest {}).await.unwrap();
+    let _ = client
+        .step_until(StepUntilRequest {
+            deadline: some_deadline_secs!(4, step_until_request),
+        })
+        .await
+        .unwrap();
 
     let response = response_earlier.await.unwrap().unwrap();
     let reply: u32 = ciborium::from_reader(&response.into_inner().replies[0][..]).unwrap();
-    assert_eq!(reply, 77);
+    assert_eq!(reply, 7 * 11);
 
     let response = response_later.await.unwrap().unwrap();
     let reply: u32 = ciborium::from_reader(&response.into_inner().replies[0][..]).unwrap();
-    assert_eq!(reply, 35);
+    assert_eq!(reply, 7 * 5 * 3);
 
     // Shutdown.
     signal.send(()).unwrap();
