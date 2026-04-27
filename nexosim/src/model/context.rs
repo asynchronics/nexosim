@@ -11,7 +11,7 @@ use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
     self, Address, EventId, EventIdErased, EventInjector, EventKey, GlobalScheduler, InjectorQueue,
-    InputSource, Mailbox, SchedulerRegistry, SchedulingError,
+    InputSource, Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -370,10 +370,10 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// - to spawn sub-models onto the simulation with
 ///   [`BuildContext::add_submodel`],
-/// - to pass an [`EventInjector`] retrieved with
-///   [`BuildContext::event_injector`] or
-///   [`BuildContext::mapped_event_injector`] to any background thread that may
-///   need to communicate with the model,
+/// - to pass a [`ModelInjector`] or [`EventInjector`] retrieved with
+///   [`BuildContext::model_injector`] or [`BuildContext::event_injector`]
+///   respectively to any background thread that may need to communicate with
+///   the model,
 /// - to manually register a schedulable method with
 ///   [`BuildContext::register_schedulable`],
 /// - to provide a clock reader to the model with
@@ -568,12 +568,25 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         self.scheduler.clock_reader()
     }
 
-    /// Sets the model registry.
-    ///
-    /// Warning: this method must be called prior to any call to
-    /// [`injector`](Self::injector).
-    pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
-        self.model_registry = Some(model_registry);
+    /// Returns an injector associated to this model.
+    #[deprecated = "please use the `model_injector` method instead"]
+    #[allow(deprecated)]
+    #[doc(hidden)]
+    pub fn injector(&self) -> ModelInjector<P::Model> {
+        ModelInjector::new(
+            self.injector.clone(),
+            self.origin_id,
+            self.model_registry.unwrap().clone(),
+        )
+    }
+
+    /// Returns an injector associated to this model.
+    pub fn model_injector(&self) -> ModelInjector<P::Model> {
+        ModelInjector::new(
+            self.injector.clone(),
+            self.origin_id,
+            self.model_registry.unwrap().clone(),
+        )
     }
 
     /// Returns an injector associated to a specific input of this model.
@@ -591,25 +604,12 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
         )
     }
 
-    /// Returns an auto-converting injector associated to a specific input of
-    /// this model.
+    /// Sets the model registry.
     ///
-    /// Event arguments are mapped to another type using the closure provided.
-    pub fn mapped_event_injector<F, C, T, U, S>(&self, func: F, map: C) -> EventInjector<T>
-    where
-        F: for<'b> InputFn<'b, P::Model, U, S> + Clone + Sync,
-        C: for<'b> Fn(&'b T) -> U + Clone + Send + Sync + 'static,
-        T: Clone + Send + 'static,
-        U: Send + 'static,
-        S: Send + Sync,
-    {
-        EventInjector::mapped(
-            func,
-            map,
-            self.mailbox.address(),
-            self.injector.clone(),
-            self.origin_id,
-        )
+    /// Warning: this method must be called prior to any call to
+    /// [`injector`](Self::injector).
+    pub(crate) fn set_model_registry(&mut self, model_registry: &'a Arc<ModelRegistry>) {
+        self.model_registry = Some(model_registry);
     }
 }
 
