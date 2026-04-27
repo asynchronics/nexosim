@@ -340,6 +340,8 @@ message ScheduleQueryRequest {
   bytes request = 4;
 }
 message ScheduleQueryReply {
+  // This field is hoisted because protobuf3 does not support `repeated` within
+  // a `oneof`. It is Always empty if an error is returned
   repeated bytes replies = 1;
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 10;
