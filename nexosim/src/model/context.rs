@@ -10,8 +10,8 @@ use crate::executor::{Executor, Signal};
 use crate::path::Path;
 use crate::ports::InputFn;
 use crate::simulation::{
-    self, Address, EventId, EventIdErased, EventKey, GlobalScheduler, InjectorQueue, InputSource,
-    Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
+    self, Address, EventId, EventIdErased, EventInjector, EventKey, GlobalScheduler, InjectorQueue,
+    InputSource, Mailbox, ModelInjector, SchedulerRegistry, SchedulingError,
 };
 use crate::time::{ClockReader, Deadline, MonotonicTime};
 
@@ -370,8 +370,10 @@ impl<M: Model> fmt::Debug for Context<M> {
 ///
 /// - to spawn sub-models onto the simulation with
 ///   [`BuildContext::add_submodel`],
-/// - to pass a [`ModelInjector`] retrieved with [`BuildContext::injector`] to
-///   any background thread that may need to communicate with the model,
+/// - to pass a [`ModelInjector`] or [`EventInjector`] retrieved with
+///   [`BuildContext::model_injector`] or [`BuildContext::event_injector`]
+///   respectively to any background thread that may need to communicate with
+///   the model,
 /// - to manually register a schedulable method with
 ///   [`BuildContext::register_schedulable`],
 /// - to provide a clock reader to the model with
@@ -567,11 +569,38 @@ impl<'a, P: ProtoModel> BuildContext<'a, P> {
     }
 
     /// Returns an injector associated to this model.
+    #[deprecated = "please use the `model_injector` method instead"]
+    #[allow(deprecated)]
+    #[doc(hidden)]
     pub fn injector(&self) -> ModelInjector<P::Model> {
         ModelInjector::new(
             self.injector.clone(),
             self.origin_id,
             self.model_registry.unwrap().clone(),
+        )
+    }
+
+    /// Returns an injector associated to this model.
+    pub fn model_injector(&self) -> ModelInjector<P::Model> {
+        ModelInjector::new(
+            self.injector.clone(),
+            self.origin_id,
+            self.model_registry.unwrap().clone(),
+        )
+    }
+
+    /// Returns an injector associated to a specific input of this model.
+    pub fn event_injector<F, T, S>(&self, func: F) -> EventInjector<T>
+    where
+        F: for<'b> InputFn<'b, P::Model, T, S> + Clone + Sync,
+        T: Clone + Send + 'static,
+        S: Send + Sync,
+    {
+        EventInjector::new(
+            func,
+            self.mailbox.address(),
+            self.injector.clone(),
+            self.origin_id,
         )
     }
 

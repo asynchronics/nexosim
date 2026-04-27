@@ -108,7 +108,7 @@ mod queue_items;
 mod scheduler;
 mod sim_init;
 
-pub use injector::{Injector, ModelInjector};
+pub use injector::{EventInjector, Injector, ModelInjector};
 pub use mailbox::{Address, Mailbox};
 pub use queue_items::{AutoEventKey, EventId, EventKey, QueryId};
 pub use scheduler::{Scheduler, SchedulingError};
@@ -153,6 +153,7 @@ use crate::executor::{Executor, ExecutorError, Signal};
 use crate::model::{BuildContext, Context, Model, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{ReplierFn, query_replier};
+use crate::simulation::injector::InjectorItem;
 use crate::time::{AtomicTime, Clock, Deadline, MonotonicTime, SyncStatus, Ticker};
 use crate::util::seq_futures::SeqFuture;
 use crate::util::serialization::serialization_config;
@@ -590,34 +591,15 @@ impl Simulation {
 
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
 
-        // Closure returning the next key which time stamp is no older than the
-        // upper bound, if any. Cancelled events are pulled and discarded.
-        let peek_next_key = |scheduler_queue: &mut MutexGuard<SchedulerQueue>| {
-            loop {
-                match scheduler_queue.peek() {
-                    Some((&key, item)) if key.0 <= upper_time_bound => {
-                        // Discard and evict cancelled events.
-                        if let QueueItem::Event(event) = item
-                            && event.is_cancelled()
-                        {
-                            scheduler_queue.pull();
-                        } else {
-                            break Some(key);
-                        }
-                    }
-                    _ => break None,
-                }
-            }
-        };
-
         // Set to simulation time to the next scheduled event or next tick,
         // whichever is earlier.
+
         let next_tick = self.ticker.as_mut().and_then(|ticker| {
             let tick = ticker.next_tick(self.time.read());
             (tick <= upper_time_bound).then_some(tick)
         });
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
-        let mut next_key = peek_next_key(&mut scheduler_queue);
+        let next_key = peek_next_key(&mut scheduler_queue, upper_time_bound);
         let time = match (next_key, next_tick) {
             (Some(key), Some(tick)) => tick.min(key.0),
             (Some(key), None) => key.0,
@@ -627,85 +609,23 @@ impl Simulation {
 
         self.time.write(time);
 
-        let mut has_events = false;
+        // Spawn next scheduled items (if any).
+        // SchedulerQueue mutex guard is consumed by the function
+        // and therefore the mutex is unlocked after it returns.
+        let mut has_events = handle_scheduler_step(
+            scheduler_queue,
+            &self.executor,
+            &self.scheduler_registry,
+            next_key,
+            time,
+        )?;
 
-        // Spawn scheduled events matching the current time stamp.
-        while next_key.map(|key| key.0 == time).unwrap_or(false) {
-            // Merge all events with the same origin in a single future to
-            // preserve event ordering.
-            let mut event_seq = SeqFuture::new();
-            next_key = loop {
-                let ((time, origin_id), item) = scheduler_queue.pull().unwrap();
-
-                let fut = match item {
-                    QueueItem::Event(event) => {
-                        let source = self
-                            .scheduler_registry
-                            .get_event_source(&event.event_id)
-                            .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
-
-                        if let Some(period) = event.period {
-                            let fut = source.future_borrowed(&*event.arg, event.key.as_ref())?;
-                            scheduler_queue
-                                .insert((time + period, origin_id), QueueItem::Event(event));
-                            fut
-                        } else {
-                            source.future_owned(event.arg, event.key)?
-                        }
-                    }
-                    QueueItem::Query(query) => {
-                        let source = self
-                            .scheduler_registry
-                            .get_query_source(&query.query_id)
-                            .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
-                        source.future(query.arg, query.replier)?
-                    }
-                };
-
-                event_seq.push(fut);
-
-                let key = peek_next_key(&mut scheduler_queue);
-                if key != next_key {
-                    break key;
-                }
-            };
-
-            // Spawn a compound future that sequentially polls all events
-            // targeting the same mailbox.
-            self.executor.spawn_and_forget(event_seq);
-            has_events = true;
-        }
-
-        // Make sure the scheduler's mutex is released before the potentially
-        // blocking call to `synchronize`.
-        drop(scheduler_queue);
-
-        // Spawn injector events. The events are assumed to be non-periodic and
-        // non-cancellable.
-        {
-            let mut injector_queue = self.injector_queue.lock().unwrap();
-
-            if let Some(mut origin_id) = injector_queue.peek().map(|item| *item.0) {
-                has_events = true;
-                let mut event_seq = SeqFuture::new();
-                while let Some((id, event)) = injector_queue.pull() {
-                    let source = self
-                        .scheduler_registry
-                        .get_event_source(&event.event_id)
-                        .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
-
-                    let fut = source.future_owned(event.arg, event.key)?;
-                    if id != origin_id {
-                        self.executor.spawn_and_forget(event_seq);
-                        event_seq = SeqFuture::new();
-                        origin_id = id
-                    }
-                    event_seq.push(fut);
-                }
-
-                self.executor.spawn_and_forget(event_seq);
-            }
-        }
+        // Spawn currently injected items.
+        let injector_queue = self.injector_queue.lock().unwrap();
+        // InjectorQueue mutex guard is consumed by the function
+        // and therefore the mutex is unlocked after it returns.
+        has_events |=
+            handle_injector_step(injector_queue, &self.executor, &self.scheduler_registry)?;
 
         // Block until the deadline.
         self.synchronize(time)?;
@@ -1504,4 +1424,141 @@ impl<F: Future> Future for ModelFuture<F> {
 
         poll
     }
+}
+
+// Helper function returning the next key which time stamp is no older than the
+// upper bound, if any. Cancelled events are pulled and discarded.
+fn peek_next_key(
+    scheduler_queue: &mut MutexGuard<SchedulerQueue>,
+    upper_time_bound: MonotonicTime,
+) -> Option<(MonotonicTime, usize)> {
+    loop {
+        match scheduler_queue.peek() {
+            Some((&key, item)) if key.0 <= upper_time_bound => {
+                // Discard and evict cancelled events.
+                if let QueueItem::Event(event) = item
+                    && event.is_cancelled()
+                {
+                    scheduler_queue.pull();
+                } else {
+                    break Some(key);
+                }
+            }
+            _ => break None,
+        }
+    }
+}
+
+/// Spawn scheduled items matching given key.
+///
+/// If successful returns a bool value indicating whether at least one item has
+/// been spawned.
+/// Note: this function consumes SchedulerQueue mutex guard,
+/// which means that the guard is dropped on return and
+/// subsequently the mutex is unlocked.
+fn handle_scheduler_step(
+    mut scheduler_queue: MutexGuard<SchedulerQueue>,
+    executor: &Executor,
+    scheduler_registry: &SchedulerRegistry,
+    mut next_key: Option<(MonotonicTime, usize)>,
+    time: MonotonicTime,
+) -> Result<bool, ExecutionError> {
+    // Spawn scheduled events only if they match the current time stamp.
+    match &next_key {
+        Some((t, _)) if *t == time => (),
+        _ => return Ok(false),
+    }
+
+    while next_key.is_some() {
+        // Merge all events with the same origin in a single future to
+        // preserve event ordering.
+        let mut event_seq = SeqFuture::new();
+        next_key = loop {
+            let ((time, origin_id), item) = scheduler_queue.pull().unwrap();
+
+            let fut = match item {
+                QueueItem::Event(event) => {
+                    let source = scheduler_registry
+                        .get_event_source(&event.event_id)
+                        .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
+
+                    if let Some(period) = event.period {
+                        let fut = source.future_borrowed(&*event.arg, event.key.as_ref())?;
+                        scheduler_queue.insert((time + period, origin_id), QueueItem::Event(event));
+                        fut
+                    } else {
+                        source.future_owned(event.arg, event.key)?
+                    }
+                }
+                QueueItem::Query(query) => {
+                    let source = scheduler_registry
+                        .get_query_source(&query.query_id)
+                        .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
+                    source.future(query.arg, query.replier)?
+                }
+            };
+
+            event_seq.push(fut);
+
+            let key = peek_next_key(&mut scheduler_queue, time);
+            if key != next_key {
+                break key;
+            }
+        };
+
+        // Spawn a compound future that sequentially polls all events
+        // targeting the same mailbox.
+        executor.spawn_and_forget(event_seq);
+    }
+    Ok(true)
+}
+
+/// Spawn injector items. The items are assumed to be non-periodic
+/// and non-cancellable.
+///
+/// If successful returns a bool value indicating whether at least one item has
+/// been spawned.
+/// Note: this function consumes InjectorQueue mutex guard,
+/// which means that the guard is dropped on return and
+/// subsequently the mutex is unlocked.
+fn handle_injector_step(
+    mut injector_queue: MutexGuard<InjectorQueue>,
+    executor: &Executor,
+    scheduler_registry: &SchedulerRegistry,
+) -> Result<bool, ExecutionError> {
+    let mut has_events = false;
+
+    if let Some(mut origin_id) = injector_queue.peek().map(|item| *item.0) {
+        has_events = true;
+        let mut event_seq = SeqFuture::new();
+        while let Some((id, item)) = injector_queue.pull() {
+            let fut = match item {
+                InjectorItem::Event(event) => {
+                    let source = scheduler_registry
+                        .get_event_source(&event.event_id)
+                        .ok_or(ExecutionError::InvalidEventId(event.event_id.0))?;
+
+                    source.future_owned(event.arg, event.key)?
+                }
+                InjectorItem::Query(query) => {
+                    let source = scheduler_registry
+                        .get_query_source(&query.query_id)
+                        .ok_or(ExecutionError::InvalidQueryId(query.query_id.0))?;
+
+                    source.future(query.arg, query.replier)?
+                }
+                InjectorItem::Future(fut) => fut,
+            };
+
+            if id != origin_id {
+                executor.spawn_and_forget(event_seq);
+                event_seq = SeqFuture::new();
+                origin_id = id
+            }
+            event_seq.push(fut);
+        }
+
+        executor.spawn_and_forget(event_seq);
+    }
+    Ok(has_events)
 }

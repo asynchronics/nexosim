@@ -1,10 +1,14 @@
 use std::fmt;
 use std::marker::PhantomData;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+use recycle_box::{RecycleBox, coerce_box};
+
 use crate::model::{Model, ModelRegistry, SchedulableId};
-use crate::simulation::EventId;
-use crate::simulation::queue_items::Event;
+use crate::ports::{InputFn, ReplyReader};
+use crate::simulation::queue_items::{Event, Query};
+use crate::simulation::{Address, EventId, QueryId};
 use crate::util::priority_queue::PriorityQueue;
 
 use super::GLOBAL_ORIGIN_ID;
@@ -17,7 +21,118 @@ use super::GLOBAL_ORIGIN_ID;
 /// preservation of this ordering is implemented by the event loop, which
 /// aggregate events with the same origin into single sequential futures, thus
 /// ensuring that they are not executed concurrently.
-pub(crate) type InjectorQueue = PriorityQueue<usize, Event>;
+pub(crate) type InjectorQueue = PriorityQueue<usize, InjectorItem>;
+
+pub(crate) enum InjectorItem {
+    Event(Event),
+    Query(Query),
+    Future(Pin<Box<dyn Future<Output = ()> + Send>>),
+}
+
+/// An injector for events to be processed by a model as soon as possible.
+///
+/// The [`EventInjector::inject`] method is similar to
+/// [`Context::schedule_event`](crate::model::Context::schedule_event) but is
+/// used to request events to be processed as soon as possible rather than at a
+/// specific deadline. An `EventInjector` is always associated to a model
+/// instance and its specific input method.
+pub struct EventInjector<T> {
+    queue: Arc<Mutex<InjectorQueue>>,
+    origin_id: usize,
+    inner: Box<dyn InjectorFutGen<T> + Send + 'static>,
+}
+
+impl<T> EventInjector<T>
+where
+    T: Send + 'static,
+{
+    pub(crate) fn new<M, F, S>(
+        func: F,
+        address: impl Into<Address<M>>,
+        queue: Arc<Mutex<InjectorQueue>>,
+        origin_id: usize,
+    ) -> Self
+    where
+        M: Model,
+        F: for<'a> InputFn<'a, M, T, S> + Clone + Sync,
+        S: Send + Sync,
+    {
+        let sender = address.into().0;
+        let inner =
+            move |arg: T| async move {
+                let _ = sender.send(
+                move |model: &mut M,
+                      scheduler,
+                      env,
+                      recycle_box: RecycleBox<()>|
+                      -> RecycleBox<dyn Future<Output = ()> + Send + '_> {
+                    let fut = func.call(model, arg, scheduler, env);
+                    coerce_box!(RecycleBox::recycle(recycle_box, fut))
+                }
+            ).await;
+            };
+        let inner = InjectorInner::new(inner);
+
+        Self {
+            inner: Box::new(inner),
+            queue,
+            origin_id,
+        }
+    }
+
+    /// Transforms this injector into an auto-converting injector.
+    ///
+    /// Event arguments are mapped to another type using the closure provided.
+    pub fn into_mapped<M, U>(self, map: M) -> EventInjector<U>
+    where
+        M: FnOnce(U) -> T + Clone + Send + Sync + 'static,
+        U: Send + 'static,
+    {
+        let inner = MappedInjectorInner::from_fut_gen(self.inner, map);
+
+        EventInjector {
+            inner: Box::new(inner) as Box<dyn InjectorFutGen<U> + Send + 'static>,
+            queue: self.queue,
+            origin_id: self.origin_id,
+        }
+    }
+
+    /// Injects an event to be processed as soon as possible.
+    ///
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is executed
+    /// concurrently, the event will be processed at the deadline set by the
+    /// scheduler event or simulation tick that directly follows the one that is
+    /// being stepped into.
+    ///
+    /// If the event is injected while the simulation is at rest, the event will
+    /// be processed at the lapse of the next simulation step (next scheduler
+    /// event or simulation tick).
+    pub fn inject(&self, arg: T) {
+        let fut = self.inner.future(arg);
+        let mut queue = self.queue.lock().unwrap();
+        queue.insert(self.origin_id, InjectorItem::Future(fut));
+    }
+}
+
+impl<T> fmt::Debug for EventInjector<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EventInjector")
+            .field("origin_id", &self.origin_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> Clone for EventInjector<T> {
+    fn clone(&self) -> Self {
+        Self {
+            queue: self.queue.clone(),
+            origin_id: self.origin_id,
+            inner: self.inner.clone(),
+        }
+    }
+}
 
 /// An injector for events to be processed by a model as soon as possible.
 ///
@@ -65,7 +180,7 @@ impl<M: Model> ModelInjector<M> {
     {
         let mut queue = self.queue.lock().unwrap();
         let event = Event::new(&schedulable_id.source_id(&self.model_registry), arg);
-        queue.insert(self.origin_id, event);
+        queue.insert(self.origin_id, InjectorItem::Event(event));
     }
 }
 
@@ -126,12 +241,125 @@ impl Injector {
     /// Injects an already built event to be processed as soon as possible.
     pub(crate) fn inject_built_event(&self, event: Event) {
         let mut queue = self.queue.lock().unwrap();
-        queue.insert(GLOBAL_ORIGIN_ID, event);
+        queue.insert(GLOBAL_ORIGIN_ID, InjectorItem::Event(event));
+    }
+
+    /// Injects a query to be processed as soon as possible.
+    ///
+    /// If a stepping method such as
+    /// [`Simulation::step`](crate::simulation::Simulation::step) or
+    /// [`Simulation::run`](crate::simulation::Simulation::run) is executed
+    /// concurrently, the query will be processed at the deadline set by the
+    /// scheduler event or simulation tick that directly follows the one that is
+    /// being stepped into.
+    ///
+    /// If the query is injected while the simulation is at rest, the query will
+    /// be processed at the lapse of the next simulation step (next scheduler
+    /// event or simulation tick).
+    pub fn inject_query<T, R>(&self, query_id: &QueryId<T, R>, arg: T) -> ReplyReader<R>
+    where
+        T: Send + Clone + 'static,
+        R: Send + 'static,
+    {
+        let (query, rx) = Query::new(query_id, arg);
+        let mut queue = self.queue.lock().unwrap();
+        queue.insert(GLOBAL_ORIGIN_ID, InjectorItem::Query(query));
+        rx
     }
 }
 
 impl fmt::Debug for Injector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Injector").finish_non_exhaustive()
+    }
+}
+
+/// Private trait that allows type-erased cloneable future generation.
+trait InjectorFutGen<T> {
+    fn future(&self, arg: T) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+    fn clone(&self) -> Box<dyn InjectorFutGen<T> + Send + 'static>;
+}
+
+/// Typed event future generator.
+struct InjectorInner<G, F, T>
+where
+    G: (FnOnce(T) -> F) + Send + Clone + 'static,
+    F: Future<Output = ()> + Send + 'static,
+{
+    generator: G,
+    _marker: PhantomData<(F, T)>,
+}
+impl<G, F, T> InjectorInner<G, F, T>
+where
+    G: (FnOnce(T) -> F) + Send + Clone + 'static,
+    F: Future<Output = ()> + Send + 'static,
+{
+    fn new(generator: G) -> Self {
+        Self {
+            generator,
+            _marker: PhantomData,
+        }
+    }
+}
+impl<G, F, T> InjectorFutGen<T> for InjectorInner<G, F, T>
+where
+    G: (FnOnce(T) -> F) + Send + Clone + 'static,
+    F: Future<Output = ()> + Send + 'static,
+    T: Send + 'static,
+{
+    fn future(&self, arg: T) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let f = self.generator.clone()(arg);
+        Box::pin(f)
+    }
+    fn clone(&self) -> Box<dyn InjectorFutGen<T> + Send + 'static> {
+        Box::new(Self {
+            generator: self.generator.clone(),
+            _marker: PhantomData,
+        })
+    }
+}
+
+/// Typed event future generator.
+struct MappedInjectorInner<M, T, U>
+where
+    M: FnOnce(U) -> T + Clone + Send + Sync + 'static,
+    U: Send + 'static,
+    T: 'static,
+{
+    map_fn: M,
+    inner: Box<dyn InjectorFutGen<T> + Send + 'static>,
+    _marker: PhantomData<U>,
+}
+impl<M, T, U> MappedInjectorInner<M, T, U>
+where
+    M: FnOnce(U) -> T + Clone + Send + Sync + 'static,
+    U: Send + 'static,
+    T: 'static,
+{
+    fn from_fut_gen(fut_gen: Box<dyn InjectorFutGen<T> + Send>, map: M) -> Self {
+        Self {
+            map_fn: map,
+            inner: fut_gen,
+            _marker: PhantomData,
+        }
+    }
+}
+impl<M, T, U> InjectorFutGen<U> for MappedInjectorInner<M, T, U>
+where
+    M: FnOnce(U) -> T + Clone + Send + Sync + 'static,
+    U: Send + 'static,
+    T: 'static,
+{
+    fn future(&self, arg: U) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let arg = self.map_fn.clone()(arg);
+        let f = self.inner.future(arg);
+        Box::pin(f)
+    }
+    fn clone(&self) -> Box<dyn InjectorFutGen<U> + Send + 'static> {
+        Box::new(Self {
+            map_fn: self.map_fn.clone(),
+            inner: self.inner.clone(),
+            _marker: PhantomData,
+        })
     }
 }

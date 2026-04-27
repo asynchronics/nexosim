@@ -1,0 +1,422 @@
+//! Ticked simulation with event injection.
+
+use std::thread;
+use std::time::Duration;
+
+use nexosim::model::Context;
+use serde::{Deserialize, Serialize};
+
+#[cfg(not(miri))]
+use nexosim::model::{BuildContext, Model, ProtoModel, schedulable};
+use nexosim::ports::{EventSinkReader, EventSource, Output, QuerySource, SinkState, event_queue};
+use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::time::{AutoSystemClock, MonotonicTime, PeriodicTicker};
+
+const MT_NUM_THREADS: usize = 4;
+
+// A time-stamping model.
+struct TestProtoModel {
+    output: Output<(usize, MonotonicTime)>,
+    delay1: Duration,
+    delay2: Duration,
+    use_event_injector: bool,
+    use_model_injector: bool,
+}
+impl TestProtoModel {
+    fn new(delay1: Duration, delay2: Duration) -> Self {
+        Self {
+            output: Output::default(),
+            delay1,
+            delay2,
+            use_event_injector: false,
+            use_model_injector: false,
+        }
+    }
+    fn with_event_injector(mut self) -> Self {
+        self.use_event_injector = true;
+        self
+    }
+    fn with_model_injector(mut self) -> Self {
+        self.use_model_injector = true;
+        self
+    }
+}
+impl ProtoModel for TestProtoModel {
+    type Model = TestModel;
+
+    fn build(self, cx: &mut BuildContext<Self>) -> (Self::Model, ()) {
+        if self.use_event_injector {
+            let event_injector = cx.event_injector(TestModel::manual_schedulable_trigger);
+
+            thread::spawn(move || {
+                thread::sleep(self.delay1);
+                event_injector.inject(1);
+
+                thread::sleep(self.delay2);
+                event_injector.inject(2);
+            });
+        }
+
+        if self.use_model_injector {
+            let model_injector = cx.model_injector();
+            let manual_schedulable_trigger =
+                cx.register_schedulable(TestModel::manual_schedulable_trigger);
+
+            thread::spawn(move || {
+                thread::sleep(self.delay1);
+                model_injector.inject_event(schedulable!(TestModel::auto_schedulable_trigger), 1);
+
+                thread::sleep(self.delay2);
+                model_injector.inject_event(&manual_schedulable_trigger, 2);
+            });
+        }
+
+        (TestModel::new(self.output), ())
+    }
+}
+#[derive(Serialize, Deserialize)]
+struct TestModel {
+    output: Output<(usize, MonotonicTime)>,
+}
+#[Model]
+impl TestModel {
+    fn new(output: Output<(usize, MonotonicTime)>) -> Self {
+        Self { output }
+    }
+    #[nexosim(schedulable)]
+    async fn auto_schedulable_trigger(&mut self, payload: usize, cx: &Context<Self>) {
+        self.output.send((payload, cx.time())).await;
+    }
+    async fn manual_schedulable_trigger(&mut self, payload: usize, cx: &Context<Self>) {
+        self.output.send((payload, cx.time())).await;
+    }
+    async fn calc(&mut self, arg: usize) -> usize {
+        arg * 13
+    }
+    fn dummy(&mut self) {}
+}
+
+fn event_injector_basic(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let tick_period = Duration::from_millis(250);
+
+    let mut model = TestProtoModel::new(Duration::from_millis(100), Duration::from_millis(500))
+        .with_event_injector();
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut simu = SimInit::with_num_threads(num_threads)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period))
+        .add_model(model, mbox, "")
+        .init(t0)
+        .unwrap();
+
+    simu.step_until(t_end).unwrap();
+    assert_eq!(
+        output.try_read(),
+        Some((1, MonotonicTime::EPOCH + Duration::from_millis(500)))
+    );
+    assert_eq!(
+        output.try_read(),
+        Some((2, MonotonicTime::EPOCH + Duration::from_millis(1000)))
+    );
+}
+
+fn event_injector_tickless(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let pseudo_tick_period = Duration::from_millis(250);
+
+    let mut model = TestProtoModel::new(Duration::from_millis(100), Duration::from_millis(500))
+        .with_event_injector();
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench =
+        SimInit::with_num_threads(num_threads).with_tickless_clock(AutoSystemClock::new());
+
+    let dummy = EventSource::new()
+        .connect(TestModel::dummy, &mbox)
+        .register(&mut bench);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+    simu.scheduler()
+        .schedule_periodic_event(t0 + pseudo_tick_period, pseudo_tick_period, &dummy, ())
+        .unwrap();
+
+    simu.step_until(t_end).unwrap();
+    assert_eq!(
+        output.try_read(),
+        Some((1, MonotonicTime::EPOCH + Duration::from_millis(500)))
+    );
+    assert_eq!(
+        output.try_read(),
+        Some((2, MonotonicTime::EPOCH + Duration::from_millis(1000)))
+    );
+}
+
+#[cfg(not(miri))]
+#[test]
+fn event_injector_ordering_mt() {
+    const NUM_THREAD: usize = 16;
+    let t0 = MonotonicTime::EPOCH;
+    let tick_period = Duration::from_millis(500);
+    let t_end = t0 + 2 * tick_period;
+
+    let mut bench = SimInit::with_num_threads(NUM_THREAD)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period));
+
+    // Connect each model to its own sink.
+    let mut outputs = Vec::new();
+    for _ in 0..NUM_THREAD {
+        let mut model = TestProtoModel::new(Duration::from_millis(150), Duration::from_millis(100))
+            .with_event_injector();
+        let mbox = Mailbox::new();
+
+        let (sink, output) = event_queue(SinkState::Enabled);
+        model.output.connect_sink(sink);
+        bench = bench.add_model(model, mbox, "");
+        outputs.push(output);
+    }
+
+    let mut simu = bench.init(t0).unwrap();
+    simu.step_until(t_end).unwrap();
+
+    for mut output in outputs {
+        // Make sure the events arrived in the same time slice but in order.
+        assert_eq!(output.try_read(), Some((1, t_end)));
+        assert_eq!(output.try_read(), Some((2, t_end)));
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn event_injector_basic_st() {
+    event_injector_basic(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn event_injector_basic_mt() {
+    event_injector_basic(MT_NUM_THREADS);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn event_injector_tickless_st() {
+    event_injector_tickless(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn event_injector_tickless_mt() {
+    event_injector_tickless(MT_NUM_THREADS);
+}
+
+fn model_injector_basic(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let tick_period = Duration::from_millis(250);
+
+    let mut model = TestProtoModel::new(Duration::from_millis(100), Duration::from_millis(500))
+        .with_model_injector();
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut simu = SimInit::with_num_threads(num_threads)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period))
+        .add_model(model, mbox, "")
+        .init(t0)
+        .unwrap();
+
+    simu.step_until(t_end).unwrap();
+    assert_eq!(
+        output.try_read(),
+        Some((1, MonotonicTime::EPOCH + Duration::from_millis(500)))
+    );
+    assert_eq!(
+        output.try_read(),
+        Some((2, MonotonicTime::EPOCH + Duration::from_millis(1000)))
+    );
+}
+
+fn model_injector_tickless(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let pseudo_tick_period = Duration::from_millis(250);
+
+    let mut model = TestProtoModel::new(Duration::from_millis(100), Duration::from_millis(500))
+        .with_model_injector();
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench =
+        SimInit::with_num_threads(num_threads).with_tickless_clock(AutoSystemClock::new());
+
+    let dummy = EventSource::new()
+        .connect(TestModel::dummy, &mbox)
+        .register(&mut bench);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+    simu.scheduler()
+        .schedule_periodic_event(t0 + pseudo_tick_period, pseudo_tick_period, &dummy, ())
+        .unwrap();
+
+    simu.step_until(t_end).unwrap();
+    assert_eq!(
+        output.try_read(),
+        Some((1, MonotonicTime::EPOCH + Duration::from_millis(500)))
+    );
+    assert_eq!(
+        output.try_read(),
+        Some((2, MonotonicTime::EPOCH + Duration::from_millis(1000)))
+    );
+}
+
+#[cfg(not(miri))]
+#[test]
+fn model_injector_ordering_mt() {
+    const NUM_THREAD: usize = 16;
+    let t0 = MonotonicTime::EPOCH;
+    let tick_period = Duration::from_millis(500);
+    let t_end = t0 + 2 * tick_period;
+
+    let mut bench = SimInit::with_num_threads(NUM_THREAD)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period));
+
+    // Connect each model to its own sink.
+    let mut outputs = Vec::new();
+    for _ in 0..NUM_THREAD {
+        let mut model = TestProtoModel::new(Duration::from_millis(150), Duration::from_millis(100))
+            .with_model_injector();
+        let mbox = Mailbox::new();
+
+        let (sink, output) = event_queue(SinkState::Enabled);
+        model.output.connect_sink(sink);
+        bench = bench.add_model(model, mbox, "");
+        outputs.push(output);
+    }
+
+    let mut simu = bench.init(t0).unwrap();
+    simu.step_until(t_end).unwrap();
+
+    for mut output in outputs {
+        // Make sure the events arrived in the same time slice but in order.
+        assert_eq!(output.try_read(), Some((1, t_end)));
+        assert_eq!(output.try_read(), Some((2, t_end)));
+    }
+}
+
+#[cfg(not(miri))]
+#[test]
+fn model_injector_basic_st() {
+    model_injector_basic(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn model_injector_basic_mt() {
+    model_injector_basic(MT_NUM_THREADS);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn model_injector_tickless_st() {
+    model_injector_tickless(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn model_injector_tickless_mt() {
+    model_injector_tickless(MT_NUM_THREADS);
+}
+
+fn global_injector_event(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let tick_period = Duration::from_millis(250);
+
+    // Make internal injections later than this test's end.
+    let mut model = TestProtoModel::new(Duration::from_millis(2000), Duration::from_millis(2500));
+    let mbox = Mailbox::new();
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+    model.output.connect_sink(sink);
+
+    let mut bench = SimInit::with_num_threads(num_threads)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period));
+
+    let event_id = EventSource::new()
+        .connect(TestModel::manual_schedulable_trigger, &mbox)
+        .register(&mut bench);
+
+    let injector = bench.injector();
+    injector.inject_event(&event_id, 17);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.step_until(t_end).unwrap();
+    assert_eq!(
+        output.try_read(),
+        Some((17, MonotonicTime::EPOCH + Duration::from_millis(250)))
+    );
+}
+
+fn global_injector_query(num_threads: usize) {
+    let t0 = MonotonicTime::EPOCH;
+    let t_end = t0 + Duration::from_secs(1);
+    let tick_period = Duration::from_millis(250);
+
+    // Make internal injections later than this test's end.
+    let model = TestProtoModel::new(Duration::from_millis(2000), Duration::from_millis(2500));
+    let mbox = Mailbox::new();
+
+    let mut bench = SimInit::with_num_threads(num_threads)
+        .with_clock(AutoSystemClock::new(), PeriodicTicker::new(tick_period));
+
+    let query_id = QuerySource::new()
+        .connect(TestModel::calc, &mbox)
+        .register(&mut bench);
+
+    let injector = bench.injector();
+    let rx = injector.inject_query(&query_id, 19);
+
+    let mut simu = bench.add_model(model, mbox, "").init(t0).unwrap();
+
+    simu.step_until(t_end).unwrap();
+    let result = rx.read().unwrap().next().unwrap();
+    assert_eq!(result, 13 * 19);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_event_st() {
+    global_injector_event(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_event_mt() {
+    global_injector_event(MT_NUM_THREADS);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_query_st() {
+    global_injector_query(1);
+}
+
+#[cfg(not(miri))]
+#[test]
+fn global_injector_query_mt() {
+    global_injector_query(MT_NUM_THREADS);
+}
