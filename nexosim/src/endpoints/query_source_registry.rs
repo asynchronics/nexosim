@@ -175,6 +175,19 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
     #[cfg(feature = "server")]
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError>;
 
+    /// Returns a query and a reply reader.
+    ///
+    /// The argument is expected to conform to the serde CBOR encoding.
+    #[cfg(feature = "server")]
+    fn query(
+        &self,
+        serialized_arg: &[u8],
+    ) -> Result<(Query, Box<dyn ReplyReaderAny>), DeserializationError>;
+
+    /// Returns a reply (writer, reader) pair.
+    #[cfg(feature = "server")]
+    fn replier(&self) -> (Box<dyn ReplyWriterAny>, Box<dyn ReplyReaderAny>);
+
     /// The `TypeId` of the request event.
     fn request_type_id(&self) -> TypeId;
 
@@ -197,15 +210,6 @@ pub(crate) trait QuerySourceEntryAny: Any + Send + Sync + 'static {
 
     /// Returns type erased QueryId.
     fn get_query_id(&self) -> QueryIdErased;
-
-    #[cfg(feature = "server")]
-    fn replier(&self) -> (Box<dyn ReplyWriterAny>, Box<dyn ReplyReaderAny>);
-
-    #[cfg(feature = "server")]
-    fn query(
-        &self,
-        serialized_arg: &[u8],
-    ) -> Result<(Query, Box<dyn ReplyReaderAny>), DeserializationError>;
 }
 
 struct QuerySourceEntry<T, R, F>
@@ -228,6 +232,22 @@ where
     fn deserialize_arg(&self, serialized_arg: &[u8]) -> Result<Box<dyn Any>, DeserializationError> {
         ciborium::from_reader(serialized_arg).map(|arg: T| Box::new(arg) as Box<dyn Any>)
     }
+    #[cfg(feature = "server")]
+    fn query(
+        &self,
+        serialized_arg: &[u8],
+    ) -> Result<(Query, Box<dyn ReplyReaderAny>), DeserializationError> {
+        ciborium::from_reader(serialized_arg)
+            .map(|arg| Query::new(&self.inner, arg))
+            .map(|(q, r)| (q, Box::new(r) as Box<dyn ReplyReaderAny>))
+    }
+    #[cfg(feature = "server")]
+    fn replier(&self) -> (Box<dyn ReplyWriterAny>, Box<dyn ReplyReaderAny>) {
+        use crate::ports::query_replier;
+
+        let (tx, rx) = query_replier::<R>();
+        (Box::new(tx), Box::new(rx))
+    }
     fn request_type_id(&self) -> TypeId {
         TypeId::of::<T>()
     }
@@ -246,22 +266,6 @@ where
     fn get_query_id(&self) -> QueryIdErased {
         self.inner.into()
     }
-    #[cfg(feature = "server")]
-    fn replier(&self) -> (Box<dyn ReplyWriterAny>, Box<dyn ReplyReaderAny>) {
-        use crate::ports::query_replier;
-
-        let (tx, rx) = query_replier::<R>();
-        (Box::new(tx), Box::new(rx))
-    }
-    #[cfg(feature = "server")]
-    fn query(
-        &self,
-        serialized_arg: &[u8],
-    ) -> Result<(Query, Box<dyn ReplyReaderAny>), DeserializationError> {
-        ciborium::from_reader(serialized_arg)
-            .map(|arg| Query::new(&self.inner, arg))
-            .map(|(q, r)| (q, Box::new(r) as Box<dyn ReplyReaderAny>))
-    }
 }
 
 #[cfg(feature = "server")]
@@ -276,6 +280,9 @@ impl<R: Send + 'static> ReplyWriterAny for ReplyWriter<R> {}
 pub(crate) trait ReplyReaderAny: Send {
     /// Take the replies, if any, encode them and collect them in a vector.
     fn take_collect(&mut self) -> Option<Result<Vec<Vec<u8>>, SerializationError>>;
+    /// An async version of the reply collector.
+    ///
+    /// Returns a future that resolves to a vector of replies.
     #[allow(clippy::type_complexity)]
     fn take_collect_fut(
         self: Box<Self>,

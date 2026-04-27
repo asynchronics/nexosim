@@ -225,6 +225,8 @@ async fn query_schedule_simple() {
             .await
     });
 
+    // Make sure that the simulation won't run before the query threads
+    // execute scheduling.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let _ = client
