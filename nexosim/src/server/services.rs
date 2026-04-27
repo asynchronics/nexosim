@@ -309,6 +309,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         *self.bench_service.write().unwrap() = BenchService::Halted;
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
+        self.build_service.lock().unwrap().reset_state();
 
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
