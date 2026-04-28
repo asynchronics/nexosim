@@ -126,7 +126,7 @@ async fn build_after_init_fail() {
 
     let _ = client
         .step_until(StepUntilRequest {
-            deadline: some_deadline_secs!(1, step_until_request),
+            deadline: some_deadline_secs!(3, step_until_request),
         })
         .await
         .unwrap();
@@ -140,7 +140,7 @@ async fn build_after_init_fail() {
             source: Some(Path {
                 segments: vec!["query".to_string()],
             }),
-            request: vec![9],
+            request: vec![3],
         })
         .await
         .unwrap();
