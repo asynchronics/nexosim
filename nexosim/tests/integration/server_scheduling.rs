@@ -10,24 +10,13 @@ use nexosim::model::{Context, Model};
 use nexosim::ports::{EventSource, Output, QuerySource, SinkState, event_slot_endpoint};
 use nexosim::simulation::{Mailbox, SimInit};
 
-mod grpc_client {
-    include!("../codegen/simulation.v1.rs");
-}
-use grpc_client::{
-    BuildRequest, InitRequest, ReadEventRequest, ScheduleEventRequest, ScheduleQueryRequest,
+use super::server_utils::get_client;
+use super::server_utils::grpc_client::{
+    BuildRequest, InitRequest, Path, ReadEventRequest, ScheduleEventRequest, ScheduleQueryRequest,
     StepUntilRequest, read_event_reply, schedule_event_request, schedule_query_request,
     simulation_client::SimulationClient, step_until_request,
 };
-
-/// Helper macro to generate namespaced deadline argument for gRPC requests.
-macro_rules! some_deadline_secs {
-    ($seconds:expr, $request:ident) => {
-        Some($request::Deadline::Duration(prost_types::Duration {
-            seconds: $seconds,
-            ..Default::default()
-        }))
-    };
-}
+use crate::some_deadline_secs;
 
 #[derive(Default, Serialize, Deserialize)]
 struct SimpleModel {
@@ -65,12 +54,7 @@ pub fn simple_bench(_: u8) -> Result<SimInit, Box<dyn Error>> {
     Ok(bench)
 }
 
-fn get_free_port() -> u16 {
-    let socket = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
-    socket.local_addr().unwrap().port()
-}
-
-async fn get_client<F, I>(
+async fn init_client<F, I>(
     bench: F,
 ) -> (
     SimulationClient<tonic::transport::Channel>,
@@ -81,26 +65,7 @@ where
     F: FnMut(I) -> Result<SimInit, Box<dyn std::error::Error>> + Send + 'static,
     I: serde::de::DeserializeOwned,
 {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let signal = async move {
-        rx.await.unwrap();
-    };
-    let port = get_free_port();
-    let handle = tokio::task::spawn_blocking(move || {
-        nexosim::server::run_with_shutdown(
-            bench,
-            format!("0.0.0.0:{port}").parse().unwrap(),
-            signal,
-        )
-        .unwrap();
-    });
-
-    // Make sure the server is up.
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let mut client = SimulationClient::connect(format!("http://127.0.0.1:{port}"))
-        .await
-        .unwrap();
+    let (mut client, signal, handle) = get_client(bench).await;
 
     let _ = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
     let _ = client
@@ -109,16 +74,16 @@ where
         })
         .await
         .unwrap();
-    (client, tx, handle)
+    (client, signal, handle)
 }
 
 #[tokio::test]
 async fn event_schedule_simple() {
-    let (mut client, signal, handle) = get_client(simple_bench).await;
+    let (mut client, signal, handle) = init_client(simple_bench).await;
 
     let _ = client
         .schedule_event(ScheduleEventRequest {
-            source: Some(grpc_client::Path {
+            source: Some(Path {
                 segments: vec!["input".to_string()],
             }),
             event: vec![7],
@@ -131,7 +96,7 @@ async fn event_schedule_simple() {
 
     let _ = client
         .schedule_event(ScheduleEventRequest {
-            source: Some(grpc_client::Path {
+            source: Some(Path {
                 segments: vec!["input".to_string()],
             }),
             event: vec![7],
@@ -152,7 +117,7 @@ async fn event_schedule_simple() {
 
     let response = client
         .read_event(ReadEventRequest {
-            sink: Some(grpc_client::Path {
+            sink: Some(Path {
                 segments: vec!["sink".to_string()],
             }),
             timeout: Some(prost_types::Duration {
@@ -176,7 +141,7 @@ async fn event_schedule_simple() {
 
     let response = client
         .read_event(ReadEventRequest {
-            sink: Some(grpc_client::Path {
+            sink: Some(Path {
                 segments: vec!["sink".to_string()],
             }),
             timeout: Some(prost_types::Duration {
@@ -197,13 +162,13 @@ async fn event_schedule_simple() {
 
 #[tokio::test]
 async fn query_schedule_simple() {
-    let (mut client, signal, handle) = get_client(simple_bench).await;
+    let (mut client, signal, handle) = init_client(simple_bench).await;
 
     let mut query_client = client.clone();
     let response_later = tokio::spawn(async move {
         query_client
             .schedule_query(ScheduleQueryRequest {
-                source: Some(grpc_client::Path {
+                source: Some(Path {
                     segments: vec!["query".to_string()],
                 }),
                 request: vec![5],
@@ -216,7 +181,7 @@ async fn query_schedule_simple() {
     let response_earlier = tokio::spawn(async move {
         query_client
             .schedule_query(ScheduleQueryRequest {
-                source: Some(grpc_client::Path {
+                source: Some(Path {
                     segments: vec!["query".to_string()],
                 }),
                 request: vec![11],

@@ -583,6 +583,8 @@ pub mod schedule_query_request {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ScheduleQueryReply {
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub replies: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// Always returns exactly 1 variant.
