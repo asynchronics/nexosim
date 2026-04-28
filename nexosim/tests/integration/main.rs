@@ -24,5 +24,5 @@ mod simulation_ticked_mode;
 mod simulation_timeout;
 
 // Shared server test utils.
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", not(miri)))]
 mod server_utils;
