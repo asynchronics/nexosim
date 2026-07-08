@@ -29,7 +29,7 @@ use nexosim::time::MonotonicTime;
 
 use std::f64::consts::PI;
 
-use utilities::pid::PidController;
+use utilities::{pid::PidController, plot};
 
 const SERVO_MAX: f64 = 180.0;
 
@@ -272,7 +272,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Start the motor in 2s with a PPS of 10Hz.
     scheduler
-        .schedule_event(Duration::from_secs(2), &set_point, 90.0)
+        .schedule_event(Duration::from_secs(1), &set_point, 90.0)
         .unwrap();
 
     simu.step_until(Duration::new(6, 0))?;
@@ -284,7 +284,13 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let positions: Vec<f64> = iter::from_fn(|| position.try_read()).collect();
 
     println!("Read positions: {}", positions.len());
-    dbg!(positions);
+    dbg!(&positions);
 
+    let positions_enumerated: Vec<[f64; 2]> = positions
+        .iter()
+        .enumerate()
+        .map(|(id, pos)| [id as f64 * period, pos.clone()])
+        .collect();
+    plot::plot_series(&[("position", &positions_enumerated)]);
     Ok(())
 }
