@@ -31,7 +31,7 @@ use utilities::{pid::PidController, plot};
 
 use std::f64::consts::PI;
 
-/// Stepper motor.
+/// Direct current motor.
 #[derive(Serialize, Deserialize)]
 pub struct DCMotor {
     /// Position [deg] -- output port.
@@ -120,6 +120,7 @@ impl DCMotor {
     }
 }
 
+/// Represents motor load.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Load {
     /// Torque applied by the load [N·m].
@@ -251,28 +252,29 @@ impl ServoController {
     }
 }
 
+/// Contains parameters for  PID contoller
 pub struct PidConfig {
-    proportional_gain: f64,
-    integral_gain: f64,
-    derivative_gain: f64,
-    master_gain: f64,
+    pub proportional_gain: f64,
+    pub integral_gain: f64,
+    pub derivative_gain: f64,
+    pub master_gain: f64,
 }
 
-impl PidConfig {
-    pub fn new(
-        proportional_gain: f64,
-        integral_gain: f64,
-        derivative_gain: f64,
-        master_gain: f64,
-    ) -> Self {
-        Self {
-            proportional_gain,
-            integral_gain,
-            derivative_gain,
-            master_gain,
-        }
-    }
-}
+// impl PidConfig {
+//     pub fn new(
+//         proportional_gain: f64,
+//         integral_gain: f64,
+//         derivative_gain: f64,
+//         master_gain: f64,
+//     ) -> Self {
+//         Self {
+//             proportional_gain,
+//             integral_gain,
+//             derivative_gain,
+//             master_gain,
+//         }
+//     }
+// }
 
 /// The parent model which submodels are DCMotor, Potentiometer
 /// and ServoController.
