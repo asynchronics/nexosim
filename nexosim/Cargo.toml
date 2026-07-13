@@ -97,7 +97,8 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tonic = { version = "0.14", default-features = false, features = [
     "channel"
 ] }
-utilities = { git="https://github.com/asynchronics/experimental.git", rev="f950fde64b6c0baf724fe953b5e8e86899a737c5" }
+utilities = { git="https://github.com/asynchronics/experimental.git", rev="b03a226d3d23015ef7813d7efd88236d358ceae1" }
+rand = "0.10"
 
 [target.'cfg(nexosim_loom)'.dev-dependencies]
 loom = "0.7"
