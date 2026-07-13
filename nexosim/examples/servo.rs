@@ -95,7 +95,8 @@ impl DCMotor {
             let elapsed_time = now.duration_since(prev_time).as_secs_f64();
             // Current velocity calculated based on acceleration during last period.
             let vel = self.prev_vel + self.prev_acc * elapsed_time;
-            // Integration of velocity over time to get position change, converted to degrees.
+            // Integration of velocity over time to get position change, converted to
+            // degrees.
             self.pos += (self.prev_vel + vel) / 2.0 * elapsed_time / PI * 180.0;
             // Applies position limits.
             self.pos = self.pos.min(self.max_position);
@@ -483,7 +484,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let mut current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!(current_pos < 140.0);
 
-    // Advance simulation time and check if servo is around setpoint 1 second after set point change.
+    // Advance simulation time and check if servo is around setpoint 1 second after
+    // set point change.
     simu.step_until(Duration::new(0, 950_000_000))?;
     t += Duration::new(0, 950_000_000);
     assert_eq!(simu.time(), t);
@@ -497,15 +499,16 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     };
     simu.process_event(&motor_load, load)?;
 
-    // Advance the simulation time and check wheather the position changed due to the load applied.
+    // Advance the simulation time and check wheather the position changed due to
+    // the load applied.
     simu.step_until(Duration::new(0, 200_000_000))?;
     t += Duration::new(0, 200_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!(current_pos < 145.0);
 
-    // Advance the simulation time and check wheather the position stabilized arround
-    // set point 3 seconds after the load were applied.
+    // Advance the simulation time and check wheather the position stabilized
+    // arround set point 3 seconds after the load were applied.
     simu.step_until(Duration::new(2, 800_000_000))?;
     t += Duration::new(2, 800_000_000);
     assert_eq!(simu.time(), t);
@@ -522,7 +525,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     };
     simu.process_event(&motor_load, load)?;
 
-    // Advance simulation time to stabilize the servo without collecting position values.
+    // Advance simulation time to stabilize the servo without collecting position
+    // values.
     position.disable();
     simu.step_until(Duration::new(10, 0))?;
     position.enable();
