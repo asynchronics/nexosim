@@ -36,6 +36,8 @@ where
     // that the newest state of the output is visible before it is moved
     // out, or that the future can be safely dropped when the promised is
     // dropped if the promise is the last reference to the task.
+    // `fetch_update` will be deprecated in 1.99.
+    #[allow(deprecated)]
     let state = this
         .state
         .fetch_update(Ordering::Acquire, Ordering::Relaxed, |s| {
