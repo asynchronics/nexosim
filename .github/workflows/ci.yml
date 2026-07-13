@@ -110,7 +110,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
-          toolchain: stable
+          toolchain: nightly-2026-07-03
 
       - name: Run cargo miri tests (single-threaded executor)
         run: cargo miri test --tests --lib --all-features
@@ -242,7 +242,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@nightly
         with: 
-          toolchain: stable
+          toolchain:  nightly-2026-07-03
 
       - name: Run cargo doc
         run: cargo doc --no-deps --all-features --document-private-items

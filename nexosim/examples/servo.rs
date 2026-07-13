@@ -260,22 +260,6 @@ pub struct PidConfig {
     pub master_gain: f64,
 }
 
-// impl PidConfig {
-//     pub fn new(
-//         proportional_gain: f64,
-//         integral_gain: f64,
-//         derivative_gain: f64,
-//         master_gain: f64,
-//     ) -> Self {
-//         Self {
-//             proportional_gain,
-//             integral_gain,
-//             derivative_gain,
-//             master_gain,
-//         }
-//     }
-// }
-
 /// The parent model which submodels are DCMotor, Potentiometer
 /// and ServoController.
 #[derive(Serialize, Deserialize)]
