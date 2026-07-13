@@ -151,11 +151,11 @@ impl Potentiometer {
     }
 
     /// Measures the position of of motor and broadcasts output voltage.
-    /// Adds noise with an amplitude of 1% of supply voltage.
+    /// Adds noise with an amplitude of 0.5% of supply voltage.
     pub async fn measure_position(&mut self, position: f64) {
         self.voltage_out
             .send(
-                (position / self.max_position + rand::random_range(-0.01..=0.01))
+                (position / self.max_position + rand::random_range(-0.005..=0.005))
                     * self.supply_voltage,
             )
             .await;
@@ -470,7 +470,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(2, 0);
     assert_eq!(simu.time(), t);
     let current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((85.0..=95.0).contains(dbg!(&current_pos)));
+    assert!((85.0..=95.0).contains(&current_pos));
 
     // Change the set point to 150 degrees.
     simu.process_event(&set_point, 150.0)?;
@@ -481,14 +481,14 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 50_000_000);
     assert_eq!(simu.time(), t);
     let mut current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(dbg!(current_pos) < 140.0);
+    assert!(current_pos < 140.0);
 
     // Advance simulation time and check if servo is around setpoint 1 second after set point change.
     simu.step_until(Duration::new(0, 950_000_000))?;
     t += Duration::new(0, 950_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((145.0..=155.0).contains(dbg!(&current_pos)));
+    assert!((145.0..=155.0).contains(&current_pos));
 
     // Apply torque on the motor
     let load = Load {
@@ -502,7 +502,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 200_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(dbg!(current_pos) < 145.0);
+    assert!(current_pos < 145.0);
 
     // Advance the simulation time and check wheather the position stabilized arround
     // set point 3 seconds after the load were applied.
@@ -510,7 +510,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(2, 800_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((145.0..=155.0).contains(dbg!(&current_pos)));
+    assert!((145.0..=155.0).contains(&current_pos));
 
     // Plot creation
     // Plot shows several setpoint changes and their impact on the servo position.
