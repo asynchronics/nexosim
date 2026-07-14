@@ -3,7 +3,7 @@
 //!
 //! ```text
 //!                       ┌─────────────────────────────────────────────────────────────────┐
-//!                       │ServoAssembly                                                      │
+//!                       │ServoAssembly                                                    │
 //!                       │   ┌────────────┐                Voltage                         │
 //!                       │   │            │◄────────────────────────────────────────────┐  │
 //!                       │   │   Servo    │                            ┌───────────────┐│  │
@@ -34,10 +34,10 @@ use std::f64::consts::PI;
 /// Direct current motor.
 #[derive(Serialize, Deserialize)]
 pub struct DCMotor {
-    /// Position [deg] -- output port.
+    /// Position [degrees] -- output port.
     pub position: Output<f64>,
 
-    /// Position [deg] -- internal state.
+    /// Position [degrees] -- internal state.
     pos: f64,
     /// Previous velocity [rad/s] -- internal state.
     prev_vel: f64,
@@ -139,27 +139,30 @@ pub struct Potentiometer {
     supply_voltage: f64,
     /// Maximal position of the servo [degrees] -- constant.
     max_position: f64,
+    /// Noise amplitude as fraction of potentiometer range [-] -- constant.
+    noise_amplitude: f64,
 }
 
 #[Model]
 impl Potentiometer {
     /// Creates a new potentiometer.
-    pub fn new(supply_voltage: f64, max_position: f64) -> Self {
+    pub fn new(supply_voltage: f64, max_position: f64, noise_amplitude: f64) -> Self {
         Self {
             voltage_out: Default::default(),
             supply_voltage,
             max_position,
+            noise_amplitude,
         }
     }
 
     /// Measures the position of motor and broadcasts output voltage.
-    /// Adds noise with an amplitude of 0.5% of supply voltage.
+    /// Adds noise with a configured amplitude.
     pub async fn measure_position(&mut self, position: f64) {
+        let norm_pos = position / self.max_position;
+        let noise = rand::random_range(-self.noise_amplitude..=self.noise_amplitude);
+        let norm_pos_noise = (norm_pos + noise).clamp(0.0, 1.0);
         self.voltage_out
-            .send(
-                (position / self.max_position + rand::random_range(-0.005..=0.005))
-                    * self.supply_voltage,
-            )
+            .send(norm_pos_noise * self.supply_voltage)
             .await;
     }
 }
@@ -170,9 +173,10 @@ pub struct ServoController {
     /// Voltage controlling the motor [V] -- output port.
     pub voltage_out: Output<f64>,
 
-    /// Position of the motor read from potentiometer [deg] -- internal state.
+    /// Position of the motor read from potentiometer [degrees] -- internal
+    /// state.
     pos: f64,
-    /// Set point for regulator [deg] -- internal state.
+    /// Set point for regulator [degrees] -- internal state.
     sp: Option<f64>,
     /// Voltage supplied to the servo [V] -- constant.
     supply_voltage: f64,
@@ -189,16 +193,19 @@ pub struct ServoController {
 #[Model]
 impl ServoController {
     /// Creates a new servo controller.
-    pub fn new(supply_voltage: f64, period: f64, max_position: f64, pid_config: PidConfig) -> Self {
-        assert!(period > 0.0);
-        let mut pid_impl = PidController::new_with_limits(
-            pid_config.proportional_gain,
-            pid_config.integral_gain,
-            pid_config.derivative_gain,
+    pub fn new(
+        supply_voltage: f64,
+        max_position: f64,
+        controller_config: ControllerConfig,
+    ) -> Self {
+        assert!(controller_config.period > 0.0);
+        let pid_impl = PidController::new_with_limits(
+            controller_config.proportional_gain,
+            controller_config.integral_gain,
+            controller_config.derivative_gain,
             Some(-1.0),
             Some(1.0),
         );
-        pid_impl.set_master_gain(pid_config.master_gain);
 
         Self {
             voltage_out: Default::default(),
@@ -206,7 +213,7 @@ impl ServoController {
             sp: None,
             supply_voltage,
             max_position,
-            period,
+            period: controller_config.period,
             last_control_update: None,
             pid_impl,
         }
@@ -252,12 +259,12 @@ impl ServoController {
     }
 }
 
-/// Contains parameters for PID controller
-pub struct PidConfig {
+/// Contains parameters for controller configuration
+pub struct ControllerConfig {
+    pub period: f64,
     pub proportional_gain: f64,
     pub integral_gain: f64,
     pub derivative_gain: f64,
-    pub master_gain: f64,
 }
 
 /// The parent model which submodels are DCMotor, Potentiometer
@@ -298,8 +305,8 @@ pub struct ProtoServoAssembly {
     max_torque: f64,
     max_position: f64,
     supply_voltage: f64,
-    period: f64,
-    pid_config: PidConfig,
+    potentiometer_noise: f64,
+    controller_config: ControllerConfig,
     load: Load,
 }
 
@@ -310,8 +317,8 @@ impl ProtoServoAssembly {
         max_torque: f64,
         max_position: f64,
         supply_voltage: f64,
-        period: f64,
-        pid_config: PidConfig,
+        potentiometer_noise: f64,
+        controller_config: ControllerConfig,
         load: Load,
     ) -> Self {
         Self {
@@ -320,8 +327,8 @@ impl ProtoServoAssembly {
             max_torque,
             max_position,
             supply_voltage,
-            period,
-            pid_config,
+            potentiometer_noise,
+            controller_config,
             load,
         }
     }
@@ -342,12 +349,15 @@ impl ProtoModel for ProtoServoAssembly {
             self.load,
             self.init_pos,
         );
-        let mut potentiometer = Potentiometer::new(self.supply_voltage, self.max_position);
+        let mut potentiometer = Potentiometer::new(
+            self.supply_voltage,
+            self.max_position,
+            self.potentiometer_noise,
+        );
         let mut controller = ServoController::new(
             self.supply_voltage,
-            self.period,
             self.max_position,
-            self.pid_config,
+            self.controller_config,
         );
 
         // Mailboxes.
@@ -390,16 +400,17 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let max_torque = 0.2;
     let max_position = 180.0;
     let supply_voltage = 6.0;
-    let load = Load {
+    let potentiometer_noise = 0.005;
+    let initial_load = Load {
         torque: 0.0,
         // Inertia od 100g disc with 10cm radius.
         inertia: 0.0005,
     };
-    let pid_config = PidConfig {
-        proportional_gain: 20.0,
-        integral_gain: 10.0,
-        derivative_gain: 2.0,
-        master_gain: 0.001,
+    let controller_config = ControllerConfig {
+        period: 0.01,
+        proportional_gain: 0.02,
+        integral_gain: 0.01,
+        derivative_gain: 0.002,
     };
 
     // Model
@@ -408,9 +419,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
         max_torque,
         max_position,
         supply_voltage,
-        period,
-        pid_config,
-        load,
+        potentiometer_noise,
+        controller_config,
+        initial_load,
     );
 
     let servo_mbox = Mailbox::new();
