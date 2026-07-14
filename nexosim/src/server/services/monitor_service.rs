@@ -71,6 +71,9 @@ impl<'a> SinkGuard<'a> {
     }
 
     /// Returns rented sink, consuming the guard.
+    ///
+    /// This method is used to obtain the result while returning the sink. Drop
+    /// ignores it.
     fn try_return(self) -> Result<(), Error> {
         let mut guard = ManuallyDrop::new(self);
         Self::_try_return(

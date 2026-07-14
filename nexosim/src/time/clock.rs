@@ -186,7 +186,7 @@ impl Clock for AutoSystemClock {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(nexosim_loom)))]
 mod test {
     use super::*;
 

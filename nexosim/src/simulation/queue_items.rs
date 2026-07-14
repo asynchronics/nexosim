@@ -839,6 +839,7 @@ impl<'de> Deserialize<'de> for EventKey {
     }
 }
 
+#[cfg(all(test, not(nexosim_loom)))]
 mod tests {
     #[allow(unused_imports)]
     use super::*;

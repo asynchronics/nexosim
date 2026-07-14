@@ -263,7 +263,7 @@ where
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(nexosim_loom)))]
 mod tests {
     use crate::ports::{SinkState, event_slot};
 
