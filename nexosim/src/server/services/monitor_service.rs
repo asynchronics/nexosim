@@ -1,13 +1,116 @@
+use std::mem::ManuallyDrop;
 use std::sync::Mutex;
 
 use futures_util::StreamExt;
 use tokio::time as tokio_time;
 
-use crate::endpoints::EventSinkRegistry;
+use crate::endpoints::{EventSinkReaderEntryAny, EventSinkRegistry};
 use crate::path::Path as NexosimPath;
 
 use super::super::codegen::simulation::*;
 use super::{simulation_not_started_error, to_error, to_positive_duration};
+
+/// Internal sink guard.
+struct SinkGuard<'a> {
+    /// Monitor service.
+    service: &'a Mutex<MonitorService>,
+
+    /// Sink path.
+    sink_path: &'a NexosimPath,
+
+    /// Sink.
+    sink: Option<Box<dyn EventSinkReaderEntryAny>>,
+}
+
+impl<'a> SinkGuard<'a> {
+    /// Creates new sink guard.
+    fn try_new(
+        service: &'a Mutex<MonitorService>,
+        sink_path: &'a NexosimPath,
+    ) -> Result<Self, Error> {
+        let sink = match &mut *service.lock().unwrap() {
+            MonitorService::Started {
+                event_sink_registry,
+            } => {
+                // Rent the sink.
+                match event_sink_registry.rent_entry(sink_path) {
+                    Ok(sink) => sink,
+                    Err(_) => {
+                        return Err(if event_sink_registry.has_sink(sink_path) {
+                            to_error(
+                                ErrorCode::SinkReadRace,
+                                format!(
+                                    "attempting concurrent read operation on sink '{sink_path}'"
+                                ),
+                            )
+                        } else {
+                            sink_not_found_error(sink_path)
+                        });
+                    }
+                }
+            }
+            MonitorService::Halted => return Err(simulation_not_started_error()),
+        };
+
+        Ok(Self {
+            service,
+            sink_path,
+            sink: Some(sink),
+        })
+    }
+
+    /// Gives reference to the sink.
+    fn sink(&mut self) -> Result<&mut Box<dyn EventSinkReaderEntryAny>, Error> {
+        match self.sink {
+            Some(ref mut sink) => Ok(sink),
+            None => Err(to_error(
+                ErrorCode::SinkNotFound,
+                format!("sink can not be extracted for '{}'", self.sink_path),
+            )),
+        }
+    }
+
+    /// Returns rented sink, consuming the guard.
+    ///
+    /// This method is used to obtain the result while returning the sink. Drop
+    /// ignores it.
+    fn try_return(self) -> Result<(), Error> {
+        let mut guard = ManuallyDrop::new(self);
+        Self::_try_return(
+            guard.service,
+            guard.sink_path,
+            std::mem::take(&mut guard.sink),
+        )
+    }
+
+    /// Internal implementation of sink returning.
+    fn _try_return(
+        service: &'a Mutex<MonitorService>,
+        sink_path: &'a NexosimPath,
+        sink: Option<Box<dyn EventSinkReaderEntryAny>>,
+    ) -> Result<(), Error> {
+        if let Some(sink) = sink {
+            // Return the sink to the registry
+            match &mut *service.lock().unwrap() {
+                MonitorService::Started {
+                    event_sink_registry,
+                } => {
+                    event_sink_registry.replace_entry(sink_path, sink).unwrap();
+                    // always succeed: the sink name is registered
+                }
+                MonitorService::Halted => return Err(simulation_not_started_error()),
+            };
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> Drop for SinkGuard<'a> {
+    fn drop(&mut self) {
+        let _ = Self::_try_return(self.service, self.sink_path, std::mem::take(&mut self.sink));
+    }
+}
 
 /// Protobuf-based simulation monitor.
 ///
@@ -159,27 +262,8 @@ pub(crate) async fn monitor_service_read_event(
 
     // Very important: the lock is released immediately after renting the
     // sink so we do not block concurrent `MonitorService` requests.
-    let mut sink = match &mut *service.lock().unwrap() {
-        MonitorService::Started {
-            event_sink_registry,
-        } => {
-            // Rent the sink.
-            match event_sink_registry.rent_entry(sink_path) {
-                Ok(sink) => sink,
-                Err(_) => {
-                    return Err(if event_sink_registry.has_sink(sink_path) {
-                        to_error(
-                            ErrorCode::SinkReadRace,
-                            format!("attempting concurrent read operation on sink '{sink_path}'"),
-                        )
-                    } else {
-                        sink_not_found_error(sink_path)
-                    });
-                }
-            }
-        }
-        MonitorService::Halted => return Err(simulation_not_started_error()),
-    };
+    let mut sink_guard = SinkGuard::try_new(service, sink_path)?;
+    let sink = sink_guard.sink()?;
 
     // Await the event, possibly applying a timeout.
     let event = match request.timeout {
@@ -211,25 +295,18 @@ pub(crate) async fn monitor_service_read_event(
             )
         })
         .and_then(|s| {
-            s.map_err(|e|
-            to_error(
-                ErrorCode::InvalidMessage,
-                format!(
+            s.map_err(|e| {
+                to_error(
+                    ErrorCode::InvalidMessage,
+                    format!(
                     "the event from sink '{sink_path}' could not be serialized from type '{}': {e}",
                     sink.event_type_name(),
                 ),
-            ))
+                )
+            })
         });
 
-    // Return the sink to the registry
-    match &mut *service.lock().unwrap() {
-        MonitorService::Started {
-            event_sink_registry,
-        } => {
-            event_sink_registry.replace_entry(sink_path, sink).unwrap(); // always succeed: the sink name is registered
-        }
-        MonitorService::Halted => return Err(simulation_not_started_error()),
-    };
+    sink_guard.try_return()?;
 
     reply
 }

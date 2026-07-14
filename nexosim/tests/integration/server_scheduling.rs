@@ -12,9 +12,9 @@ use nexosim::simulation::{Mailbox, SimInit};
 
 use super::server_utils::get_client;
 use super::server_utils::grpc_client::{
-    BuildRequest, InitRequest, Path, ReadEventRequest, ScheduleEventRequest, ScheduleQueryRequest,
-    StepUntilRequest, read_event_reply, schedule_event_request, schedule_query_request,
-    simulation_client::SimulationClient, step_until_request,
+    BuildRequest, ErrorCode, InitRequest, Path, ReadEventRequest, ScheduleEventRequest,
+    ScheduleQueryRequest, StepUntilRequest, read_event_reply, schedule_event_request,
+    schedule_query_request, simulation_client::SimulationClient, step_until_request,
 };
 use crate::some_deadline_secs;
 
@@ -208,6 +208,71 @@ async fn query_schedule_simple() {
     let response = response_later.await.unwrap().unwrap();
     let reply: u32 = ciborium::from_reader(&response.into_inner().replies[0][..]).unwrap();
     assert_eq!(reply, 7 * 5 * 3);
+
+    // Shutdown.
+    signal.send(()).unwrap();
+    handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn event_read_timeout() {
+    let (mut client, signal, handle) = init_client(simple_bench).await;
+
+    // Check timeout.
+    let response = client
+        .read_event(ReadEventRequest {
+            sink: Some(Path {
+                segments: vec!["sink".to_string()],
+            }),
+            timeout: Some(prost_types::Duration {
+                seconds: 1,
+                ..Default::default()
+            }),
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(response.into_inner().result.unwrap(), read_event_reply::Result::Error(e) if e.code  == ErrorCode::SinkReadTimeout as i32)
+    );
+
+    // Schedule event and check response.
+    // Previous timeout does not affect read.
+    let _ = client
+        .schedule_event(ScheduleEventRequest {
+            source: Some(Path {
+                segments: vec!["input".to_string()],
+            }),
+            event: vec![7],
+            period: None,
+            with_key: false,
+            deadline: some_deadline_secs!(1, schedule_event_request),
+        })
+        .await
+        .unwrap();
+
+    let _ = client
+        .step_until(StepUntilRequest {
+            deadline: some_deadline_secs!(2, step_until_request),
+        })
+        .await
+        .unwrap();
+
+    let response = client
+        .read_event(ReadEventRequest {
+            sink: Some(Path {
+                segments: vec!["sink".to_string()],
+            }),
+            timeout: Some(prost_types::Duration {
+                seconds: 1,
+                ..Default::default()
+            }),
+        })
+        .await
+        .unwrap();
+    assert!(
+        matches!(response.into_inner().result.unwrap(), read_event_reply::Result::Event(a) if a  == vec![21])
+    );
 
     // Shutdown.
     signal.send(()).unwrap();
