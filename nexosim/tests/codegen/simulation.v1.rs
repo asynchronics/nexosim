@@ -583,6 +583,8 @@ pub mod schedule_query_request {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ScheduleQueryReply {
+    /// This field is hoisted because protobuf3 does not support `repeated` within
+    /// a `oneof`. It is Always empty if an error is returned
     #[prost(bytes = "vec", repeated, tag = "1")]
     pub replies: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
     /// Always returns exactly 1 variant.
@@ -742,6 +744,7 @@ pub enum ErrorCode {
     DuplicateQuerySource = 24,
     DuplicateEventSink = 25,
     InvalidBenchConfig = 26,
+    BenchAlreadyBuilt = 27,
     /// Simulation runtime error.
     SimulationPanic = 40,
     SimulationNotStarted = 42,
@@ -788,6 +791,7 @@ impl ErrorCode {
             Self::DuplicateQuerySource => "DUPLICATE_QUERY_SOURCE",
             Self::DuplicateEventSink => "DUPLICATE_EVENT_SINK",
             Self::InvalidBenchConfig => "INVALID_BENCH_CONFIG",
+            Self::BenchAlreadyBuilt => "BENCH_ALREADY_BUILT",
             Self::SimulationPanic => "SIMULATION_PANIC",
             Self::SimulationNotStarted => "SIMULATION_NOT_STARTED",
             Self::SimulationTerminated => "SIMULATION_TERMINATED",
@@ -828,6 +832,7 @@ impl ErrorCode {
             "DUPLICATE_QUERY_SOURCE" => Some(Self::DuplicateQuerySource),
             "DUPLICATE_EVENT_SINK" => Some(Self::DuplicateEventSink),
             "INVALID_BENCH_CONFIG" => Some(Self::InvalidBenchConfig),
+            "BENCH_ALREADY_BUILT" => Some(Self::BenchAlreadyBuilt),
             "SIMULATION_PANIC" => Some(Self::SimulationPanic),
             "SIMULATION_NOT_STARTED" => Some(Self::SimulationNotStarted),
             "SIMULATION_TERMINATED" => Some(Self::SimulationTerminated),

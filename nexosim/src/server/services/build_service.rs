@@ -149,6 +149,12 @@ impl BuildService {
                 )
             })?;
 
+        // Check current state before swapping to `Initialized`.
+        let BuildState::Built(_, _, _, _) = self.state else {
+            return Err(bench_not_built_error());
+        };
+
+        // Method is executed under mutex so this should be infallible.
         let BuildState::Built(
             bench,
             event_sink_registry,
@@ -156,7 +162,7 @@ impl BuildService {
             query_source_registry,
         ) = std::mem::replace(&mut self.state, BuildState::Initialized)
         else {
-            return Err(bench_not_built_error());
+            unreachable!();
         };
 
         bench
@@ -185,6 +191,12 @@ impl BuildService {
         ),
         Error,
     > {
+        // Check current state before swapping to `Initialized`.
+        let BuildState::Built(_, _, _, _) = self.state else {
+            return Err(bench_not_built_error());
+        };
+
+        // Method is executed under mutex so this should be infallible.
         let BuildState::Built(
             bench,
             event_sink_registry,
@@ -192,7 +204,7 @@ impl BuildService {
             query_source_registry,
         ) = std::mem::replace(&mut self.state, BuildState::Initialized)
         else {
-            return Err(bench_not_built_error());
+            unreachable!();
         };
 
         bench
