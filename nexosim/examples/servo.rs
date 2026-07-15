@@ -102,7 +102,7 @@ impl DCMotor {
         // Saves time for next iteration.
         self.last_position_update = Some(now);
         // Calculates current acceleration to use at next iteration.
-        let torque = voltage / self.nominal_voltage * self.max_torque - self.load.torque;
+        let torque = voltage / self.nominal_voltage * self.max_torque + self.load.torque;
         let acceleration = torque / self.load.inertia;
         self.prev_acc = acceleration;
         // Sends position.
@@ -119,6 +119,8 @@ impl DCMotor {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Load {
     /// Torque applied by the load [N·m].
+    /// Positive values push motor to higher position values and negative
+    /// towards lower.
     pub torque: f64,
     /// Rotational inertia of the load [kg·m^2].
     pub inertia: f64,
@@ -476,7 +478,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Apply torque on the motor
     let load = Load {
-        torque: 0.05,
+        torque: -0.05,
         inertia: 0.0005,
     };
     simu.process_event(&motor_load, load)?;
