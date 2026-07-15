@@ -193,8 +193,6 @@ pub struct ServoController {
     max_position: f64,
     /// Period of the control loop [s] -- constant.
     period: f64,
-    /// Time of previous iteration [-] -- internal state.
-    last_control_update: Option<MonotonicTime>,
     /// Implementation of PID controller
     pid: PidController,
 }
@@ -223,7 +221,6 @@ impl ServoController {
             supply_voltage,
             max_position,
             period: controller_config.period,
-            last_control_update: None,
             pid,
         }
     }
@@ -246,20 +243,10 @@ impl ServoController {
 
     /// Sends voltage.
     #[nexosim(schedulable)]
-    async fn set_output(&mut self, _: (), cx: &Context<Self>) {
+    async fn set_output(&mut self, _: ()) {
         let error = self.setpoint.unwrap() - self.pos;
-        // Calculates time from previos iteration.
-        // Uses period instead during first iteration.
-        let now = cx.time();
-        let dt;
-        if let Some(time) = self.last_control_update {
-            dt = now.duration_since(time).as_secs_f64();
-        } else {
-            dt = self.period;
-        }
-        self.last_control_update = Some(now);
         // Calculating control value using PID regulator and denormalizing it.
-        let voltage = self.pid.update(error, dt) * self.supply_voltage;
+        let voltage = self.pid.update(error, self.period) * self.supply_voltage;
         self.voltage_out.send(voltage).await;
     }
 }
