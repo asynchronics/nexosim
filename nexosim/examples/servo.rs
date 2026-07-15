@@ -27,6 +27,9 @@ use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queu
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::MonotonicTime;
 
+use rand_distr::{Distribution, Normal};
+use rand_xoshiro::Xoshiro256PlusPlus;
+use rand_xoshiro::rand_core::SeedableRng;
 use utilities::{pid::PidController, plot};
 
 use std::f64::consts::PI;
@@ -139,19 +142,24 @@ pub struct Potentiometer {
     supply_voltage: f64,
     /// Maximal position of the servo [degrees] -- constant.
     max_position: f64,
-    /// Noise amplitude as fraction of potentiometer range [-] -- constant.
-    noise_amplitude: f64,
+    /// Noise standard deviation as fraction of potentiometer range [-] --
+    /// constant.
+    noise_sigma: f64,
+    /// Random number generator for adding noise
+    rng: Xoshiro256PlusPlus,
 }
 
 #[Model]
 impl Potentiometer {
     /// Creates a new potentiometer.
-    pub fn new(supply_voltage: f64, max_position: f64, noise_amplitude: f64) -> Self {
+    pub fn new(supply_voltage: f64, max_position: f64, noise_sigma: f64) -> Self {
+        let rng_seed = 12345;
         Self {
             voltage_out: Default::default(),
             supply_voltage,
             max_position,
-            noise_amplitude,
+            noise_sigma,
+            rng: Xoshiro256PlusPlus::seed_from_u64(rng_seed),
         }
     }
 
@@ -159,7 +167,8 @@ impl Potentiometer {
     /// Adds noise with a configured amplitude.
     pub async fn measure_position(&mut self, position: f64) {
         let norm_pos = position / self.max_position;
-        let noise = rand::random_range(-self.noise_amplitude..=self.noise_amplitude);
+        let normal = Normal::new(0.0, self.noise_sigma).unwrap();
+        let noise = normal.sample(&mut self.rng);
         let norm_pos_noise = (norm_pos + noise).clamp(0.0, 1.0);
         self.voltage_out
             .send(norm_pos_noise * self.supply_voltage)
@@ -305,7 +314,7 @@ pub struct ProtoServoAssembly {
     max_torque: f64,
     max_position: f64,
     supply_voltage: f64,
-    potentiometer_noise: f64,
+    noise_sigma: f64,
     controller_config: ControllerConfig,
     load: Load,
 }
@@ -317,7 +326,7 @@ impl ProtoServoAssembly {
         max_torque: f64,
         max_position: f64,
         supply_voltage: f64,
-        potentiometer_noise: f64,
+        noise_sigma: f64,
         controller_config: ControllerConfig,
         load: Load,
     ) -> Self {
@@ -327,7 +336,7 @@ impl ProtoServoAssembly {
             max_torque,
             max_position,
             supply_voltage,
-            potentiometer_noise,
+            noise_sigma,
             controller_config,
             load,
         }
@@ -349,11 +358,8 @@ impl ProtoModel for ProtoServoAssembly {
             self.load,
             self.init_pos,
         );
-        let mut potentiometer = Potentiometer::new(
-            self.supply_voltage,
-            self.max_position,
-            self.potentiometer_noise,
-        );
+        let mut potentiometer =
+            Potentiometer::new(self.supply_voltage, self.max_position, self.noise_sigma);
         let mut controller = ServoController::new(
             self.supply_voltage,
             self.max_position,
@@ -400,7 +406,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let max_torque = 0.2;
     let max_position = 180.0;
     let supply_voltage = 6.0;
-    let potentiometer_noise = 0.005;
+    let noise_sigma = 0.005;
     let initial_load = Load {
         torque: 0.0,
         // Inertia od 100g disc with 10cm radius.
@@ -419,7 +425,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
         max_torque,
         max_position,
         supply_voltage,
-        potentiometer_noise,
+        noise_sigma,
         controller_config,
         initial_load,
     );

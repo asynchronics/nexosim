@@ -98,7 +98,8 @@ tonic = { version = "0.14", default-features = false, features = [
     "channel"
 ] }
 utilities = { git="https://github.com/asynchronics/experimental.git", rev="b03a226d3d23015ef7813d7efd88236d358ceae1" }
-rand = "0.10"
+rand_xoshiro = { version = "0.7.0", features = ["serde"] }
+rand_distr = "0.5.1"
 
 [target.'cfg(nexosim_loom)'.dev-dependencies]
 loom = "0.7"
