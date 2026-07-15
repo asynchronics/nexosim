@@ -8,7 +8,7 @@
 //!                       │   │            │◄────────────────────────────────────────────┐  │
 //!                       │   │   Servo    │                            ┌───────────────┐│  │
 //!             degrees   │   │ Controller │    Voltage   ┌─────────┐ ┌►│ Potentiometer ├┘  │
-//! Set point ●───────────┼──►│            ├─────────────►│         │ │ └───────────────┘   │
+//!  Setpoint ●───────────┼──►│            ├─────────────►│         │ │ └───────────────┘   │
 //!             (0:180)   │   │            │              │   DC    │ │   position          │
 //!                       │   └────────────┘              │  Motor  ├─┴─────────────────────┼──────────►
 //!       torque, inertia │                               │         │     (0:180)           │
@@ -54,8 +54,8 @@ pub struct DCMotor {
     max_torque: f64,
     /// Maximal position of the servo [degrees] -- constant.
     max_position: f64,
-    /// Voltage supplied to the servo [V] -- constant.
-    supply_voltage: f64,
+    /// Voltage with which motor has maximal torque [V] -- constant.
+    nominal_voltage: f64,
 }
 
 #[Model]
@@ -64,21 +64,21 @@ impl DCMotor {
     pub fn new(
         max_torque: f64,
         max_position: f64,
-        supply_voltage: f64,
-        load: Load,
-        position: f64,
+        nominal_voltage: f64,
+        initial_load: Load,
+        initial_position: f64,
     ) -> Self {
-        assert!((0.0..=max_position).contains(&position));
+        assert!((0.0..=max_position).contains(&initial_position));
         Self {
             position: Default::default(),
-            pos: position,
+            pos: initial_position,
             prev_vel: 0.0,
             prev_acc: 0.0,
             last_position_update: None,
-            load,
+            load: initial_load,
             max_torque,
             max_position,
-            supply_voltage,
+            nominal_voltage,
         }
     }
 
@@ -110,7 +110,7 @@ impl DCMotor {
         // Saves time for next iteration.
         self.last_position_update = Some(now);
         // Calculates current acceleration to use at next iteration.
-        let torque = voltage / self.supply_voltage * self.max_torque - self.load.torque;
+        let torque = voltage / self.nominal_voltage * self.max_torque - self.load.torque;
         let acceleration = torque / self.load.inertia;
         self.prev_acc = acceleration;
         // Sends position.
@@ -118,7 +118,7 @@ impl DCMotor {
     }
 
     /// Load -- input port.
-    pub fn load(&mut self, load: Load) {
+    pub fn load_in(&mut self, load: Load) {
         self.load = load;
     }
 }
@@ -185,18 +185,18 @@ pub struct ServoController {
     /// Position of the motor read from potentiometer [degrees] -- internal
     /// state.
     pos: f64,
-    /// Set point for regulator [degrees] -- internal state.
-    sp: Option<f64>,
+    /// Setpoint for regulator [degrees] -- internal state.
+    setpoint: Option<f64>,
     /// Voltage supplied to the servo [V] -- constant.
     supply_voltage: f64,
     /// Maximal position of the servo [degrees] -- constant.
     max_position: f64,
     /// Period of the control loop [s] -- constant.
     period: f64,
-    /// Time of previos iteration [-] -- internal state.
+    /// Time of previous iteration [-] -- internal state.
     last_control_update: Option<MonotonicTime>,
     /// Implementation of PID controller
-    pid_impl: PidController,
+    pid: PidController,
 }
 
 #[Model]
@@ -208,7 +208,7 @@ impl ServoController {
         controller_config: ControllerConfig,
     ) -> Self {
         assert!(controller_config.period > 0.0);
-        let pid_impl = PidController::new_with_limits(
+        let pid = PidController::new_with_limits(
             controller_config.proportional_gain,
             controller_config.integral_gain,
             controller_config.derivative_gain,
@@ -219,24 +219,24 @@ impl ServoController {
         Self {
             voltage_out: Default::default(),
             pos: 0.0,
-            sp: None,
+            setpoint: None,
             supply_voltage,
             max_position,
             period: controller_config.period,
             last_control_update: None,
-            pid_impl,
+            pid,
         }
     }
 
-    /// Reads voltage from the potentiometer.
-    pub async fn read_position(&mut self, voltage: f64) {
-        self.pos = (voltage / self.supply_voltage) * self.max_position;
+    /// Sets the position based on voltage-encoded position from potentiometer
+    pub async fn position_in(&mut self, potentiometer_voltage: f64) {
+        self.pos = (potentiometer_voltage / self.supply_voltage) * self.max_position;
     }
 
-    /// Sets the set point and schedules first iteration if necessary.
-    pub async fn set_point(&mut self, value: f64, cx: &Context<Self>) {
-        let is_idle = self.sp.is_none();
-        self.sp = Some(value);
+    /// Sets the setpoint and schedules first iteration if necessary.
+    pub async fn setpoint_in(&mut self, angle: f64, cx: &Context<Self>) {
+        let is_idle = self.setpoint.is_none();
+        self.setpoint = Some(angle);
         if is_idle {
             self.set_output((), cx).await;
         }
@@ -245,7 +245,7 @@ impl ServoController {
     /// Sends voltage and schedules next iteration.
     #[nexosim(schedulable)]
     async fn set_output(&mut self, _: (), cx: &Context<Self>) {
-        let error = self.sp.unwrap() - self.pos;
+        let error = self.setpoint.unwrap() - self.pos;
         // Calculates time from previos iteration.
         // Uses period instead during first iteration.
         let now = cx.time();
@@ -257,7 +257,7 @@ impl ServoController {
         }
         self.last_control_update = Some(now);
         // Calculating control value using PID regulator and denormalizing it.
-        let voltage = self.pid_impl.update(error, dt) * self.supply_voltage;
+        let voltage = self.pid.update(error, dt) * self.supply_voltage;
         self.voltage_out.send(voltage).await;
 
         let duration = Duration::from_secs_f64(self.period);
@@ -296,13 +296,13 @@ impl ServoAssembly {
         }
     }
 
-    /// Set point of the motor position [degrees] -- input port.
-    pub async fn setpoint(&mut self, setpoint: f64) {
+    /// Setpoint of the motor position [degrees] -- input port.
+    pub async fn setpoint_in(&mut self, setpoint: f64) {
         self.setpoint.send(setpoint).await;
     }
 
     /// Load on the motor -- input port.
-    pub async fn load(&mut self, load: Load) {
+    pub async fn load_in(&mut self, load: Load) {
         self.load.send(load).await;
     }
 }
@@ -310,35 +310,35 @@ impl ServoAssembly {
 /// Prototype for 'ServoAssembly'.
 pub struct ProtoServoAssembly {
     pub position: Output<f64>,
-    init_pos: f64,
+    initial_position: f64,
     max_torque: f64,
     max_position: f64,
     supply_voltage: f64,
     noise_sigma: f64,
     controller_config: ControllerConfig,
-    load: Load,
+    initial_load: Load,
 }
 
 impl ProtoServoAssembly {
     /// The prototype has a public constructor.
     pub fn new(
-        init_pos: f64,
+        initial_position: f64,
         max_torque: f64,
         max_position: f64,
         supply_voltage: f64,
         noise_sigma: f64,
         controller_config: ControllerConfig,
-        load: Load,
+        initial_load: Load,
     ) -> Self {
         Self {
             position: Default::default(),
-            init_pos,
+            initial_position,
             max_torque,
             max_position,
             supply_voltage,
             noise_sigma,
             controller_config,
-            load,
+            initial_load,
         }
     }
     // Input methods are in the model itself.
@@ -354,9 +354,9 @@ impl ProtoModel for ProtoServoAssembly {
         let mut motor = DCMotor::new(
             self.max_torque,
             self.max_position,
-            self.supply_voltage,
-            self.load,
-            self.init_pos,
+            self.supply_voltage, // Assumes motor works with nominal voltage.
+            self.initial_load,
+            self.initial_position,
         );
         let mut potentiometer =
             Potentiometer::new(self.supply_voltage, self.max_position, self.noise_sigma);
@@ -374,14 +374,14 @@ impl ProtoModel for ProtoServoAssembly {
         // Connections
         assembly
             .setpoint
-            .connect(ServoController::set_point, &controller_mbox);
-        assembly.load.connect(DCMotor::load, &motor_mbox);
+            .connect(ServoController::setpoint_in, &controller_mbox);
+        assembly.load.connect(DCMotor::load_in, &motor_mbox);
         controller
             .voltage_out
             .connect(DCMotor::voltage_in, &motor_mbox);
         potentiometer
             .voltage_out
-            .connect(ServoController::read_position, &controller_mbox);
+            .connect(ServoController::position_in, &controller_mbox);
         // Move the prototype's output to the submodel. The `self.position`
         // output can be cloned if necessary if several submodels need access to
         // it.
@@ -401,7 +401,7 @@ impl ProtoModel for ProtoServoAssembly {
 
 fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Parameters.
-    let init_pos: f64 = 0.0;
+    let initial_position: f64 = 0.0;
     let period = 0.01;
     let max_torque = 0.2;
     let max_position = 180.0;
@@ -421,7 +421,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Model
     let mut servo = ProtoServoAssembly::new(
-        init_pos,
+        initial_position,
         max_torque,
         max_position,
         supply_voltage,
@@ -436,11 +436,11 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Endpoints
     let mut bench = SimInit::new();
 
-    let set_point = EventSource::new()
-        .connect(ServoAssembly::setpoint, &servo_addr)
+    let setpoint = EventSource::new()
+        .connect(ServoAssembly::setpoint_in, &servo_addr)
         .register(&mut bench);
     let motor_load = EventSource::new()
-        .connect(ServoAssembly::load, &servo_addr)
+        .connect(ServoAssembly::load_in, &servo_addr)
         .register(&mut bench);
 
     let (sink, mut position) = event_queue(SinkState::Enabled);
@@ -462,9 +462,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert_eq!(position.try_read(), Some(0.0));
     assert!(position.try_read().is_none());
 
-    // Start the servo in 1s with a set point of 90 degrees.
+    // Start the servo in 1s with a setpoint of 90 degrees.
     scheduler
-        .schedule_event(Duration::from_secs(1), &set_point, 90.0)
+        .schedule_event(Duration::from_secs(1), &setpoint, 90.0)
         .unwrap();
 
     // Advance simulation to one second after servo starts.
@@ -476,8 +476,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!((85.0..=95.0).contains(&current_pos));
 
-    // Change the set point to 150 degrees.
-    simu.process_event(&set_point, 150.0)?;
+    // Change the setpoint to 150 degrees.
+    simu.process_event(&setpoint, 150.0)?;
 
     // Advance the simulation time to the moment immediately after the change
     // and check whether the servo has not yet reached the setpoint.
@@ -488,7 +488,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert!(current_pos < 140.0);
 
     // Advance simulation time and check if servo is around setpoint 1 second after
-    // set point change.
+    // setpoint change.
     simu.step_until(Duration::new(0, 950_000_000))?;
     t += Duration::new(0, 950_000_000);
     assert_eq!(simu.time(), t);
@@ -511,7 +511,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert!(current_pos < 145.0);
 
     // Advance the simulation time and check whether the position stabilized
-    // around set point 3 seconds after the load were applied.
+    // around setpoint 3 seconds after the load were applied.
     simu.step_until(Duration::new(2, 800_000_000))?;
     t += Duration::new(2, 800_000_000);
     assert_eq!(simu.time(), t);
@@ -534,14 +534,14 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     simu.step_until(Duration::new(10, 0))?;
     position.enable();
 
-    // Set points for the trajectory, vector: [(time, value)].
-    // First value is current set point.
+    // Setpoints for the trajectory, vector: [(time, value)].
+    // First value is current setpoint.
     let trajectory: Vec<(u64, f64)> = vec![(0, 150.0), (2, 60.0), (6, 0.0), (8, 90.0)];
 
-    // Scheduling set point changes
+    // Scheduling setpoint changes
     for (time, value) in &trajectory[1..] {
         scheduler
-            .schedule_event(Duration::from_secs(*time), &set_point, *value)
+            .schedule_event(Duration::from_secs(*time), &setpoint, *value)
             .unwrap();
     }
 
@@ -551,7 +551,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Simulating
     simu.step_until(Duration::new(sim_len, 0))?;
 
-    // Formatting the set point vector for the plot drawing function.
+    // Formatting the setpoint vector for the plot drawing function.
     let mut trajectory_for_drawing: Vec<[f64; 2]> = Vec::new();
     for i in 0..trajectory.len() - 1 {
         trajectory_for_drawing.push([
@@ -581,7 +581,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     plot::plot_series(&[
         ("position", &positions_with_time),
-        ("set point", &trajectory_for_drawing),
+        ("setpoint", &trajectory_for_drawing),
     ]);
     Ok(())
 }
