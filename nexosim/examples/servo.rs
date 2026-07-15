@@ -1,5 +1,14 @@
 //! Example: Servo motor
 //!
+//! This example demonstrates in particular:
+//!
+//! * closed loop control
+//! * periodic scheduling
+//! * model prototypes and submodels
+//! * adding randomness to models
+//!
+//! This example displays plot showing the motor position following the setpoint
+//! changes.
 //!
 //! ```text
 //!                       ┌─────────────────────────────────────────────────────────────────┐
@@ -119,7 +128,7 @@ impl DCMotor {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Load {
     /// Torque applied by the load [N·m].
-    /// Positive values push motor to higher position values and negative
+    /// Positive values push motor towards higher position values and negative
     /// towards lower.
     pub torque: f64,
     /// Rotational inertia of the load [kg·m^2].
@@ -158,7 +167,7 @@ impl Potentiometer {
     }
 
     /// Measures the position of motor and broadcasts output voltage.
-    /// Adds noise with a configured amplitude.
+    /// Adds noise with a configured standard deviation.
     /// For output uses middle 80% of voltage for encoding position withing
     /// servo's operating limits while the remaining portion allows for control
     /// when the motor moves beyond that range.
@@ -189,7 +198,7 @@ pub struct ServoController {
     max_position: f64,
     /// Period of the control loop [s] -- constant.
     period: f64,
-    /// Implementation of PID controller
+    /// Implementation of PID controller.
     pid: PidController,
 }
 
@@ -248,7 +257,7 @@ impl ServoController {
     }
 }
 
-/// Contains parameters for controller configuration
+/// Contains parameters for controller configuration.
 pub struct ControllerConfig {
     pub period: f64,
     pub proportional_gain: f64,
@@ -345,7 +354,7 @@ impl ProtoModel for ProtoServoAssembly {
             self.controller_config,
         );
 
-        // Mailboxes.
+        // Mailboxes
         let motor_mbox = Mailbox::new();
         let potentiometer_mbox = Mailbox::new();
         let controller_mbox = Mailbox::new();
@@ -442,7 +451,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert!(position.try_read().is_none());
 
     let mut setpoint_value = 90.0;
-    let delta = 5.0;
+    let epsilon = 5.0;
 
     // Start the servo in 1s with a setpoint of 90 degrees.
     scheduler.schedule_event(Duration::from_secs(1), &setpoint, setpoint_value)?;
@@ -454,7 +463,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(2, 0);
     assert_eq!(simu.time(), t);
     let mut current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((current_pos - setpoint_value).abs() < delta);
+    assert!((current_pos - setpoint_value).abs() < epsilon);
 
     // Change the setpoint to 150 degrees.
     setpoint_value = 150.0;
@@ -466,7 +475,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 50_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(current_pos < setpoint_value - delta);
+    assert!(current_pos < setpoint_value - epsilon);
 
     // Advance simulation time and check if servo is around setpoint 1 second after
     // setpoint change.
@@ -474,9 +483,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 950_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((current_pos - setpoint_value).abs() < delta);
+    assert!((current_pos - setpoint_value).abs() < epsilon);
 
-    // Apply torque on the motor
+    // Apply torque on the motor.
     let load = Load {
         torque: -0.05,
         inertia: 0.0005,
@@ -489,7 +498,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 200_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(current_pos < setpoint_value - delta);
+    assert!(current_pos < setpoint_value - epsilon);
 
     // Advance the simulation time and check whether the position stabilized
     // around setpoint 3 seconds after the load were applied.
@@ -497,9 +506,9 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(2, 800_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((current_pos - setpoint_value).abs() < delta);
+    assert!((current_pos - setpoint_value).abs() < epsilon);
 
-    // Plot creation
+    // Plot creation.
     // Plot shows several setpoint changes and their impact on the servo position.
 
     // Zero torque.
