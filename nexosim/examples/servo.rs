@@ -238,7 +238,9 @@ impl ServoController {
         let is_idle = self.setpoint.is_none();
         self.setpoint = Some(angle);
         if is_idle {
-            self.set_output((), cx).await;
+            let period = Duration::from_secs_f64(self.period);
+            cx.schedule_periodic_event(period, period, schedulable!(Self::set_output), ())
+                .unwrap();
         }
     }
 
@@ -259,12 +261,6 @@ impl ServoController {
         // Calculating control value using PID regulator and denormalizing it.
         let voltage = self.pid.update(error, dt) * self.supply_voltage;
         self.voltage_out.send(voltage).await;
-
-        let duration = Duration::from_secs_f64(self.period);
-
-        // Schedules the next iteration.
-        cx.schedule_event(duration, schedulable!(Self::set_output), ())
-            .unwrap();
     }
 }
 
