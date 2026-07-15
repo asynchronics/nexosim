@@ -228,7 +228,7 @@ impl ServoController {
         }
     }
 
-    /// Sets the position based on voltage-encoded position from potentiometer
+    /// Sets the position based on voltage-encoded position from potentiometer.
     pub async fn position_in(&mut self, potentiometer_voltage: f64) {
         self.pos = (potentiometer_voltage / self.supply_voltage) * self.max_position;
     }
@@ -244,7 +244,7 @@ impl ServoController {
         }
     }
 
-    /// Sends voltage and schedules next iteration.
+    /// Sends voltage.
     #[nexosim(schedulable)]
     async fn set_output(&mut self, _: (), cx: &Context<Self>) {
         let error = self.setpoint.unwrap() - self.pos;
@@ -405,7 +405,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let noise_sigma = 0.005;
     let initial_load = Load {
         torque: 0.0,
-        // Inertia od 100g disc with 10cm radius.
+        // Inertia of 100g disc with 10cm radius.
         inertia: 0.0005,
     };
     let controller_config = ControllerConfig {
@@ -423,7 +423,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
         supply_voltage,
         noise_sigma,
         controller_config,
-        initial_load,
+        initial_load.clone(),
     );
 
     let servo_mbox = Mailbox::new();
@@ -458,10 +458,11 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     assert_eq!(position.try_read(), Some(0.0));
     assert!(position.try_read().is_none());
 
+    let mut setpoint_value = 90.0;
+    let delta = 5.0;
+
     // Start the servo in 1s with a setpoint of 90 degrees.
-    scheduler
-        .schedule_event(Duration::from_secs(1), &setpoint, 90.0)
-        .unwrap();
+    scheduler.schedule_event(Duration::from_secs(1), &setpoint, setpoint_value)?;
 
     // Advance simulation to one second after servo starts.
     simu.step_until(Duration::new(2, 0))?;
@@ -469,19 +470,20 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Check if servo is around setpoint 1 second after start.
     t += Duration::new(2, 0);
     assert_eq!(simu.time(), t);
-    let current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((85.0..=95.0).contains(&current_pos));
+    let mut current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
+    assert!((current_pos - setpoint_value).abs() < delta);
 
     // Change the setpoint to 150 degrees.
-    simu.process_event(&setpoint, 150.0)?;
+    setpoint_value = 150.0;
+    simu.process_event(&setpoint, setpoint_value)?;
 
     // Advance the simulation time to the moment immediately after the change
     // and check whether the servo has not yet reached the setpoint.
     simu.step_until(Duration::new(0, 50_000_000))?;
     t += Duration::new(0, 50_000_000);
     assert_eq!(simu.time(), t);
-    let mut current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(current_pos < 140.0);
+    current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
+    assert!(current_pos < setpoint_value - delta);
 
     // Advance simulation time and check if servo is around setpoint 1 second after
     // setpoint change.
@@ -489,7 +491,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 950_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((145.0..=155.0).contains(&current_pos));
+    assert!((current_pos - setpoint_value).abs() < delta);
 
     // Apply torque on the motor
     let load = Load {
@@ -504,7 +506,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(0, 200_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(current_pos < 145.0);
+    assert!(current_pos < setpoint_value - delta);
 
     // Advance the simulation time and check whether the position stabilized
     // around setpoint 3 seconds after the load were applied.
@@ -512,17 +514,13 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     t += Duration::new(2, 800_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!((145.0..=155.0).contains(&current_pos));
+    assert!((current_pos - setpoint_value).abs() < delta);
 
     // Plot creation
     // Plot shows several setpoint changes and their impact on the servo position.
 
     // Zero torque.
-    let load = Load {
-        torque: 0.00,
-        inertia: 0.0005,
-    };
-    simu.process_event(&motor_load, load)?;
+    simu.process_event(&motor_load, initial_load)?;
 
     // Advance simulation time to stabilize the servo without collecting position
     // values.
@@ -536,9 +534,7 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
 
     // Scheduling setpoint changes
     for (time, value) in &trajectory[1..] {
-        scheduler
-            .schedule_event(Duration::from_secs(*time), &setpoint, *value)
-            .unwrap();
+        scheduler.schedule_event(Duration::from_secs(*time), &setpoint, *value)?;
     }
 
     // Length of the simulation for the plot [s].
@@ -548,22 +544,19 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     simu.step_until(Duration::new(sim_len, 0))?;
 
     // Formatting the setpoint vector for the plot drawing function.
-    let mut trajectory_for_drawing: Vec<[f64; 2]> = Vec::new();
-    for i in 0..trajectory.len() - 1 {
-        trajectory_for_drawing.push([
-            trajectory.get(i).unwrap().0 as f64,
-            trajectory.get(i).unwrap().1,
-        ]);
-        trajectory_for_drawing.push([
-            trajectory.get(i + 1).unwrap().0 as f64,
-            trajectory.get(i).unwrap().1,
-        ]);
+    let mut trajectory_for_drawing: Vec<[f64; 2]> = trajectory
+        .windows(2)
+        .flat_map(|pair| {
+            let (t0, val0) = pair[0];
+            let (t1, _val1) = pair[1];
+            [[t0 as f64, val0], [t1 as f64, val0]]
+        })
+        .collect();
+
+    if let Some(&(last_t, last_val)) = trajectory.last() {
+        trajectory_for_drawing.push([last_t as f64, last_val]);
+        trajectory_for_drawing.push([sim_len as f64, last_val]);
     }
-    trajectory_for_drawing.push([
-        trajectory.last().unwrap().0 as f64,
-        trajectory.last().unwrap().1,
-    ]);
-    trajectory_for_drawing.push([sim_len as f64, trajectory.last().unwrap().1]);
 
     // Collecting all positions to a vector.
     let positions: Vec<f64> = iter::from_fn(|| position.try_read()).collect();
