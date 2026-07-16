@@ -39,7 +39,8 @@ use nexosim::time::MonotonicTime;
 use rand_distr::{Distribution, Normal};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rand_xoshiro::rand_core::SeedableRng;
-use utilities::{pid::PidController, plot};
+// use utilities::{pid::PidController, plot};
+use utilities::plot;
 
 use std::f64::consts::PI;
 
@@ -199,7 +200,7 @@ pub struct ServoController {
     /// Period of the control loop [s] -- constant.
     period: f64,
     /// Implementation of PID controller.
-    pid: PidController,
+    pid: Pid,
 }
 
 #[Model]
@@ -211,12 +212,13 @@ impl ServoController {
         controller_config: ControllerConfig,
     ) -> Self {
         assert!(controller_config.period > 0.0);
-        let pid = PidController::new_with_limits(
+        let pid = Pid::new(
             controller_config.proportional_gain,
             controller_config.integral_gain,
             controller_config.derivative_gain,
-            Some(-1.0),
-            Some(1.0),
+            -1.0,
+            1.0,
+            controller_config.period,
         );
 
         Self {
@@ -252,8 +254,67 @@ impl ServoController {
         // Normalized error.
         let error = (self.setpoint.unwrap() - self.pos) / self.max_position;
         // Calculating control value using PID regulator and denormalizing it.
-        let voltage = self.pid.update(error, self.period) * self.supply_voltage;
+        let voltage = self.pid.update(error) * self.supply_voltage;
         self.voltage_out.send(voltage).await;
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Pid {
+    proportional_gain: f64,
+    integral_gain: f64,
+    derivative_gain: f64,
+    min: f64,
+    max: f64,
+    period: f64,
+    previous_error: Option<f64>,
+    integral: f64,
+}
+
+impl Pid {
+    fn new(proportional_gain: f64,
+        integral_gain: f64,
+        derivative_gain: f64,
+        min: f64,
+        max: f64,
+        period: f64
+    ) -> Self {
+        assert!(period > 0.0);
+        Self{
+            proportional_gain,
+            integral_gain,
+            derivative_gain,
+            min,
+            max,
+            period,
+            previous_error: None,
+            integral: 0.0,
+        }  
+    }
+
+
+    fn update(&mut self, error: f64) -> f64 {
+        // Update the integral and derivative state.
+        let mut derivative = 0.0;
+        if let Some(previous_error) = self.previous_error {
+            derivative = (error - previous_error) / self.period;
+        }
+        self.previous_error = Some(error);
+        self.integral += error * self.period;
+
+        // Compute the PID terms.
+        let proportional_term = self.proportional_gain * error;
+        let integral_term = self.integral_gain * self.integral;
+        let derivative_term = self.derivative_gain * derivative;
+
+        // Compute the output.
+        let mut output = proportional_term + integral_term + derivative_term;
+
+        // Clamp the output to the configured bounds.
+        output = output.max(self.min);
+        output = output.min(self.max);
+        
+        output
     }
 }
 
