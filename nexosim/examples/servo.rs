@@ -39,8 +39,9 @@ use nexosim::time::MonotonicTime;
 use rand_distr::{Distribution, Normal};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rand_xoshiro::rand_core::SeedableRng;
-// use utilities::{pid::PidController, plot};
-use utilities::plot;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::error::Error;
 
 use std::f64::consts::PI;
 
@@ -259,28 +260,41 @@ impl ServoController {
     }
 }
 
+/// Simple PID controller implementation.
+/// Period must be positive.
 #[derive(Serialize, Deserialize)]
 struct Pid {
+    /// Proportional gain.
     proportional_gain: f64,
+    /// Integral gain.
     integral_gain: f64,
+    /// Derivative gain.
     derivative_gain: f64,
+    /// Lower bound on the controller output.
     min: f64,
+    /// Upper bound on the controller output.
     max: f64,
+    /// Period of the control loop [s].
     period: f64,
+    /// Error from the previous `update` call, used for the derivative term.
+    /// `None` before the first call, so the derivative term is 0.
     previous_error: Option<f64>,
+    /// Accumulated integral of the error.
     integral: f64,
 }
 
+/// Create a new PID controller
 impl Pid {
-    fn new(proportional_gain: f64,
+    fn new(
+        proportional_gain: f64,
         integral_gain: f64,
         derivative_gain: f64,
         min: f64,
         max: f64,
-        period: f64
+        period: f64,
     ) -> Self {
         assert!(period > 0.0);
-        Self{
+        Self {
             proportional_gain,
             integral_gain,
             derivative_gain,
@@ -289,10 +303,11 @@ impl Pid {
             period,
             previous_error: None,
             integral: 0.0,
-        }  
+        }
     }
 
-
+    /// Compute the controller output for a given error, updating the integral
+    /// and derivative state.
     fn update(&mut self, error: f64) -> f64 {
         // Update the integral and derivative state.
         let mut derivative = 0.0;
@@ -313,7 +328,7 @@ impl Pid {
         // Clamp the output to the configured bounds.
         output = output.max(self.min);
         output = output.min(self.max);
-        
+
         output
     }
 }
@@ -448,7 +463,7 @@ impl ProtoModel for ProtoServoAssembly {
     }
 }
 
-fn main() -> Result<(), nexosim::simulation::SimulationError> {
+fn main() -> Result<(), Box<dyn Error>> {
     // Parameters.
     let initial_position: f64 = 0.0;
     let period = 0.01;
@@ -596,34 +611,46 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Simulating
     simu.step_until(Duration::new(sim_len, 0))?;
 
-    // Formatting the setpoint vector for the plot drawing function.
-    let mut trajectory_for_drawing: Vec<[f64; 2]> = trajectory
-        .windows(2)
-        .flat_map(|pair| {
-            let (t0, val0) = pair[0];
-            let (t1, _val1) = pair[1];
-            [[t0 as f64, val0], [t1 as f64, val0]]
-        })
-        .collect();
-
-    if let Some(&(last_t, last_val)) = trajectory.last() {
-        trajectory_for_drawing.push([last_t as f64, last_val]);
-        trajectory_for_drawing.push([sim_len as f64, last_val]);
-    }
-
     // Collecting all positions to a vector.
     let positions: Vec<f64> = iter::from_fn(|| position.try_read()).collect();
 
-    // Formatting the positions vector for the plot drawing function.
+    // Formatting the positions vector (time and actual position).
     let positions_with_time: Vec<[f64; 2]> = positions
         .iter()
         .enumerate()
         .map(|(id, pos)| [id as f64 * period, *pos])
         .collect();
 
-    plot::plot_series(&[
-        ("position", &positions_with_time),
-        ("setpoint", &trajectory_for_drawing),
-    ]);
+    // Function returning setpoint from trajectory at given time.
+    let get_setpoint_at = |t: f64, traj: &Vec<(u64, f64)>| -> f64 {
+        if traj.is_empty() {
+            return 0.0;
+        }
+        let mut current_val = traj[0].1;
+        for &(event_time, value) in traj.iter() {
+            if t >= event_time as f64 {
+                current_val = value;
+            } else {
+                break;
+            }
+        }
+        current_val
+    };
+
+    // Saving to csv file
+    let file = File::create("simulation_results.csv")?;
+    let mut writer = BufWriter::new(file);
+
+    writeln!(writer, "time,position,setpoint,error")?;
+
+    for [t, pos] in positions_with_time {
+        let setpoint_val = get_setpoint_at(t, &trajectory);
+        let error = setpoint_val - pos;
+        writeln!(
+            writer,
+            "{:.4},{:.4},{:.4},{:.4}",
+            t, pos, setpoint_val, error
+        )?;
+    }
     Ok(())
 }
