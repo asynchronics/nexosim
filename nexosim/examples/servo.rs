@@ -39,9 +39,9 @@ use nexosim::time::MonotonicTime;
 use rand_distr::{Distribution, Normal};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rand_xoshiro::rand_core::SeedableRng;
+use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::error::Error;
 
 use std::f64::consts::PI;
 
@@ -235,6 +235,7 @@ impl ServoController {
 
     /// Sets the position based on voltage-encoded position from potentiometer.
     pub async fn position_in(&mut self, potentiometer_voltage: f64) {
+        let potentiometer_voltage = potentiometer_voltage.clamp(0.0, self.supply_voltage);
         self.pos = ((potentiometer_voltage / self.supply_voltage) - 0.1) / 0.8 * self.max_position;
     }
 
