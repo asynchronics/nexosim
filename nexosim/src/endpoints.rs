@@ -23,6 +23,8 @@ use crate::ports::EventSinkReader;
 use crate::simulation::{EventId, QueryId};
 
 pub(crate) use event_sink_info_registry::EventSinkInfoRegistry;
+#[cfg(feature = "server")]
+pub(crate) use event_sink_registry::EventSinkReaderEntryAny;
 pub(crate) use event_sink_registry::EventSinkRegistry;
 #[cfg(feature = "server")]
 pub(crate) use event_source_registry::EventSourceEntryAny;

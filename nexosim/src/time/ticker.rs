@@ -153,7 +153,7 @@ fn duration_from_nanos_u128(nanos: u128) -> Duration {
     Duration::new(secs, subsec_nanos)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(nexosim_loom)))]
 mod tests {
     use super::*;
 

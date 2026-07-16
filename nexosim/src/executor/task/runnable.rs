@@ -105,6 +105,8 @@ where
                 // output are visible when the last reference deallocates
                 // the task.
 
+                // `fetch_update` will be deprecated in 1.99.
+                #[allow(deprecated)]
                 let state = unsafe {
                     (*state_ptr)
                         .fetch_update(Ordering::Release, Ordering::Relaxed, |s| {
@@ -137,6 +139,8 @@ where
             // unless the task has concurrently transitioned to the
             // `Wind-down` phase or unless this `Runnable` is the last
             // reference to the task.
+            // `fetch_update` will be deprecated in 1.99.
+            #[allow(deprecated)]
             if this
                 .state
                 .fetch_update(Ordering::Release, Ordering::Relaxed, |s| {
@@ -245,6 +249,8 @@ where
         // Ordering: Release ordering on success is necessary to ensure that
         // all memory operations on the future are visible when the last
         // reference deallocates the task.
+        // `fetch_update` will be deprecated in 1.99.
+        #[allow(deprecated)]
         let state = this
             .state
             .fetch_update(Ordering::Release, Ordering::Relaxed, |s| {

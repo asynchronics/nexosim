@@ -43,6 +43,8 @@ where
     // be safely deallocated if necessary. The Release ordering synchronizes
     // with any of the Acquire atomic fences and ensure that this atomic
     // access is fully completed upon deallocation.
+    // `fetch_update` will be deprecated in 1.99.
+    #[allow(deprecated)]
     let state = this
         .state
         .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |s| {

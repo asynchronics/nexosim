@@ -131,6 +131,8 @@ impl PoolManager {
         // Ordering: this Release operation synchronizes with the Acquire fence
         // in the below conditional if this is is the last active worker, and/or
         // with the Acquire state load in the `pool_state` method.
+        // `fetch_update` will be deprecated in 1.99.
+        #[allow(deprecated)]
         let active_workers = self
             .active_workers
             .fetch_update(Ordering::Release, Ordering::Relaxed, |active_workers| {
