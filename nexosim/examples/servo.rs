@@ -2,12 +2,10 @@
 //!
 //! This example demonstrates in particular:
 //!
-//! * closed loop control
-//! * periodic scheduling
-//! * model prototypes and submodels
-//! * adding randomness to models
-//!
-//! This example prints data to terminal in csv format.
+//! * closed loop control,
+//! * periodic scheduling,
+//! * model prototypes and submodels,
+//! * adding randomness to models.
 //!
 //! ```text
 //!                       ┌─────────────────────────────────────────────────────────────────┐
@@ -464,7 +462,6 @@ impl ProtoModel for ProtoServoAssembly {
 fn main() -> Result<(), Box<dyn Error>> {
     // Parameters.
     let initial_position: f64 = 0.0;
-    let period = 0.01;
     let max_torque = 0.2;
     let max_position = 180.0;
     let supply_voltage = 6.0;
@@ -582,69 +579,5 @@ fn main() -> Result<(), Box<dyn Error>> {
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!((current_pos - setpoint_value).abs() < epsilon);
 
-    // Simulation for data print.
-    // Program prints data in a csv format, they can be easily redirected to file
-    // and plotted to illustrate the operation of the servo.
-
-    // Zero torque.
-    simu.process_event(&motor_load, initial_load)?;
-
-    // Advance simulation time to stabilize the servo without collecting position
-    // values.
-    position.disable();
-    simu.step_until(Duration::new(10, 0))?;
-    position.enable();
-
-    // Setpoints for the trajectory, vector: [(time, value)].
-    // First value is current setpoint.
-    let trajectory: Vec<(u64, f64)> = vec![(0, 150.0), (2, 60.0), (6, 0.0), (8, 90.0)];
-
-    // Scheduling setpoint changes.
-    for (time, value) in &trajectory[1..] {
-        scheduler.schedule_event(Duration::from_secs(*time), &setpoint, *value)?;
-    }
-
-    // Length of the simulation for the printed data [s].
-    let sim_len = 14;
-
-    // Simulating
-    simu.step_until(Duration::new(sim_len, 0))?;
-
-    // Collecting all positions to a vector.
-    let positions: Vec<f64> = iter::from_fn(|| position.try_read()).collect();
-
-    // Formatting the positions vector (time and actual position), leaves only every
-    // 10'th position to reduce amount of data.
-    let positions_with_time: Vec<[f64; 2]> = positions
-        .iter()
-        .enumerate()
-        .step_by(10)
-        .map(|(id, pos)| [id as f64 * period, *pos])
-        .collect();
-
-    // Function returning setpoint from trajectory at given time.
-    let get_setpoint_at = |t: f64, traj: &Vec<(u64, f64)>| -> f64 {
-        if traj.is_empty() {
-            return 0.0;
-        }
-        let mut current_val = traj[0].1;
-        for &(event_time, value) in traj.iter() {
-            if t >= event_time as f64 {
-                current_val = value;
-            } else {
-                break;
-            }
-        }
-        current_val
-    };
-
-    // Printing to terminal.
-    println!("time,position,setpoint,error");
-
-    for [t, pos] in positions_with_time {
-        let setpoint_val = get_setpoint_at(t, &trajectory);
-        let error = setpoint_val - pos;
-        println!("{:.4},{:.4},{:.4},{:.4}", t, pos, setpoint_val, error);
-    }
     Ok(())
 }
