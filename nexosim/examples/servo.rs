@@ -522,16 +522,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(position.try_read().is_none());
 
     let mut setpoint_value = 90.0;
-    let epsilon = 5.0;
+    let epsilon = 10.0;
 
     // Start the servo in 1s with a setpoint of 90 degrees.
     scheduler.schedule_event(Duration::from_secs(1), &setpoint, setpoint_value)?;
 
-    // Advance simulation to one second after servo starts.
-    simu.step_until(Duration::new(2, 0))?;
+    // Advance simulation to half a second after servo starts.
+    simu.step_until(Duration::new(1, 500_000_000))?;
 
-    // Check if servo is around setpoint 1 second after start.
-    t += Duration::new(2, 0);
+    // Check if servo is around setpoint half a second after start.
+    t += Duration::new(1, 500_000_000);
     assert_eq!(simu.time(), t);
     let mut current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!((current_pos - setpoint_value).abs() < epsilon);
@@ -548,17 +548,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!(current_pos < setpoint_value - epsilon);
 
-    // Advance simulation time and check if servo is around setpoint 1 second after
-    // setpoint change.
-    simu.step_until(Duration::new(0, 950_000_000))?;
-    t += Duration::new(0, 950_000_000);
+    // Advance simulation time and check if servo is around setpoint half a second
+    // after setpoint change.
+    simu.step_until(Duration::new(0, 450_000_000))?;
+    t += Duration::new(0, 450_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!((current_pos - setpoint_value).abs() < epsilon);
 
     // Apply torque on the motor.
     let load = Load {
-        torque: -0.05,
+        torque: 0.05,
         inertia: 0.0005,
     };
     simu.process_event(&motor_load, load)?;
@@ -568,13 +568,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     simu.step_until(Duration::new(0, 200_000_000))?;
     t += Duration::new(0, 200_000_000);
     assert_eq!(simu.time(), t);
-    current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
-    assert!(current_pos < setpoint_value - epsilon);
+    current_pos = (iter::from_fn(|| position.try_read())).last().unwrap();
+    assert!(current_pos > setpoint_value + epsilon);
 
-    // Advance the simulation time and check whether the position stabilized
-    // around setpoint 3 seconds after the load were applied.
-    simu.step_until(Duration::new(2, 800_000_000))?;
-    t += Duration::new(2, 800_000_000);
+    // Advance the simulation time and check whether the position is back to being
+    // around setpoint 1.5 seconds after the load were applied.
+    simu.step_until(Duration::new(1, 300_000_000))?;
+    t += Duration::new(1, 300_000_000);
     assert_eq!(simu.time(), t);
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!((current_pos - setpoint_value).abs() < epsilon);
