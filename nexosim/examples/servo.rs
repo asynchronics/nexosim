@@ -236,7 +236,7 @@ impl ServoController {
         self.pos = ((potentiometer_voltage / self.supply_voltage) - 0.1) / 0.8 * self.max_position;
     }
 
-    /// Sets the setpoint and schedules first iteration if necessary.
+    /// Sets the setpoint and schedules periodic execution if necessary.
     pub async fn setpoint_in(&mut self, angle: f64, cx: &Context<Self>) {
         let is_idle = self.setpoint.is_none();
         self.setpoint = Some(angle);
@@ -247,7 +247,7 @@ impl ServoController {
         }
     }
 
-    /// Sends voltage.
+    /// Sends voltage to the motor based on the current position and setpoint.
     #[nexosim(schedulable)]
     async fn set_output(&mut self, _: ()) {
         // Normalized error.
@@ -281,7 +281,7 @@ struct Pid {
     integral: f64,
 }
 
-/// Create a new PID controller
+/// Create a new PID controller.
 impl Pid {
     fn new(
         proportional_gain: f64,
@@ -614,7 +614,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let positions: Vec<f64> = iter::from_fn(|| position.try_read()).collect();
 
     // Formatting the positions vector (time and actual position), leaves only every
-    // 10'th point to reduce amount of data.
+    // 10'th position to reduce amount of data.
     let positions_with_time: Vec<[f64; 2]> = positions
         .iter()
         .enumerate()
