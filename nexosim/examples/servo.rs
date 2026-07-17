@@ -7,8 +7,7 @@
 //! * model prototypes and submodels
 //! * adding randomness to models
 //!
-//! This example displays plot showing the motor position following the setpoint
-//! changes.
+//! This example prints data to terminal in csv format.
 //!
 //! ```text
 //!                       ┌─────────────────────────────────────────────────────────────────┐
@@ -40,8 +39,6 @@ use rand_distr::{Distribution, Normal};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rand_xoshiro::rand_core::SeedableRng;
 use std::error::Error;
-use std::fs::File;
-use std::io::{BufWriter, Write};
 
 use std::f64::consts::PI;
 
@@ -585,8 +582,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!((current_pos - setpoint_value).abs() < epsilon);
 
-    // Plot creation.
-    // Plot shows several setpoint changes and their impact on the servo position.
+    // Simulation for data print.
+    // Program prints data in a csv format, they can be easily redirected to file
+    // and plotted to illustrate the operation of the servo.
 
     // Zero torque.
     simu.process_event(&motor_load, initial_load)?;
@@ -601,12 +599,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // First value is current setpoint.
     let trajectory: Vec<(u64, f64)> = vec![(0, 150.0), (2, 60.0), (6, 0.0), (8, 90.0)];
 
-    // Scheduling setpoint changes
+    // Scheduling setpoint changes.
     for (time, value) in &trajectory[1..] {
         scheduler.schedule_event(Duration::from_secs(*time), &setpoint, *value)?;
     }
 
-    // Length of the simulation for the plot [s].
+    // Length of the simulation for the printed data [s].
     let sim_len = 14;
 
     // Simulating
@@ -615,10 +613,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Collecting all positions to a vector.
     let positions: Vec<f64> = iter::from_fn(|| position.try_read()).collect();
 
-    // Formatting the positions vector (time and actual position).
+    // Formatting the positions vector (time and actual position), leaves only every
+    // 10'th point to reduce amount of data.
     let positions_with_time: Vec<[f64; 2]> = positions
         .iter()
         .enumerate()
+        .step_by(10)
         .map(|(id, pos)| [id as f64 * period, *pos])
         .collect();
 
@@ -638,20 +638,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         current_val
     };
 
-    // Saving to csv file
-    let file = File::create("simulation_results.csv")?;
-    let mut writer = BufWriter::new(file);
-
-    writeln!(writer, "time,position,setpoint,error")?;
+    // Printing to terminal.
+    println!("time,position,setpoint,error");
 
     for [t, pos] in positions_with_time {
         let setpoint_val = get_setpoint_at(t, &trajectory);
         let error = setpoint_val - pos;
-        writeln!(
-            writer,
-            "{:.4},{:.4},{:.4},{:.4}",
-            t, pos, setpoint_val, error
-        )?;
+        println!("{:.4},{:.4},{:.4},{:.4}", t, pos, setpoint_val, error);
     }
     Ok(())
 }
