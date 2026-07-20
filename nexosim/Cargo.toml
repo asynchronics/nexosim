@@ -97,7 +97,6 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tonic = { version = "0.14", default-features = false, features = [
     "channel"
 ] }
-utilities = { git = "https://github.com/asynchronics/experimental.git" }
 rand_xoshiro = { version = "0.7.0", features = ["serde"] }
 rand_distr = "0.5.1"
 
