@@ -36,7 +36,6 @@ use nexosim::time::MonotonicTime;
 use rand_distr::{Distribution, Normal};
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rand_xoshiro::rand_core::SeedableRng;
-use std::error::Error;
 
 use std::f64::consts::PI;
 
@@ -459,7 +458,7 @@ impl ProtoModel for ProtoServoAssembly {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), nexosim::simulation::SimulationError> {
     // Parameters.
     let initial_position: f64 = 0.0;
     let max_torque = 0.2;
