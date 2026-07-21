@@ -161,6 +161,16 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
 
+      - name: Run cargo miri servo (single-threaded executor)
+        run: cargo miri run --example servo
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=1
+
+      - name: Run cargo miri servo (multi-threaded executor)
+        run: cargo miri run --example servo
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
+
       - name: Run cargo miri uni_requestor (single-threaded executor)
         run: cargo miri run --example uni_requestor
         env:
