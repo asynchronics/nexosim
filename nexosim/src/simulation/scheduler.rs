@@ -6,8 +6,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::ports::ReplyReader;
+use crate::simulation::HALT_FLAG_SET;
+#[cfg(feature = "server")]
+use crate::simulation::HALT_FLAG_TERMINATED;
 use crate::simulation::queue_items::{Event, EventId, EventKey, Query, QueryId, QueueItem};
-use crate::simulation::{HALT_FLAG_SET, HALT_FLAG_TERMINATED};
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
