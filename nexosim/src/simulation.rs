@@ -685,8 +685,17 @@ impl Simulation {
         match self.halt_flag.load(Ordering::Relaxed) {
             HALT_FLAG_UNSET => Ok(()),
             HALT_FLAG_SET => {
-                self.halt_flag.store(HALT_FLAG_UNSET, Ordering::Relaxed);
-                Err(ExecutionError::Halted)
+                match self.halt_flag.compare_exchange(
+                    HALT_FLAG_SET,
+                    HALT_FLAG_UNSET,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => Err(ExecutionError::Halted),
+                    Err(HALT_FLAG_UNSET) => Ok(()),
+                    Err(HALT_FLAG_TERMINATED) => Err(ExecutionError::Terminated),
+                    Err(f) => unreachable!("Invalid `halt_flag` value: {f}"),
+                }
             }
             HALT_FLAG_TERMINATED => Err(ExecutionError::Terminated),
             f => unreachable!("Invalid `halt_flag` value: {f}"),

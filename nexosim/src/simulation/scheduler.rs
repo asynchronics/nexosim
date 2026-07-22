@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::ports::ReplyReader;
-use crate::simulation::HALT_FLAG_SET;
 #[cfg(feature = "server")]
 use crate::simulation::HALT_FLAG_TERMINATED;
 use crate::simulation::queue_items::{Event, EventId, EventKey, Query, QueryId, QueueItem};
+use crate::simulation::{HALT_FLAG_SET, HALT_FLAG_UNSET};
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
@@ -475,7 +475,12 @@ impl GlobalScheduler {
     /// Requests the simulation to return as early as possible upon the
     /// completion of the current time step.
     pub(crate) fn halt(&self) {
-        self.halt_flag.store(HALT_FLAG_SET, Ordering::Relaxed);
+        let _ = self.halt_flag.compare_exchange(
+            HALT_FLAG_UNSET,
+            HALT_FLAG_SET,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
     }
 
     #[cfg(feature = "server")]
