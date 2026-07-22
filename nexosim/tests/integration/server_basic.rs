@@ -9,9 +9,11 @@ use super::server_utils::get_client;
 use super::server_utils::grpc_client::{
     BuildReply, BuildRequest, Error, ErrorCode, InitReply, InitRequest, Path, ProcessEventReply,
     ProcessEventRequest, ProcessQueryReply, ProcessQueryRequest, RestoreReply, RestoreRequest,
-    SaveReply, SaveRequest, StepUntilRequest, TerminateReply, TerminateRequest, build_reply,
-    init_reply, process_event_reply, process_query_reply, restore_reply, save_reply,
-    simulation_client::SimulationClient, step_until_request, terminate_reply,
+    RunReply, RunRequest, SaveReply, SaveRequest, ScheduleEventReply, ScheduleEventRequest,
+    StepUntilRequest, TerminateReply, TerminateRequest, build_reply, init_reply,
+    process_event_reply, process_query_reply, restore_reply, run_reply, save_reply,
+    schedule_event_reply, schedule_event_request, simulation_client::SimulationClient,
+    step_until_request, terminate_reply,
 };
 use crate::some_deadline_secs;
 
@@ -373,6 +375,61 @@ async fn restore_after_complete_cycle() {
         } if replies == vec![vec![7]] => (),
         a => panic!("Expected replies: [[7]], got: {:?}", a),
     };
+
+    // Shutdown.
+    signal.send(()).unwrap();
+    handle.await.unwrap();
+}
+
+#[tokio::test]
+async fn terminate_while_running() {
+    let (mut client, signal, handle) = get_client(simple_bench).await;
+
+    let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
+    assert_resp_ok!(resp, BuildReply, build_reply);
+
+    let resp = client
+        .init(InitRequest {
+            time: Some(Timestamp::default()),
+        })
+        .await
+        .unwrap();
+    assert_resp_ok!(resp, InitReply, init_reply);
+
+    // Schedule something so the simulation won't exit by itself.
+    let resp = client
+        .schedule_event(ScheduleEventRequest {
+            source: Some(Path {
+                segments: vec!["input".to_string()],
+            }),
+            event: vec![7],
+            period: Some(prost_types::Duration {
+                seconds: 1,
+                ..Default::default()
+            }),
+            with_key: false,
+            deadline: some_deadline_secs!(1, schedule_event_request),
+        })
+        .await
+        .unwrap();
+    assert_resp_ok!(resp, ScheduleEventReply, schedule_event_reply);
+
+    let mut task_client = client.clone();
+
+    // Request run concurrently.
+    let task_handle = tokio::spawn(async move {
+        let resp = task_client.run(RunRequest {}).await.unwrap();
+        assert_resp_err!(resp, RunReply, run_reply, ErrorCode::SimulationTerminated);
+    });
+
+    // Let it run a bit.
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let resp = client.terminate(TerminateRequest {}).await.unwrap();
+    assert_resp_ok!(resp, TerminateReply, terminate_reply);
+
+    // let task_result = task_handle.await;
+    assert!(task_handle.await.is_ok());
 
     // Shutdown.
     signal.send(()).unwrap();
