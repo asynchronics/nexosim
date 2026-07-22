@@ -306,10 +306,17 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         _request: Request<TerminateRequest>,
     ) -> Result<Response<TerminateReply>, Status> {
+        let scheduler = std::mem::replace(
+            &mut *self.scheduler_service.lock().unwrap(),
+            SchedulerService::Halted,
+        );
+        if let SchedulerService::Started { scheduler, .. } = scheduler {
+            scheduler.terminate();
+        }
+
         *self.controller_service.lock().unwrap() = ControllerService::Halted;
         *self.bench_service.write().unwrap() = BenchService::Halted;
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
-        *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
         self.build_service.lock().unwrap().reset_state();
 
         Ok(Response::new(TerminateReply {
