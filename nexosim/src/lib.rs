@@ -491,6 +491,8 @@
 #![cfg_attr(docsrs, doc(auto_cfg(hide(feature, values("dev-hooks")))))]
 
 pub(crate) mod channel;
+#[cfg(feature = "client")]
+pub mod client;
 pub mod endpoints;
 pub(crate) mod executor;
 mod loom_exports;

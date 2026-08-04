@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         tonic_prost_build::configure()
             .build_server(false)
-            .out_dir("tests/codegen/")
+            .out_dir("src/client/codegen/")
             .compile_protos(&["simulation.proto"], &["src/server/api/"])?;
     }
 

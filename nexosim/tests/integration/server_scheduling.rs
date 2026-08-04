@@ -6,16 +6,16 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 
+use nexosim::client::{
+    BuildRequest, ErrorCode, InitRequest, Path, ReadEventRequest, ScheduleEventRequest,
+    ScheduleQueryRequest, SimulationClient, StepUntilRequest, read_event_reply,
+    schedule_event_request, schedule_query_request, step_until_request,
+};
 use nexosim::model::{Context, Model};
 use nexosim::ports::{EventSource, Output, QuerySource, SinkState, event_slot_endpoint};
 use nexosim::simulation::{Mailbox, SimInit};
 
 use super::server_utils::get_client;
-use super::server_utils::grpc_client::{
-    BuildRequest, ErrorCode, InitRequest, Path, ReadEventRequest, ScheduleEventRequest,
-    ScheduleQueryRequest, StepUntilRequest, read_event_reply, schedule_event_request,
-    schedule_query_request, simulation_client::SimulationClient, step_until_request,
-};
 use crate::some_deadline_secs;
 
 #[derive(Default, Serialize, Deserialize)]

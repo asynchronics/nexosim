@@ -5,10 +5,7 @@ use tokio::task::JoinHandle;
 
 use nexosim::simulation::SimInit;
 
-pub(crate) mod grpc_client {
-    include!("../codegen/simulation.v1.rs");
-}
-use grpc_client::simulation_client::SimulationClient;
+use nexosim::client::SimulationClient;
 
 /// Helper macro to generate namespaced deadline argument for gRPC requests.
 #[macro_export]

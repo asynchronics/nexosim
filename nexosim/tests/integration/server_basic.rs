@@ -1,18 +1,18 @@
 use prost_types::Timestamp;
 use serde::{Deserialize, Serialize};
 
+use nexosim::client::{
+    BuildReply, BuildRequest, Error, ErrorCode, InitReply, InitRequest, Path, ProcessEventReply,
+    ProcessEventRequest, ProcessQueryReply, ProcessQueryRequest, RestoreReply, RestoreRequest,
+    SaveReply, SaveRequest, SimulationClient, StepUntilRequest, TerminateReply, TerminateRequest,
+    build_reply, init_reply, process_event_reply, process_query_reply, restore_reply, save_reply,
+    step_until_request, terminate_reply,
+};
 use nexosim::model::{Context, Model};
 use nexosim::ports::{EventSource, QuerySource};
 use nexosim::simulation::{Mailbox, SimInit};
 
 use super::server_utils::get_client;
-use super::server_utils::grpc_client::{
-    BuildReply, BuildRequest, Error, ErrorCode, InitReply, InitRequest, Path, ProcessEventReply,
-    ProcessEventRequest, ProcessQueryReply, ProcessQueryRequest, RestoreReply, RestoreRequest,
-    SaveReply, SaveRequest, StepUntilRequest, TerminateReply, TerminateRequest, build_reply,
-    init_reply, process_event_reply, process_query_reply, restore_reply, save_reply,
-    simulation_client::SimulationClient, step_until_request, terminate_reply,
-};
 use crate::some_deadline_secs;
 
 macro_rules! assert_resp_ok {

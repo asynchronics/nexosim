@@ -5,9 +5,9 @@
 mod injector;
 mod model_scheduling;
 mod serialization;
-#[cfg(all(feature = "server", not(miri)))]
+#[cfg(all(feature = "server", feature = "client", not(miri)))]
 mod server_basic;
-#[cfg(all(feature = "server", not(miri)))]
+#[cfg(all(feature = "server", feature = "client", not(miri)))]
 mod server_scheduling;
 #[cfg(not(miri))]
 mod simulation_clock_sync;
@@ -24,5 +24,5 @@ mod simulation_ticked_mode;
 mod simulation_timeout;
 
 // Shared server test utils.
-#[cfg(all(feature = "server", not(miri)))]
+#[cfg(all(feature = "server", feature = "client", not(miri)))]
 mod server_utils;

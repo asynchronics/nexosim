@@ -28,6 +28,12 @@ keywords = [
 ]
 
 [features]
+client = [
+    "dep:prost",
+    "dep:prost-types",
+    "dep:tonic",
+    "dep:tonic-prost",
+]
 server = [
     "dep:bytes",
     "dep:ciborium",
