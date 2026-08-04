@@ -436,7 +436,7 @@
 //! ## Server
 //!
 //! The `server` feature provides a gRPC server for remote control and
-//! monitoring, *e.g.* from a Python client. It can be activated with:
+//! monitoring, *e.g.* from a Rust or Python client. It can be activated with:
 //!
 //! ```toml
 //! [dependencies]
@@ -445,8 +445,17 @@
 //!
 //! See the [`endpoints`] and [`server`] modules for more information.
 //!
-//! Front-end usage documentation will be added upon release of the NeXosim
-//! Python client.
+//! ## Client
+//!
+//! The `client` feature exposes gRPC simulation client as well as
+//! necessary request and response types.
+//!
+//! It can be activated with:
+//!
+//! ```toml
+//! [dependencies]
+//! nexosim = { version = "1", features = ["client"] }
+//! ```
 //!
 //!
 //! # Other resources
