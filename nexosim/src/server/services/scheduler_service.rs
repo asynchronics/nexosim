@@ -203,7 +203,7 @@ impl SchedulerService {
 
         #[cfg(feature = "tracing")]
         debug!(
-            "event has been requested do cancel, key: {:?}",
+            "event has been requested to cancel, key: {:?}",
             (subkey1, subkey2)
         );
 
