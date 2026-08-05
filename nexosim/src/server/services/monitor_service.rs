@@ -4,6 +4,9 @@ use std::sync::Mutex;
 use futures_util::StreamExt;
 use tokio::time as tokio_time;
 
+#[cfg(feature = "tracing")]
+use tracing::info;
+
 use crate::endpoints::{EventSinkReaderEntryAny, EventSinkRegistry};
 use crate::path::Path as NexosimPath;
 
@@ -192,6 +195,9 @@ impl MonitorService {
                 if let Ok(sink) = event_sink_registry.get_entry_mut(sink_path) {
                     sink.enable();
 
+                    #[cfg(feature = "tracing")]
+                    info!("sink '{sink_path}' is enabled");
+
                     Ok(())
                 } else {
                     Err(if event_sink_registry.has_sink(sink_path) {
@@ -224,6 +230,9 @@ impl MonitorService {
 
                 if let Ok(sink) = event_sink_registry.get_entry_mut(sink_path) {
                     sink.disable();
+
+                    #[cfg(feature = "tracing")]
+                    info!("sink '{sink_path}' is disabled");
 
                     Ok(())
                 } else {

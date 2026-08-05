@@ -37,6 +37,7 @@ server = [
     "dep:tokio-stream",
     "dep:tonic",
     "dep:tonic-prost",
+    "dep:tower-http"
 ]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
 
@@ -82,6 +83,7 @@ tonic = { version = "0.14", default-features = false, features = [
     "server",
 ], optional = true }
 tonic-prost = { version = "0.14", optional = true }
+tower-http = { version = "0.7", features = ["trace"], optional = true }
 tracing = { version = "0.1.40", default-features = false, features = [
     "std",
 ], optional = true }

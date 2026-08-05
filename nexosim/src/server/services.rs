@@ -13,6 +13,9 @@ use serde::de::DeserializeOwned;
 use tai_time::MonotonicTime;
 use tonic::{Request, Response, Status};
 
+#[cfg(feature = "tracing")]
+use tracing::{error, info};
+
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
 use crate::endpoints::{
@@ -306,11 +309,16 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         _request: Request<TerminateRequest>,
     ) -> Result<Response<TerminateReply>, Status> {
+        #[cfg(feature = "tracing")]
+        info!("halting simulation services");
         *self.controller_service.lock().unwrap() = ControllerService::Halted;
         *self.bench_service.write().unwrap() = BenchService::Halted;
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         *self.scheduler_service.lock().unwrap() = SchedulerService::Halted;
         self.build_service.lock().unwrap().reset_state();
+
+        #[cfg(feature = "tracing")]
+        info!("bench is terminated");
 
         Ok(Response::new(TerminateReply {
             result: Some(terminate_reply::Result::Empty(())),
@@ -324,16 +332,30 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn build(&self, request: Request<BuildRequest>) -> Result<Response<BuildReply>, Status> {
         let request = request.into_inner();
 
-        let reply = self.build_service.lock().unwrap().build(request).map(
-            |(event_sink_info_registry, event_source_registry, query_source_registry, injector)| {
-                self.start_init_services(
+        let reply = self
+            .build_service
+            .lock()
+            .unwrap()
+            .build(request)
+            .map(
+                |(
                     event_sink_info_registry,
                     event_source_registry,
                     query_source_registry,
                     injector,
-                );
-            },
-        );
+                )| {
+                    self.start_init_services(
+                        event_sink_info_registry,
+                        event_source_registry,
+                        query_source_registry,
+                        injector,
+                    );
+                },
+            )
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`build` request failed: {e:?}")
+            });
 
         Ok(Response::new(BuildReply {
             result: Some(match reply {
@@ -346,16 +368,30 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn init(&self, request: Request<InitRequest>) -> Result<Response<InitReply>, Status> {
         let request = request.into_inner();
 
-        let reply = self.build_service.lock().unwrap().init(request).map(
-            |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
-                self.start_simulation_services(
+        let reply = self
+            .build_service
+            .lock()
+            .unwrap()
+            .init(request)
+            .map(
+                |(
                     simulation,
                     event_sink_registry,
                     event_source_registry,
                     query_source_registry,
-                );
-            },
-        );
+                )| {
+                    self.start_simulation_services(
+                        simulation,
+                        event_sink_registry,
+                        event_source_registry,
+                        query_source_registry,
+                    );
+                },
+            )
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`init` request failed: {e:?}")
+            });
 
         Ok(Response::new(InitReply {
             result: Some(match reply {
@@ -391,7 +427,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
                     .await
             }
             Err(e) => Err(e),
-        };
+        }
+        .inspect_err(|e| {
+            #[cfg(feature = "tracing")]
+            error!("`init and run` request failed: {e:?}")
+        });
 
         Ok(Response::new(InitAndRunReply {
             result: Some(match reply {
@@ -406,16 +446,30 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<RestoreReply>, Status> {
         let request = request.into_inner();
 
-        let reply = self.build_service.lock().unwrap().restore(request).map(
-            |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
-                self.start_simulation_services(
+        let reply = self
+            .build_service
+            .lock()
+            .unwrap()
+            .restore(request)
+            .map(
+                |(
                     simulation,
                     event_sink_registry,
                     event_source_registry,
                     query_source_registry,
-                );
-            },
-        );
+                )| {
+                    self.start_simulation_services(
+                        simulation,
+                        event_sink_registry,
+                        event_source_registry,
+                        query_source_registry,
+                    );
+                },
+            )
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`restore` request failed: {e:?}")
+            });
 
         Ok(Response::new(RestoreReply {
             result: Some(match reply {
@@ -463,7 +517,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
                     .await
             }
             Err(e) => Err(e),
-        };
+        }
+        .inspect_err(|e| {
+            #[cfg(feature = "tracing")]
+            error!("`restore and run` request failed: {e:?}")
+        });
 
         Ok(Response::new(RestoreAndRunReply {
             result: Some(match reply {
@@ -486,7 +544,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .bench_service
             .read()
             .unwrap()
-            .list_event_sources(request);
+            .list_event_sources(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`list event sources` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(sources) => ListEventSourcesReply {
@@ -508,7 +570,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .bench_service
             .read()
             .unwrap()
-            .get_event_source_schemas(request);
+            .get_event_source_schemas(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`get event source schemas` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(schemas) => GetEventSourceSchemasReply {
@@ -530,7 +596,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .bench_service
             .read()
             .unwrap()
-            .list_query_sources(request);
+            .list_query_sources(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`list query sources` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(sources) => ListQuerySourcesReply {
@@ -552,7 +622,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .bench_service
             .read()
             .unwrap()
-            .get_query_source_schemas(request);
+            .get_query_source_schemas(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`get query source schemas` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(schemas) => GetQuerySourceSchemasReply {
@@ -570,7 +644,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<ListEventSinksRequest>,
     ) -> Result<Response<ListEventSinksReply>, Status> {
         let request = request.into_inner();
-        let reply = self.bench_service.read().unwrap().list_event_sinks(request);
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .list_event_sinks(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`list event sinks` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(sinks) => ListEventSinksReply {
@@ -592,7 +674,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .bench_service
             .read()
             .unwrap()
-            .get_event_sink_schemas(request);
+            .get_event_sink_schemas(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`get event sink schemas` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(schemas) => GetEventSinkSchemasReply {
@@ -610,7 +696,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<InjectEventRequest>,
     ) -> Result<Response<InjectEventReply>, Status> {
         let request = request.into_inner();
-        let reply = self.bench_service.read().unwrap().inject_event(request);
+        let reply = self
+            .bench_service
+            .read()
+            .unwrap()
+            .inject_event(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`inject event` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(()) => InjectEventReply {
@@ -630,7 +724,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::save)
-            .await;
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`save` request failed: {e:?}")
+            });
 
         Ok(Response::new(SaveReply {
             result: Some(match reply {
@@ -643,7 +741,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::step)
-            .await;
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`step` request failed: {e:?}")
+            });
 
         Ok(Response::new(StepReply {
             result: Some(match reply {
@@ -659,7 +761,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::step_until)
-            .await;
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`step_until` request failed: {e:?}")
+            });
 
         Ok(Response::new(StepUntilReply {
             result: Some(match reply {
@@ -672,7 +778,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::run)
-            .await;
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`run` request failed: {e:?}")
+            });
 
         Ok(Response::new(RunReply {
             result: Some(match reply {
@@ -688,7 +798,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::process_event)
-            .await;
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`process event` request failed: {e:?}")
+            });
 
         Ok(Response::new(ProcessEventReply {
             result: Some(match reply {
@@ -704,7 +818,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::process_query)
-            .await;
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`process query` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(replies) => ProcessQueryReply {
@@ -725,8 +843,18 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn time(&self, request: Request<TimeRequest>) -> Result<Response<TimeReply>, Status> {
         let request = request.into_inner();
 
+        let reply = self
+            .scheduler_service
+            .lock()
+            .unwrap()
+            .time(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`time` request failed: {e:?}")
+            });
+
         Ok(Response::new(TimeReply {
-            result: Some(match self.scheduler_service.lock().unwrap().time(request) {
+            result: Some(match reply {
                 Ok(timestamp) => time_reply::Result::Time(timestamp),
                 Err(e) => time_reply::Result::Error(e),
             }),
@@ -735,8 +863,18 @@ impl simulation_server::Simulation for GrpcSimulationService {
     async fn halt(&self, request: Request<HaltRequest>) -> Result<Response<HaltReply>, Status> {
         let request = request.into_inner();
 
+        let reply = self
+            .scheduler_service
+            .lock()
+            .unwrap()
+            .halt(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`halt` request failed: {e:?}")
+            });
+
         Ok(Response::new(HaltReply {
-            result: Some(match self.scheduler_service.lock().unwrap().halt(request) {
+            result: Some(match reply {
                 Ok(()) => halt_reply::Result::Empty(()),
                 Err(e) => halt_reply::Result::Error(e),
             }),
@@ -751,7 +889,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .scheduler_service
             .lock()
             .unwrap()
-            .schedule_event(request);
+            .schedule_event(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`schedule event` request failed: {e:?}")
+            });
 
         Ok(Response::new(ScheduleEventReply {
             result: Some(match reply {
@@ -774,7 +916,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<CancelEventRequest>,
     ) -> Result<Response<CancelEventReply>, Status> {
         let request = request.into_inner();
-        let reply = self.scheduler_service.lock().unwrap().cancel_event(request);
+        let reply = self
+            .scheduler_service
+            .lock()
+            .unwrap()
+            .cancel_event(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`cancel_event` request failed: {e:?}")
+            });
 
         Ok(Response::new(CancelEventReply {
             result: Some(match reply {
@@ -801,15 +951,23 @@ impl simulation_server::Simulation for GrpcSimulationService {
                     replies,
                     result: Some(schedule_query_reply::Result::Empty(())),
                 },
-                Err(error) => ScheduleQueryReply {
+                Err(error) => {
+                    #[cfg(feature = "tracing")]
+                    error!("`schedule query` request failed: {error:?}");
+                    ScheduleQueryReply {
+                        replies: Vec::new(),
+                        result: Some(schedule_query_reply::Result::Error(error)),
+                    }
+                }
+            },
+            Err(error) => {
+                #[cfg(feature = "tracing")]
+                error!("`schedule query` request failed: {error:?}");
+                ScheduleQueryReply {
                     replies: Vec::new(),
                     result: Some(schedule_query_reply::Result::Error(error)),
-                },
-            },
-            Err(error) => ScheduleQueryReply {
-                replies: Vec::new(),
-                result: Some(schedule_query_reply::Result::Error(error)),
-            },
+                }
+            }
         };
 
         Ok(Response::new(reply))
@@ -829,7 +987,11 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .monitor_service
             .lock()
             .unwrap()
-            .try_read_events(request);
+            .try_read_events(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`try read events` request failed: {e:?}")
+            });
 
         Ok(Response::new(match reply {
             Ok(events) => TryReadEventsReply {
@@ -848,7 +1010,12 @@ impl simulation_server::Simulation for GrpcSimulationService {
     ) -> Result<Response<ReadEventReply>, Status> {
         let request = request.into_inner();
 
-        let reply = monitor_service_read_event(&self.monitor_service, request).await;
+        let reply = monitor_service_read_event(&self.monitor_service, request)
+            .await
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`read event` request failed: {e:?}")
+            });
 
         Ok(Response::new(ReadEventReply {
             result: Some(match reply {
@@ -862,7 +1029,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<EnableSinkRequest>,
     ) -> Result<Response<EnableSinkReply>, Status> {
         let request = request.into_inner();
-        let reply = self.monitor_service.lock().unwrap().enable_sink(request);
+        let reply = self
+            .monitor_service
+            .lock()
+            .unwrap()
+            .enable_sink(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`enable sink` request failed: {e:?}")
+            });
 
         Ok(Response::new(EnableSinkReply {
             result: Some(match reply {
@@ -876,7 +1051,15 @@ impl simulation_server::Simulation for GrpcSimulationService {
         request: Request<DisableSinkRequest>,
     ) -> Result<Response<DisableSinkReply>, Status> {
         let request = request.into_inner();
-        let reply = self.monitor_service.lock().unwrap().disable_sink(request);
+        let reply = self
+            .monitor_service
+            .lock()
+            .unwrap()
+            .disable_sink(request)
+            .inspect_err(|e| {
+                #[cfg(feature = "tracing")]
+                error!("`disable sink` request failed: {e:?}")
+            });
 
         Ok(Response::new(DisableSinkReply {
             result: Some(match reply {

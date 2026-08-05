@@ -3,6 +3,9 @@ use std::sync::Arc;
 
 use prost_types::Timestamp;
 
+#[cfg(feature = "tracing")]
+use tracing::{debug, info};
+
 use crate::endpoints::{EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
 use crate::server::key_registry::{KeyRegistry, KeyRegistryId};
@@ -71,6 +74,9 @@ impl SchedulerService {
             Self::Started { scheduler, .. } => {
                 scheduler.halt();
 
+                #[cfg(feature = "tracing")]
+                info!("the simulation is requested to halt");
+
                 Ok(())
             }
             Self::Halted => Err(simulation_not_started_error()),
@@ -131,7 +137,8 @@ impl SchedulerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event could not be deserialized as type '{}': {}",
+                    "the event ({}) could not be deserialized as type '{}': {}",
+                    source_path,
                     source.event_type_name(),
                     e
                 ),
@@ -156,7 +163,11 @@ impl SchedulerService {
 
         scheduler
             .schedule(deadline, QueueItem::Event(event))
-            .map_err(from_scheduling_error)?;
+            .map_err(from_scheduling_error)
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                debug!("event ({source_path}) has been scheduled at: {deadline}")
+            })?;
 
         Ok(key_id)
     }
@@ -189,6 +200,12 @@ impl SchedulerService {
             .ok_or_else(|| to_error(ErrorCode::InvalidKey, "invalid or expired event key"))?;
 
         key.cancel();
+
+        #[cfg(feature = "tracing")]
+        debug!(
+            "event has been requested do cancel, key: {:?}",
+            (subkey1, subkey2)
+        );
 
         Ok(())
     }
@@ -224,7 +241,8 @@ impl SchedulerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the request could not be deserialized as type '{}': {}",
+                    "the request ({}) could not be deserialized as type '{}': {}",
+                    source_path,
                     source.request_type_name(),
                     e
                 ),
@@ -239,15 +257,22 @@ impl SchedulerService {
 
         scheduler
             .schedule(deadline, QueueItem::Query(query))
-            .map_err(from_scheduling_error)?;
+            .map_err(from_scheduling_error)
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                debug!("query ({source_path}) has been scheduled at: {deadline}")
+            })?;
 
         let reply_type_name = source.reply_type_name().to_string();
+        // This is unfortunately needed so we do not move the original `source_path`
+        // to the created future (as it references local value).
+        let source_path = source_path.to_owned();
 
         let fut = async move {
             let replies = rx.take_collect_fut().await.ok_or_else(|| {
                 to_error(
                     ErrorCode::SimulationBadQuery,
-                    "a reply to the query was expected but none was available; maybe the target model was not added to the simulation?".to_string(),
+                    format!("a reply to the query ({source_path}) was expected but none was available; maybe the target model was not added to the simulation?"),
                 )
             })?;
 
@@ -255,10 +280,14 @@ impl SchedulerService {
                 to_error(
                     ErrorCode::InvalidMessage,
                     format!(
-                        "the reply could not be serialized as type '{}': {}",
+                        "the query ({source_path}) reply could not be serialized as type '{}': {}",
                         reply_type_name, e
                     ),
                 )
+            })
+            .inspect(|r| {
+                #[cfg(feature = "tracing")]
+                debug!("number of replies received for query ({}): {}", source_path, r.len())
             })
         };
         Ok(Box::pin(fut))
