@@ -354,7 +354,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             )
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`build` request failed: {e:?}")
+                error!("'build' request failed: {e:?}")
             });
 
         Ok(Response::new(BuildReply {
@@ -390,7 +390,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             )
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`init` request failed: {e:?}")
+                error!("'init' request failed: {e:?}")
             });
 
         Ok(Response::new(InitReply {
@@ -430,7 +430,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }
         .inspect_err(|e| {
             #[cfg(feature = "tracing")]
-            error!("`init and run` request failed: {e:?}")
+            error!("'init and run' request failed: {e:?}")
         });
 
         Ok(Response::new(InitAndRunReply {
@@ -468,7 +468,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             )
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`restore` request failed: {e:?}")
+                error!("'restore' request failed: {e:?}")
             });
 
         Ok(Response::new(RestoreReply {
@@ -520,7 +520,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
         }
         .inspect_err(|e| {
             #[cfg(feature = "tracing")]
-            error!("`restore and run` request failed: {e:?}")
+            error!("'restore and run' request failed: {e:?}")
         });
 
         Ok(Response::new(RestoreAndRunReply {
@@ -547,7 +547,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .list_event_sources(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`list event sources` request failed: {e:?}")
+                error!("'list event sources' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -573,7 +573,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .get_event_source_schemas(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`get event source schemas` request failed: {e:?}")
+                error!("'get event source schemas' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -599,7 +599,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .list_query_sources(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`list query sources` request failed: {e:?}")
+                error!("'list query sources' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -625,7 +625,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .get_query_source_schemas(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`get query source schemas` request failed: {e:?}")
+                error!("'get query source schemas' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -651,7 +651,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .list_event_sinks(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`list event sinks` request failed: {e:?}")
+                error!("'list event sinks' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -677,7 +677,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .get_event_sink_schemas(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`get event sink schemas` request failed: {e:?}")
+                error!("'get event sink schemas' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -703,7 +703,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .inject_event(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`inject event` request failed: {e:?}")
+                error!("'inject event' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -727,7 +727,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`save` request failed: {e:?}")
+                error!("'save' request failed: {e:?}")
             });
 
         Ok(Response::new(SaveReply {
@@ -744,7 +744,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`step` request failed: {e:?}")
+                error!("'step' request failed: {e:?}")
             });
 
         Ok(Response::new(StepReply {
@@ -764,7 +764,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`step_until` request failed: {e:?}")
+                error!("'step_until' request failed: {e:?}")
             });
 
         Ok(Response::new(StepUntilReply {
@@ -781,7 +781,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`run` request failed: {e:?}")
+                error!("'run' request failed: {e:?}")
             });
 
         Ok(Response::new(RunReply {
@@ -801,7 +801,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`process event` request failed: {e:?}")
+                error!("'process event' request failed: {e:?}")
             });
 
         Ok(Response::new(ProcessEventReply {
@@ -821,7 +821,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`process query` request failed: {e:?}")
+                error!("'process query' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -850,7 +850,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .time(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`time` request failed: {e:?}")
+                error!("'time' request failed: {e:?}")
             });
 
         Ok(Response::new(TimeReply {
@@ -870,7 +870,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .halt(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`halt` request failed: {e:?}")
+                error!("'halt' request failed: {e:?}")
             });
 
         Ok(Response::new(HaltReply {
@@ -892,7 +892,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .schedule_event(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`schedule event` request failed: {e:?}")
+                error!("'schedule event' request failed: {e:?}")
             });
 
         Ok(Response::new(ScheduleEventReply {
@@ -923,7 +923,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .cancel_event(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`cancel_event` request failed: {e:?}")
+                error!("'cancel event' request failed: {e:?}")
             });
 
         Ok(Response::new(CancelEventReply {
@@ -953,7 +953,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 },
                 Err(error) => {
                     #[cfg(feature = "tracing")]
-                    error!("`schedule query` request failed: {error:?}");
+                    error!("'schedule query' request failed: {error:?}");
                     ScheduleQueryReply {
                         replies: Vec::new(),
                         result: Some(schedule_query_reply::Result::Error(error)),
@@ -962,7 +962,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             },
             Err(error) => {
                 #[cfg(feature = "tracing")]
-                error!("`schedule query` request failed: {error:?}");
+                error!("'schedule query' request failed: {error:?}");
                 ScheduleQueryReply {
                     replies: Vec::new(),
                     result: Some(schedule_query_reply::Result::Error(error)),
@@ -990,7 +990,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .try_read_events(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`try read events` request failed: {e:?}")
+                error!("'try read events' request failed: {e:?}")
             });
 
         Ok(Response::new(match reply {
@@ -1014,7 +1014,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .await
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`read event` request failed: {e:?}")
+                error!("'read event' request failed: {e:?}")
             });
 
         Ok(Response::new(ReadEventReply {
@@ -1036,7 +1036,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .enable_sink(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`enable sink` request failed: {e:?}")
+                error!("'enable sink' request failed: {e:?}")
             });
 
         Ok(Response::new(EnableSinkReply {
@@ -1058,7 +1058,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .disable_sink(request)
             .inspect_err(|e| {
                 #[cfg(feature = "tracing")]
-                error!("`disable sink` request failed: {e:?}")
+                error!("'disable sink' request failed: {e:?}")
             });
 
         Ok(Response::new(DisableSinkReply {

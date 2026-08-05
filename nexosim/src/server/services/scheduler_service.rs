@@ -137,7 +137,7 @@ impl SchedulerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event ({}) could not be deserialized as type '{}': {}",
+                    "the event '{}' could not be deserialized as type '{}': {}",
                     source_path,
                     source.event_type_name(),
                     e
@@ -166,7 +166,7 @@ impl SchedulerService {
             .map_err(from_scheduling_error)
             .inspect(|_| {
                 #[cfg(feature = "tracing")]
-                debug!("event ({source_path}) has been scheduled at: {deadline}")
+                debug!("event '{source_path}' has been scheduled at: {deadline}")
             })?;
 
         Ok(key_id)
@@ -241,7 +241,7 @@ impl SchedulerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the request ({}) could not be deserialized as type '{}': {}",
+                    "the query '{}' request could not be deserialized as type '{}': {}",
                     source_path,
                     source.request_type_name(),
                     e
@@ -260,7 +260,7 @@ impl SchedulerService {
             .map_err(from_scheduling_error)
             .inspect(|_| {
                 #[cfg(feature = "tracing")]
-                debug!("query ({source_path}) has been scheduled at: {deadline}")
+                debug!("query '{source_path}' has been scheduled at: {deadline}")
             })?;
 
         let reply_type_name = source.reply_type_name().to_string();
@@ -272,23 +272,28 @@ impl SchedulerService {
             let replies = rx.take_collect_fut().await.ok_or_else(|| {
                 to_error(
                     ErrorCode::SimulationBadQuery,
-                    format!("a reply to the query ({source_path}) was expected but none was available; maybe the target model was not added to the simulation?"),
+                    format!("a reply to the query '{source_path}' was expected but none was available; maybe the target model was not added to the simulation?"),
                 )
             })?;
 
-            replies.map_err(|e| {
-                to_error(
-                    ErrorCode::InvalidMessage,
-                    format!(
-                        "the query ({source_path}) reply could not be serialized as type '{}': {}",
-                        reply_type_name, e
-                    ),
-                )
-            })
-            .inspect(|r| {
-                #[cfg(feature = "tracing")]
-                debug!("number of replies received for query ({}): {}", source_path, r.len())
-            })
+            replies
+                .map_err(|e| {
+                    to_error(
+                        ErrorCode::InvalidMessage,
+                        format!(
+                            "the query '{}' reply could not be serialized as type '{}': {}",
+                            source_path, reply_type_name, e
+                        ),
+                    )
+                })
+                .inspect(|r| {
+                    #[cfg(feature = "tracing")]
+                    debug!(
+                        "number of replies received for query '{}': {}",
+                        source_path,
+                        r.len()
+                    )
+                })
         };
         Ok(Box::pin(fut))
     }

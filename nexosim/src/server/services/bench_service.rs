@@ -251,7 +251,7 @@ impl BenchService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event ({}) could not be deserialized as type '{}': {}",
+                    "the event '{}' could not be deserialized as type '{}': {}",
                     source_path,
                     source.event_type_name(),
                     e
@@ -262,7 +262,7 @@ impl BenchService {
         injector.inject_built_event(event);
 
         #[cfg(feature = "tracing")]
-        debug!("event injected successfully: {source_path}");
+        debug!("event '{source_path}' injected successfully");
 
         Ok(())
     }

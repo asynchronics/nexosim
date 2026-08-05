@@ -149,7 +149,7 @@ impl ControllerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event ({}) could not be deserialized as type '{}': {}",
+                    "the event '{}' could not be deserialized as type '{}': {}",
                     source_path,
                     source.event_type_name(),
                     e
@@ -162,7 +162,7 @@ impl ControllerService {
             .map_err(from_execution_error)
             .inspect(|_| {
                 #[cfg(feature = "tracing")]
-                debug!("event processed successfully: {source_path}");
+                debug!("event '{source_path}' processed successfully");
             })
     }
 
@@ -198,7 +198,7 @@ impl ControllerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the query request ({}) could not be deserialized as type '{}': {}",
+                    "the query '{}' request could not be deserialized as type '{}': {}",
                     source_path,
                     source.request_type_name(),
                     e
@@ -211,12 +211,12 @@ impl ControllerService {
             .map_err(from_execution_error)
             .inspect(|_| {
                 #[cfg(feature = "tracing")]
-                debug!("query processed successfully: {source_path}, awaiting replies");
+                debug!("query '{source_path}' processed successfully, awaiting replies");
             })?;
 
         let replies = rx.take_collect().ok_or_else(|| to_error(
             ErrorCode::SimulationBadQuery,
-            format!("a reply to the query ({source_path}) was expected but none was available; maybe the target model was not added to the simulation?"),
+            format!("a reply to the query '{source_path}' was expected but none was available; maybe the target model was not added to the simulation?"),
         ))?;
 
         replies
@@ -224,7 +224,7 @@ impl ControllerService {
                 to_error(
                     ErrorCode::InvalidMessage,
                     format!(
-                        "the query ({}) reply could not be serialized as type '{}': {}",
+                        "the query '{}' reply could not be serialized as type '{}': {}",
                         source_path,
                         source.reply_type_name(),
                         e
@@ -234,7 +234,7 @@ impl ControllerService {
             .inspect(|r| {
                 #[cfg(feature = "tracing")]
                 debug!(
-                    "number of replies received for query ({}): {}",
+                    "number of replies received for query '{}': {}",
                     source_path,
                     r.len()
                 );
