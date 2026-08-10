@@ -70,9 +70,12 @@ fn run_service(
         .build()?;
 
     rt.block_on(async move {
-        let service = Server::builder()
-            .layer(TraceLayer::new_for_grpc())
-            .add_service(simulation_server::SimulationServer::new(service));
+        #[allow(unused_mut)]
+        let mut builder = Server::builder();
+        #[cfg(feature = "tracing")]
+        let mut builder = builder.layer(TraceLayer::new_for_grpc());
+
+        let service = builder.add_service(simulation_server::SimulationServer::new(service));
 
         #[cfg(feature = "tracing")]
         tracing::info!("HTTP server listening at: {addr}");
@@ -183,8 +186,12 @@ fn run_local_service(
         let uds = UnixListener::bind(path)?;
         let uds_stream = UnixListenerStream::new(uds);
 
-        let service =
-            Server::builder().add_service(simulation_server::SimulationServer::new(service));
+        #[allow(unused_mut)]
+        let mut builder = Server::builder();
+        #[cfg(feature = "tracing")]
+        let mut builder = builder.layer(TraceLayer::new_for_grpc());
+
+        let service = builder.add_service(simulation_server::SimulationServer::new(service));
 
         #[cfg(feature = "tracing")]
         tracing::info!(

@@ -185,7 +185,7 @@ impl BuildService {
             })
             .inspect(|_| {
                 #[cfg(feature = "tracing")]
-                info!("simulation initialized with start_time: {start_time}");
+                info!("simulation initialized with start time: {start_time}");
             })
     }
 
