@@ -4,6 +4,9 @@ use crate::endpoints::{EventSinkInfoRegistry, EventSourceRegistry, QuerySourceRe
 use crate::path::Path as NexosimPath;
 use crate::simulation::Injector;
 
+#[cfg(feature = "tracing")]
+use tracing::debug;
+
 use super::super::codegen::simulation::*;
 use super::{bench_not_built_error, from_endpoint_error, to_error};
 
@@ -248,7 +251,8 @@ impl BenchService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event could not be deserialized as type '{}': {}",
+                    "the event '{}' could not be deserialized as type '{}': {}",
+                    source_path,
                     source.event_type_name(),
                     e
                 ),
@@ -256,6 +260,9 @@ impl BenchService {
         })?;
 
         injector.inject_built_event(event);
+
+        #[cfg(feature = "tracing")]
+        debug!("event '{source_path}' injected successfully");
 
         Ok(())
     }

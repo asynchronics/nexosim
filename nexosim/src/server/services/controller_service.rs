@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use prost_types::Timestamp;
 
+#[cfg(feature = "tracing")]
+use tracing::{debug, info};
+
 use crate::endpoints::{EventSourceRegistry, QuerySourceRegistry};
 use crate::path::Path as NexosimPath;
 use crate::server::services::from_endpoint_error;
@@ -40,6 +43,9 @@ impl ControllerService {
             return Err(simulation_not_started_error());
         };
 
+        #[cfg(feature = "tracing")]
+        info!("simulation will to advance to a next scheduled event or tick");
+
         simulation
             .step()
             .map_err(from_execution_error)
@@ -71,6 +77,9 @@ impl ControllerService {
                     to_error(ErrorCode::InvalidTime, "out-of-range nanosecond field")
                 })?;
 
+                #[cfg(feature = "tracing")]
+                info!("simulation will advance until: {:?}", deadline);
+
                 simulation.step_until(time).map_err(from_execution_error)?;
             }
             step_until_request::Deadline::Duration(duration) => {
@@ -80,6 +89,9 @@ impl ControllerService {
                         "the specified deadline lies in the past",
                     )
                 })?;
+
+                #[cfg(feature = "tracing")]
+                info!("simulation will advance by: {:?}", deadline);
 
                 simulation
                     .step_until(duration)
@@ -99,6 +111,9 @@ impl ControllerService {
         let Self::Started { simulation, .. } = self else {
             return Err(simulation_not_started_error());
         };
+
+        #[cfg(feature = "tracing")]
+        info!("simulation will run indefinitely");
 
         simulation.run().map_err(from_execution_error)?;
 
@@ -134,7 +149,8 @@ impl ControllerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the event could not be deserialized as type '{}': {}",
+                    "the event '{}' could not be deserialized as type '{}': {}",
+                    source_path,
                     source.event_type_name(),
                     e
                 ),
@@ -144,6 +160,10 @@ impl ControllerService {
         simulation
             .process_event_erased(source, arg)
             .map_err(from_execution_error)
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                debug!("event '{source_path}' processed successfully");
+            })
     }
 
     /// Broadcasts a query from a query source immediately, blocking until
@@ -178,7 +198,8 @@ impl ControllerService {
             to_error(
                 ErrorCode::InvalidMessage,
                 format!(
-                    "the request could not be deserialized as type '{}': {}",
+                    "the query '{}' request could not be deserialized as type '{}': {}",
+                    source_path,
                     source.request_type_name(),
                     e
                 ),
@@ -187,23 +208,37 @@ impl ControllerService {
 
         let mut rx = simulation
             .process_query_erased(source, arg)
-            .map_err(from_execution_error)?;
+            .map_err(from_execution_error)
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                debug!("query '{source_path}' processed successfully, awaiting replies");
+            })?;
 
         let replies = rx.take_collect().ok_or_else(|| to_error(
             ErrorCode::SimulationBadQuery,
-            "a reply to the query was expected but none was available; maybe the target model was not added to the simulation?".to_string(),
+            format!("a reply to the query '{source_path}' was expected but none was available; maybe the target model was not added to the simulation?"),
         ))?;
 
-        replies.map_err(|e| {
-            to_error(
-                ErrorCode::InvalidMessage,
-                format!(
-                    "the reply could not be serialized as type '{}': {}",
-                    source.reply_type_name(),
-                    e
-                ),
-            )
-        })
+        replies
+            .map_err(|e| {
+                to_error(
+                    ErrorCode::InvalidMessage,
+                    format!(
+                        "the query '{}' reply could not be serialized as type '{}': {}",
+                        source_path,
+                        source.reply_type_name(),
+                        e
+                    ),
+                )
+            })
+            .inspect(|r| {
+                #[cfg(feature = "tracing")]
+                debug!(
+                    "number of replies received for query '{}': {}",
+                    source_path,
+                    r.len()
+                );
+            })
     }
 
     /// Saves and returns current simulation state in a serialized form.
@@ -217,6 +252,10 @@ impl ControllerService {
             .save(&mut state)
             .map_err(from_execution_error)
             .map(|_| state)
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                info!("simulation state serialized successfully");
+            })
     }
 }
 

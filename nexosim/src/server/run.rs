@@ -9,6 +9,7 @@ use std::pin::Pin;
 
 use serde::de::DeserializeOwned;
 use tonic::transport::Server;
+use tower_http::trace::TraceLayer;
 
 use crate::server::services::GrpcSimulationService;
 use crate::simulation::SimInit;
@@ -69,13 +70,23 @@ fn run_service(
         .build()?;
 
     rt.block_on(async move {
-        let service =
-            Server::builder().add_service(simulation_server::SimulationServer::new(service));
+        #[allow(unused_mut)]
+        let mut builder = Server::builder();
+        #[cfg(feature = "tracing")]
+        let mut builder = builder.layer(TraceLayer::new_for_grpc());
+
+        let service = builder.add_service(simulation_server::SimulationServer::new(service));
+
+        #[cfg(feature = "tracing")]
+        tracing::info!("HTTP server listening at: {addr}");
 
         match signal {
             Some(signal) => service.serve_with_shutdown(addr, signal).await?,
             None => service.serve(addr).await?,
         };
+
+        #[cfg(feature = "tracing")]
+        tracing::info!("server exited");
 
         Ok(())
     })
@@ -175,8 +186,18 @@ fn run_local_service(
         let uds = UnixListener::bind(path)?;
         let uds_stream = UnixListenerStream::new(uds);
 
-        let service =
-            Server::builder().add_service(simulation_server::SimulationServer::new(service));
+        #[allow(unused_mut)]
+        let mut builder = Server::builder();
+        #[cfg(feature = "tracing")]
+        let mut builder = builder.layer(TraceLayer::new_for_grpc());
+
+        let service = builder.add_service(simulation_server::SimulationServer::new(service));
+
+        #[cfg(feature = "tracing")]
+        tracing::info!(
+            "unix socket server listening at: {}",
+            path.to_string_lossy()
+        );
 
         match signal {
             Some(signal) => {
@@ -186,6 +207,9 @@ fn run_local_service(
             }
             None => service.serve_with_incoming(uds_stream).await?,
         };
+
+        #[cfg(feature = "tracing")]
+        tracing::info!("server exited");
 
         Ok(())
     })

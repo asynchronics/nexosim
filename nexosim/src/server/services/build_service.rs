@@ -6,6 +6,9 @@ use std::sync::Arc;
 use ciborium;
 use serde::de::DeserializeOwned;
 
+#[cfg(feature = "tracing")]
+use tracing::info;
+
 use crate::endpoints::{
     EventSinkInfoRegistry, EventSinkRegistry, EventSourceRegistry, QuerySourceRegistry,
 };
@@ -124,6 +127,10 @@ impl BuildService {
                 injector,
             )
         })
+        .inspect(|_| {
+            #[cfg(feature = "tracing")]
+            info!("simulation built successfully");
+        })
     }
 
     /// Initializes the simulation.
@@ -176,6 +183,10 @@ impl BuildService {
                     query_source_registry,
                 )
             })
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                info!("simulation initialized with start time: {start_time}");
+            })
     }
 
     /// Restore the simulation from a serialized state.
@@ -217,6 +228,10 @@ impl BuildService {
                     event_source_registry,
                     query_source_registry,
                 )
+            })
+            .inspect(|_| {
+                #[cfg(feature = "tracing")]
+                info!("simulation restored from a saved state");
             })
     }
 
