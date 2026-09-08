@@ -686,7 +686,7 @@ impl Simulation {
     /// Requests and stores serialized state from each of the models.
     fn save_models(&mut self) -> Result<Vec<Vec<u8>>, ExecutionError> {
         // Temporarily move out of the simulation object.
-        let models = self.registered_models.drain(..).collect::<Vec<_>>();
+        let models = std::mem::take(&mut self.registered_models);
         let mut values = Vec::new();
         for model in models.iter() {
             values.push((model.serialize)(self)?);
@@ -702,7 +702,7 @@ impl Simulation {
         event_key_reg: &EventKeyReg,
     ) -> Result<(), ExecutionError> {
         // Temporarily move out of the simulation object.
-        let models = self.registered_models.drain(..).collect::<Vec<_>>();
+        let models = std::mem::take(&mut self.registered_models);
         for (model, state) in models.iter().zip(model_state) {
             (model.deserialize)(self, (state, event_key_reg.clone()))?;
         }
