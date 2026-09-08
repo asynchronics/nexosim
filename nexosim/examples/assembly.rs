@@ -175,8 +175,8 @@ fn main() -> Result<(), SimulationError> {
     let last_pos = iter::from_fn(|| position.try_read()).last();
     assert_eq!(last_pos, Some(pos));
 
-    // Advance simulation time by 0.9s, which with a 10Hz PPS should correspond to
-    // 9 position increments.
+    // Advance simulation time by 0.9s, which with a 10Hz PPS should correspond
+    // to 9 position increments.
     simu.step_until(Duration::new(0, 900_000_000))?;
     t += Duration::new(0, 900_000_000);
     assert_eq!(simu.time(), t);

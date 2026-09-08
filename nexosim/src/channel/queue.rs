@@ -51,7 +51,8 @@ impl<T: ?Sized> Drop for MessageBorrow<'_, T> {
     fn drop(&mut self) {
         let slot = &self.queue.buffer[self.index];
 
-        // Safety: the content of the `ManuallyDrop` will not be accessed anymore.
+        // Safety: the content of the `ManuallyDrop` will not be accessed
+        // anymore.
         let recycle_box = RecycleBox::vacate(unsafe { ManuallyDrop::take(&mut self.msg) });
 
         // Give the box back to the queue.
@@ -194,7 +195,8 @@ impl<T: ?Sized> Queue<T> {
                         Ordering::Relaxed,
                     ) {
                         Ok(_) => {
-                            // Write the closure into the slot and update the stamp.
+                            // Write the closure into the slot and update the
+                            // stamp.
                             unsafe {
                                 slot.message.with_mut(|msg_fn_box| {
                                     let vacated_box =
@@ -216,16 +218,19 @@ impl<T: ?Sized> Queue<T> {
                     }
                 }
                 cmp::Ordering::Less => {
-                    // The sequence count of the stamp is smaller than that of the
-                    // enqueue position: the closure it contains has not been popped
+                    // The sequence count of the stamp is smaller than that of
+                    // the enqueue position: the closure it
+                    // contains has not been popped
                     // yet, so report a full queue.
                     return Err(PushError::Full(msg_fn));
                 }
                 cmp::Ordering::Greater => {
-                    // The stamp is greater than the enqueue position: this means we
-                    // raced with a concurrent producer which has already (i)
-                    // incremented the enqueue position and (ii) written a closure to
-                    // this slot. A retry is required.
+                    // The stamp is greater than the enqueue position: this
+                    // means we raced with a concurrent
+                    // producer which has already (i)
+                    // incremented the enqueue position and (ii) written a
+                    // closure to this slot. A retry is
+                    // required.
                     enqueue_pos = self.enqueue_pos.load(Ordering::Relaxed);
                 }
             }
@@ -253,8 +258,9 @@ impl<T: ?Sized> Queue<T> {
             self.dequeue_pos
                 .store(self.next_queue_pos(dequeue_pos), Ordering::Relaxed);
 
-            // Extract the closure from the slot and set the stamp to the value of
-            // the dequeue position increased by one sequence increment.
+            // Extract the closure from the slot and set the stamp to the value
+            // of the dequeue position increased by one sequence
+            // increment.
             slot.message.with_mut(|msg_box| {
                 match mem::replace(unsafe { &mut *msg_box }, MessageBox::None) {
                     MessageBox::Populated(msg) => {
@@ -278,7 +284,8 @@ impl<T: ?Sized> Queue<T> {
             // `PopError::Closed` it is necessary to check as well that the
             // enqueue position matches the dequeue position.
             //
-            // Ordering: Relaxed ordering is enough since no closure will be read.
+            // Ordering: Relaxed ordering is enough since no closure will be
+            // read.
             if self.enqueue_pos.load(Ordering::Relaxed) == (dequeue_pos | self.closed_channel_mask)
             {
                 Err(PopError::Closed)
@@ -680,7 +687,8 @@ mod tests {
                             match producer.push(|b| RecycleBox::recycle(b, i)) {
                                 Ok(()) => {}
                                 Err(PushError::Full(_)) => {
-                                    // A push can fail only if there is not enough capacity.
+                                    // A push can fail only if there is not
+                                    // enough capacity.
                                     assert!(capacity < max_push_per_thread * producer_thread_count);
 
                                     break;

@@ -56,7 +56,8 @@ impl<T, const BUCKET_CAPACITY: usize> Injector<T, BUCKET_CAPACITY> {
     pub(crate) fn insert_task(&self, task: T) {
         let mut inner = self.inner.lock().unwrap();
 
-        // Try to push the task onto the first bucket if it has enough capacity left.
+        // Try to push the task onto the first bucket if it has enough capacity
+        // left.
         if let Some(bucket) = inner.first_mut() {
             if let Err(task) = bucket.push(task) {
                 // The bucket is full: move it to the back of the vector and
