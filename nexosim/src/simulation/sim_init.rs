@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fmt, mem};
@@ -14,8 +14,8 @@ use crate::executor::{Executor, SimulationContext};
 use crate::model::{Message, ProtoModel, RegisteredModel};
 use crate::path::Path;
 use crate::ports::{EventSinkReader, EventSource, QuerySource};
+use crate::simulation::InjectorQueue;
 use crate::simulation::injector::Injector;
-use crate::simulation::{HALT_FLAG_UNSET, InjectorQueue};
 use crate::time::{
     AtomicTime, Clock, ClockReader, MonotonicTime, NoClock, SyncStatus, TearableAtomicTime, Ticker,
 };
@@ -39,7 +39,8 @@ pub struct SimInit {
     event_source_registry: EventSourceRegistry,
     query_source_registry: QuerySourceRegistry,
     time: AtomicTime,
-    halt_flag: Arc<AtomicU8>,
+    is_halted: Arc<AtomicBool>,
+    is_terminated: Arc<AtomicBool>,
     is_resumed: Arc<AtomicBool>,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -99,7 +100,8 @@ impl SimInit {
             event_source_registry: EventSourceRegistry::default(),
             query_source_registry: QuerySourceRegistry::default(),
             time,
-            halt_flag: Arc::new(AtomicU8::new(HALT_FLAG_UNSET)),
+            is_halted: Arc::new(AtomicBool::new(false)),
+            is_terminated: Arc::new(AtomicBool::new(false)),
             is_resumed: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
@@ -253,7 +255,8 @@ impl SimInit {
         let scheduler = GlobalScheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.halt_flag.clone(),
+            self.is_halted.clone(),
+            self.is_terminated.clone(),
         );
 
         add_model(
@@ -485,7 +488,8 @@ impl SimInit {
             self.timeout,
             self.observers,
             self.registered_models,
-            self.halt_flag,
+            self.is_halted,
+            self.is_terminated,
         )
     }
 }

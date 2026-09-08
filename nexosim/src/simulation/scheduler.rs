@@ -1,15 +1,12 @@
 //! Scheduling functions and types.
 use std::error::Error;
 use std::fmt;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::ports::ReplyReader;
-#[cfg(feature = "server")]
-use crate::simulation::HALT_FLAG_TERMINATED;
 use crate::simulation::queue_items::{Event, EventId, EventKey, Query, QueryId, QueueItem};
-use crate::simulation::{HALT_FLAG_SET, HALT_FLAG_UNSET};
 use crate::time::{AtomicTimeReader, ClockReader, Deadline, MonotonicTime};
 use crate::util::priority_queue::PriorityQueue;
 
@@ -41,9 +38,15 @@ impl Scheduler {
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
-        halt_flag: Arc<AtomicU8>,
+        is_halted: Arc<AtomicBool>,
+        is_terminated: Arc<AtomicBool>,
     ) -> Self {
-        Self(GlobalScheduler::new(scheduler_queue, time, halt_flag))
+        Self(GlobalScheduler::new(
+            scheduler_queue,
+            time,
+            is_halted,
+            is_terminated,
+        ))
     }
 
     /// Creates a dummy scheduler (for testing purposes only).
@@ -52,9 +55,15 @@ impl Scheduler {
     pub(crate) fn dummy() -> Self {
         let time = AtomicTime::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
         let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
-        let halt_flag = Arc::new(AtomicU8::default());
+        let is_halted = Arc::new(AtomicBool::default());
+        let is_terminated = Arc::new(AtomicBool::default());
 
-        Self(GlobalScheduler::new(scheduler_queue, time, halt_flag))
+        Self(GlobalScheduler::new(
+            scheduler_queue,
+            time,
+            is_halted,
+            is_terminated,
+        ))
     }
 
     /// Returns the current simulation time.
@@ -262,19 +271,22 @@ pub(crate) type SchedulerKey = (MonotonicTime, usize);
 pub(crate) struct GlobalScheduler {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTimeReader,
-    halt_flag: Arc<AtomicU8>,
+    is_halted: Arc<AtomicBool>,
+    is_terminated: Arc<AtomicBool>,
 }
 
 impl GlobalScheduler {
     pub(crate) fn new(
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
-        halt_flag: Arc<AtomicU8>,
+        is_halted: Arc<AtomicBool>,
+        is_terminated: Arc<AtomicBool>,
     ) -> Self {
         Self {
             scheduler_queue,
             time,
-            halt_flag,
+            is_halted,
+            is_terminated,
         }
     }
 
@@ -475,18 +487,12 @@ impl GlobalScheduler {
     /// Requests the simulation to return as early as possible upon the
     /// completion of the current time step.
     pub(crate) fn halt(&self) {
-        let _ = self.halt_flag.compare_exchange(
-            HALT_FLAG_UNSET,
-            HALT_FLAG_SET,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        );
+        self.is_halted.store(true, Ordering::Relaxed);
     }
 
     #[cfg(feature = "server")]
     pub(crate) fn terminate(&self) {
-        self.halt_flag
-            .store(HALT_FLAG_TERMINATED, Ordering::Relaxed);
+        self.is_terminated.store(true, Ordering::Relaxed);
     }
 }
 
@@ -494,7 +500,8 @@ impl fmt::Debug for GlobalScheduler {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GlobalScheduler")
             .field("time", &self.time())
-            .field("halt_flag", &self.halt_flag.load(Ordering::Relaxed))
+            .field("is_halted", &self.is_halted.load(Ordering::Relaxed))
+            .field("is_terminated", &self.is_terminated.load(Ordering::Relaxed))
             .finish_non_exhaustive()
     }
 }
@@ -503,11 +510,15 @@ impl fmt::Debug for GlobalScheduler {
 impl GlobalScheduler {
     /// Creates a dummy scheduler for testing purposes.
     pub(crate) fn new_dummy() -> Self {
-        use crate::simulation::HALT_FLAG_UNSET;
-
         let dummy_priority_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
-        let dummy_halt_flag = Arc::new(AtomicU8::new(HALT_FLAG_UNSET));
-        GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_halt_flag)
+        let dummy_is_halted = Arc::new(AtomicBool::new(false));
+        let dummy_is_terminated = Arc::new(AtomicBool::new(false));
+        GlobalScheduler::new(
+            dummy_priority_queue,
+            dummy_time,
+            dummy_is_halted,
+            dummy_is_terminated,
+        )
     }
 }

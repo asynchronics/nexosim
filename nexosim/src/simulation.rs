@@ -133,7 +133,7 @@ use std::error::Error;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::Poll;
 use std::time::Duration;
@@ -166,17 +166,6 @@ thread_local! { pub(crate) static CURRENT_MODEL_ID: Cell<ModelId> = const { Cell
 // Note: `usize::MAX` is not a valid origin ID as it is denotes the lack of an
 // origin ID for a `ModelId`.
 const GLOBAL_ORIGIN_ID: usize = usize::MAX - 1;
-
-/// If `halt_flag` is set to this value the simulation can be executed without
-/// interruptions.
-pub(crate) const HALT_FLAG_UNSET: u8 = 0;
-/// If `halt_flag` is set to this value the simulation will be interrupted at
-/// the earliest opportunity.
-/// This state will be cleared to `UNSET` after the simulation is resumed.
-pub(crate) const HALT_FLAG_SET: u8 = 1;
-/// If `halt_flag` is set to this value the simulation will be permanently
-/// interrupted. This state cannot be cleared again into `UNSET` mode.
-pub(crate) const HALT_FLAG_TERMINATED: u8 = 2;
 
 /// The simulation environment.
 ///
@@ -231,7 +220,8 @@ pub struct Simulation {
     timeout: Duration,
     observers: Vec<(Path, Box<dyn ChannelObserver>)>,
     registered_models: Vec<RegisteredModel>,
-    halt_flag: Arc<AtomicU8>,
+    is_halted: Arc<AtomicBool>,
+    is_terminated: Arc<AtomicBool>,
 }
 
 impl Simulation {
@@ -249,7 +239,8 @@ impl Simulation {
         timeout: Duration,
         observers: Vec<(Path, Box<dyn ChannelObserver>)>,
         registered_models: Vec<RegisteredModel>,
-        halt_flag: Arc<AtomicU8>,
+        is_halted: Arc<AtomicBool>,
+        is_terminated: Arc<AtomicBool>,
     ) -> Self {
         Self {
             executor,
@@ -263,7 +254,8 @@ impl Simulation {
             timeout,
             observers,
             registered_models,
-            halt_flag,
+            is_halted,
+            is_terminated,
         }
     }
 
@@ -277,7 +269,8 @@ impl Simulation {
         Scheduler::new(
             self.scheduler_queue.clone(),
             self.time.reader(),
-            self.halt_flag.clone(),
+            self.is_halted.clone(),
+            self.is_terminated.clone(),
         )
     }
 
@@ -516,13 +509,12 @@ impl Simulation {
 
     /// Runs the executor.
     fn run_executor(&mut self) -> Result<(), ExecutionError> {
-        if self.halt_flag.load(Ordering::Relaxed) == HALT_FLAG_TERMINATED {
+        if self.is_terminated.load(Ordering::Relaxed) {
             return Err(ExecutionError::Terminated);
         }
 
         self.executor.run(self.timeout).map_err(|e| {
-            self.halt_flag
-                .store(HALT_FLAG_TERMINATED, Ordering::Relaxed);
+            self.is_terminated.store(true, Ordering::Relaxed);
 
             match e {
                 ExecutorError::UnprocessedMessages(msg_count) => {
@@ -574,8 +566,7 @@ impl Simulation {
             && let Some(tolerance) = &self.clock_tolerance
             && &lag > tolerance
         {
-            self.halt_flag
-                .store(HALT_FLAG_TERMINATED, Ordering::Relaxed);
+            self.is_terminated.store(true, Ordering::Relaxed);
 
             return Err(ExecutionError::OutOfSync(lag));
         }
@@ -595,6 +586,10 @@ impl Simulation {
         upper_time_bound: Option<MonotonicTime>,
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
         self.take_halt_flag()?;
+
+        if self.is_terminated.load(Ordering::Relaxed) {
+            return Err(ExecutionError::Terminated);
+        }
 
         let upper_time_bound = upper_time_bound.unwrap_or(MonotonicTime::MAX);
 
@@ -682,24 +677,11 @@ impl Simulation {
     ///
     /// An `ExecutionError::Halted` error is returned if the flag was set.
     fn take_halt_flag(&mut self) -> Result<(), ExecutionError> {
-        match self.halt_flag.load(Ordering::Relaxed) {
-            HALT_FLAG_UNSET => Ok(()),
-            HALT_FLAG_SET => {
-                match self.halt_flag.compare_exchange(
-                    HALT_FLAG_SET,
-                    HALT_FLAG_UNSET,
-                    Ordering::Relaxed,
-                    Ordering::Relaxed,
-                ) {
-                    Ok(_) => Err(ExecutionError::Halted),
-                    Err(HALT_FLAG_UNSET) => Ok(()),
-                    Err(HALT_FLAG_TERMINATED) => Err(ExecutionError::Terminated),
-                    Err(f) => unreachable!("Invalid `halt_flag` value: {f}"),
-                }
-            }
-            HALT_FLAG_TERMINATED => Err(ExecutionError::Terminated),
-            f => unreachable!("Invalid `halt_flag` value: {f}"),
+        if self.is_halted.load(Ordering::Relaxed) {
+            self.is_halted.store(false, Ordering::Relaxed);
+            return Err(ExecutionError::Halted);
         }
+        Ok(())
     }
 
     /// Requests and stores serialized state from each of the models.
