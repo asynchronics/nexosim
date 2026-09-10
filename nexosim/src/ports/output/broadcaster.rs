@@ -427,9 +427,9 @@ impl<R> Future for BroadcastFuture<'_, R> {
             // sent each time a sub-future has made progress. We may try at some
             // point to benchmark an alternative strategy where a notification
             // is requested only when all pending sub-futures have made
-            // progress, using `take_scheduled(this.
-            // pending_futures_count)`. This would reduce the cost
-            // of context switch but could hurt latency.
+            // progress, using `take_scheduled(this.pending_futures_count)`.
+            // This would reduce the cost of context switch but could hurt
+            // latency.
             let scheduled_tasks = match this.shared.task_set.take_scheduled(1) {
                 Some(st) => st,
                 None => return Poll::Pending,

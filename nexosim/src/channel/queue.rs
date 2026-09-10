@@ -219,18 +219,15 @@ impl<T: ?Sized> Queue<T> {
                 }
                 cmp::Ordering::Less => {
                     // The sequence count of the stamp is smaller than that of
-                    // the enqueue position: the closure it
-                    // contains has not been popped
-                    // yet, so report a full queue.
+                    // the enqueue position: the closure it contains has not
+                    // been popped yet, so report a full queue.
                     return Err(PushError::Full(msg_fn));
                 }
                 cmp::Ordering::Greater => {
                     // The stamp is greater than the enqueue position: this
-                    // means we raced with a concurrent
-                    // producer which has already (i)
-                    // incremented the enqueue position and (ii) written a
-                    // closure to this slot. A retry is
-                    // required.
+                    // means we raced with a concurrent producer which has
+                    // already (i) incremented the enqueue position and (ii)
+                    // written a closure to this slot. A retry is required.
                     enqueue_pos = self.enqueue_pos.load(Ordering::Relaxed);
                 }
             }
@@ -259,8 +256,7 @@ impl<T: ?Sized> Queue<T> {
                 .store(self.next_queue_pos(dequeue_pos), Ordering::Relaxed);
 
             // Extract the closure from the slot and set the stamp to the value
-            // of the dequeue position increased by one sequence
-            // increment.
+            // of the dequeue position increased by one sequence increment.
             slot.message.with_mut(|msg_box| {
                 match mem::replace(unsafe { &mut *msg_box }, MessageBox::None) {
                     MessageBox::Populated(msg) => {
