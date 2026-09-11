@@ -243,8 +243,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     let last_pos = iter::from_fn(|| position.try_read()).last();
     assert_eq!(last_pos, Some(pos));
 
-    // Advance simulation time by 0.9s, which with a 10Hz PPS should correspond to
-    // 9 position increments.
+    // Advance simulation time by 0.9s, which with a 10Hz PPS should correspond
+    // to 9 position increments.
     simu.step_until(Duration::new(0, 900_000_000))?;
     t += Duration::new(0, 900_000_000);
     assert_eq!(simu.time(), t);
@@ -282,8 +282,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     pos = (pos + Motor::STEPS_PER_REV - 1) % Motor::STEPS_PER_REV;
     assert_eq!(position.try_read(), Some(pos));
 
-    // Advance simulation time by 0.7s, which with a 10Hz PPS should correspond to
-    // 7 position increments.
+    // Advance simulation time by 0.7s, which with a 10Hz PPS should correspond
+    // to 7 position increments.
     simu.step_until(Duration::new(0, 700_000_000))?;
     t += Duration::new(0, 700_000_000);
     assert_eq!(simu.time(), t);

@@ -156,8 +156,8 @@ impl<T> Drop for SlotWriter<T> {
 
             // Deallocate the slot since it was closed by the reader.
             //
-            // Note: there can't be any value because `write` consumes the writer
-            // and does not run the drop handler.
+            // Note: there can't be any value because `write` consumes the
+            // writer and does not run the drop handler.
             //
             // Safety: `inner` will no longer be used once deallocated.
             drop(Box::from_raw(self.inner.as_ptr()));
@@ -191,7 +191,8 @@ impl<T> SlotReader<T> {
             // is fully visible when the `POPULATED` flag is read.
             let state = self.inner.as_ref().state.load(Ordering::Acquire);
 
-            // If there is no value but the writer is still alive, return `NoValue`.
+            // If there is no value but the writer is still alive, return
+            // `NoValue`.
             if state == 0 {
                 return Err(ReadError::NoValue);
             }
@@ -201,8 +202,8 @@ impl<T> SlotReader<T> {
                 return Err(ReadError::Closed);
             }
 
-            // At this point, we know that `POPULATED`, and therefore `CLOSED`, are
-            // set.
+            // At this point, we know that `POPULATED`, and therefore `CLOSED`,
+            // are set.
 
             // Clear the `POPULATED` flag since we are going to take the value.
             //

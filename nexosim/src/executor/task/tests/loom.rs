@@ -76,7 +76,8 @@ impl RunnableSlot {
     fn take(&self) -> Option<Runnable> {
         self.state
             .fetch_update(Acquire, Relaxed, |s| {
-                // Only lock if there is a runnable and it is not already locked.
+                // Only lock if there is a runnable and it is not already
+                // locked.
                 if s == Self::POPULATED {
                     Some(Self::LOCKED)
                 } else {

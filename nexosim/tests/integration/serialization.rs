@@ -469,8 +469,9 @@ fn model_with_hashmap() {
     let mut simu = bench.restore(&state[..]).unwrap();
 
     for _ in 0..ITERATIONS {
-        // Verify that after the deserialization output connections still point to
-        // assigned sinks. (fails when a standard RandomState HashMap is used)
+        // Verify that after the deserialization output connections still point
+        // to assigned sinks. (fails when a standard RandomState HashMap
+        // is used)
         #[allow(clippy::needless_range_loop)]
         for idx in 0..COUNT {
             simu.process_event(&event, idx).unwrap();

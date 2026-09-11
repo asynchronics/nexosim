@@ -245,7 +245,8 @@ impl PoolManager {
         excluded_worker_id: Option<usize>,
         rng: &'_ rng::Rng,
     ) -> ShuffledStealers<'a> {
-        // All active workers except the specified one are candidate for stealing.
+        // All active workers except the specified one are candidate for
+        // stealing.
         let mut candidates = self.active_workers.load(Ordering::Relaxed);
         if let Some(excluded_worker_id) = excluded_worker_id {
             candidates &= !(1 << excluded_worker_id);

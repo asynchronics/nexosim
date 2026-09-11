@@ -295,10 +295,10 @@ impl GlobalScheduler {
     ) -> Result<(), SchedulingError> {
         // The scheduler queue must always be locked when reading the time,
         // otherwise the following race could occur:
-        // 1) this method reads the time and concludes that it is not too late to
-        //    schedule the action,
-        // 2) the `Simulation` object takes the lock, increments simulation time and
-        //    runs the simulation step,
+        // 1) this method reads the time and concludes that it is not too late
+        //    to schedule the action,
+        // 2) the `Simulation` object takes the lock, increments simulation time
+        //    and runs the simulation step,
         // 3) this method takes the lock and schedules the now-outdated action.
         let mut scheduler_queue = self.scheduler_queue.lock().unwrap();
 

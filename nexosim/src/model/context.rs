@@ -656,13 +656,13 @@ pub struct SchedulableId<M, T>(usize, PhantomData<M>, PhantomData<T>);
 impl<M: Model, T> SchedulableId<M, T> {
     const REGISTRY_MASK: usize = 1 << (usize::BITS - 1);
 
-    // This method is used by the proc-macro to construct compile time ids for the
-    // inputs decorated with the #[nexosim(schedulable)] attribute.
+    // This method is used by the proc-macro to construct compile time ids for
+    // the inputs decorated with the #[nexosim(schedulable)] attribute.
     // Those ids are differentiated by setting the most significant byte on the
     // usize int.
     //
-    // The `id` input argument refers to input's index in the `ModelRegistry` and
-    // thus can be used to obtain a valid `SchedulerRegistry` index.
+    // The `id` input argument refers to input's index in the `ModelRegistry`
+    // and thus can be used to obtain a valid `SchedulerRegistry` index.
     #[doc(hidden)]
     pub const fn __from_decorated(id: usize) -> Self {
         Self(id | Self::REGISTRY_MASK, PhantomData, PhantomData)
