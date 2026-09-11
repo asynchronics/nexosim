@@ -63,7 +63,8 @@ impl EventSinkRegistry {
             Entry::Occupied(entry) => {
                 if let Some(inner) = entry.get() {
                     if inner.event_type_id() == TypeId::of::<T>() {
-                        // We now know that the downcast will succeed and can safely unwrap.
+                        // We now know that the downcast will succeed and can
+                        // safely unwrap.
                         let sink = entry
                             .remove_entry()
                             .1

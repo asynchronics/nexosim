@@ -83,7 +83,8 @@ fn halt_and_resume() -> Result<(), SimulationError> {
         let mut s = simulation.try_lock().unwrap();
         let t1 = s.time();
 
-        // The simulation should have stopped just after the first scheduled event.
+        // The simulation should have stopped just after the first scheduled
+        // event.
         assert_eq!(t1, t0 + Duration::from_millis(200));
 
         // Restart the simulation at the last simulation time.

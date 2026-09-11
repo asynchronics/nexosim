@@ -96,10 +96,11 @@ impl DCMotor {
         let now = cx.time();
         if let Some(prev_time) = self.last_position_update {
             let elapsed_time = now.duration_since(prev_time).as_secs_f64();
-            // Current velocity calculated based on acceleration during last period.
+            // Current velocity calculated based on acceleration during last
+            // period.
             let vel = self.prev_vel + self.prev_acc * elapsed_time;
-            // Integration of velocity over time to get position change, converted to
-            // degrees.
+            // Integration of velocity over time to get position change,
+            // converted to degrees.
             self.pos += (self.prev_vel + vel) / 2.0 * elapsed_time / PI * 180.0;
             // Saves velocity for next iteration.
             self.prev_vel = vel;
@@ -547,8 +548,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     current_pos = iter::from_fn(|| position.try_read()).last().unwrap();
     assert!(current_pos < setpoint_value - epsilon);
 
-    // Advance simulation time and check if servo is around setpoint half a second
-    // after setpoint change.
+    // Advance simulation time and check if servo is around setpoint half a
+    // second after setpoint change.
     simu.step_until(Duration::new(0, 450_000_000))?;
     t += Duration::new(0, 450_000_000);
     assert_eq!(simu.time(), t);
@@ -570,8 +571,8 @@ fn main() -> Result<(), nexosim::simulation::SimulationError> {
     current_pos = (iter::from_fn(|| position.try_read())).last().unwrap();
     assert!(current_pos > setpoint_value + epsilon);
 
-    // Advance the simulation time and check whether the position is back to being
-    // around setpoint 1.5 seconds after the load were applied.
+    // Advance the simulation time and check whether the position is back to
+    // being around setpoint 1.5 seconds after the load were applied.
     simu.step_until(Duration::new(1, 300_000_000))?;
     t += Duration::new(1, 300_000_000);
     assert_eq!(simu.time(), t);

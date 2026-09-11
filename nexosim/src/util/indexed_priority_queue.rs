@@ -153,7 +153,8 @@ impl<K: Copy + Ord, V> IndexedPriorityQueue<K, V> {
 
         self.first_free_node = Some(top_slab_idx);
 
-        // Sift the last node at the bottom of the heap from the top of the heap.
+        // Sift the last node at the bottom of the heap from the top of the
+        // heap.
         let last_item = self.heap.pop().unwrap();
         if last_item.slab_idx != top_slab_idx {
             self.sift_down(last_item, 0);
@@ -287,7 +288,8 @@ impl<K: Copy + Ord, V> IndexedPriorityQueue<K, V> {
                 child_heap_idx += (self.heap[child_heap_idx].key > other_child.key) as usize;
             }
 
-            // Stop when the key is smaller or equal to the child with the smallest key.
+            // Stop when the key is smaller or equal to the child with the
+            // smallest key.
             if key <= &self.heap[child_heap_idx].key {
                 break;
             }

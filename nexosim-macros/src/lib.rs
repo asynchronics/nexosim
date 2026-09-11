@@ -298,8 +298,8 @@ fn get_hidden_method_impls(schedulables: &[ImplItemFn]) -> Vec<proc_macro2::Toke
         .iter()
         .map(|a| proc_macro2::Literal::byte_string(a.to_string().as_bytes()));
 
-    // Add a hidden method used for producing more meaningful compilation errors,
-    // when a user tries to schedule an undecorated method.
+    // Add a hidden method used for producing more meaningful compilation
+    // errors, when a user tries to schedule an undecorated method.
     hidden_methods.push(quote! {
         #[doc(hidden)]
         const fn ____is_schedulable(fname: &'static str) -> bool {
