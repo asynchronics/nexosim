@@ -10,10 +10,10 @@ use super::server_utils::grpc_client::{
     BuildReply, BuildRequest, Error, ErrorCode, InitReply, InitRequest, Path, ProcessEventReply,
     ProcessEventRequest, ProcessQueryReply, ProcessQueryRequest, RestoreReply, RestoreRequest,
     RunReply, RunRequest, SaveReply, SaveRequest, ScheduleEventReply, ScheduleEventRequest,
-    StepUntilRequest, TerminateReply, TerminateRequest, build_reply, init_reply,
-    process_event_reply, process_query_reply, restore_reply, run_reply, save_reply,
-    schedule_event_reply, schedule_event_request, simulation_client::SimulationClient,
-    step_until_request, terminate_reply,
+    StepUntilRequest, TearDownReply, TearDownRequest, build_reply, init_reply, process_event_reply,
+    process_query_reply, restore_reply, run_reply, save_reply, schedule_event_reply,
+    schedule_event_request, simulation_client::SimulationClient, step_until_request,
+    tear_down_reply,
 };
 use crate::some_deadline_secs;
 
@@ -126,14 +126,14 @@ async fn subsequent_build_fail() {
 }
 
 #[tokio::test]
-async fn build_terminate_build() {
+async fn build_tear_down_build() {
     let (mut client, signal, handle) = get_client(simple_bench).await;
 
     let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
     assert_resp_ok!(resp, BuildReply, build_reply);
 
-    let resp = client.terminate(TerminateRequest {}).await.unwrap();
-    assert_resp_ok!(resp, TerminateReply, terminate_reply);
+    let resp = client.tear_down(TearDownRequest {}).await.unwrap();
+    assert_resp_ok!(resp, TearDownReply, tear_down_reply);
 
     let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
     assert_resp_ok!(resp, BuildReply, build_reply);
@@ -348,8 +348,8 @@ async fn restore_after_complete_cycle() {
 
     let state = fetch_state(&mut client).await;
 
-    let resp = client.terminate(TerminateRequest {}).await.unwrap();
-    assert_resp_ok!(resp, TerminateReply, terminate_reply);
+    let resp = client.tear_down(TearDownRequest {}).await.unwrap();
+    assert_resp_ok!(resp, TearDownReply, tear_down_reply);
 
     let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
     assert_resp_ok!(resp, BuildReply, build_reply);
@@ -382,7 +382,7 @@ async fn restore_after_complete_cycle() {
 }
 
 #[tokio::test]
-async fn terminate_while_running() {
+async fn tear_down_while_running() {
     let (mut client, signal, handle) = get_client(simple_bench).await;
 
     let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
@@ -425,8 +425,8 @@ async fn terminate_while_running() {
     // Let it run a bit.
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let resp = client.terminate(TerminateRequest {}).await.unwrap();
-    assert_resp_ok!(resp, TerminateReply, terminate_reply);
+    let resp = client.tear_down(TearDownRequest {}).await.unwrap();
+    assert_resp_ok!(resp, TearDownReply, tear_down_reply);
 
     // let task_result = task_handle.await;
     assert!(task_handle.await.is_ok());

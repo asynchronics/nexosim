@@ -223,8 +223,8 @@ impl Scheduler {
 
     /// Requests the simulation to be permanently terminated.
     #[cfg(feature = "server")]
-    pub(crate) fn terminate(&self) {
-        self.0.terminate()
+    pub(crate) fn tear_down(&self) {
+        self.0.tear_down()
     }
 }
 
@@ -491,7 +491,7 @@ impl GlobalScheduler {
     }
 
     #[cfg(feature = "server")]
-    pub(crate) fn terminate(&self) {
+    pub(crate) fn tear_down(&self) {
         self.is_terminated.store(true, Ordering::Relaxed);
     }
 }

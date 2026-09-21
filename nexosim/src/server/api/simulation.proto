@@ -148,8 +148,8 @@ message RestoreAndRunReply {
   }
 }
 
-message TerminateRequest { }
-message TerminateReply {
+message TearDownRequest { }
+message TearDownReply {
   oneof result { // Always returns exactly 1 variant.
     google.protobuf.Empty empty = 1;
     Error error = 100;
@@ -416,7 +416,7 @@ service Simulation {
   rpc Init(InitRequest) returns (InitReply);
   rpc InitAndRun(InitAndRunRequest) returns (InitAndRunReply);
   rpc Halt(HaltRequest) returns (HaltReply);
-  rpc Terminate(TerminateRequest) returns (TerminateReply);
+  rpc TearDown(TearDownRequest) returns (TearDownReply);
   rpc Save(SaveRequest) returns (SaveReply);
   rpc Restore(RestoreRequest) returns (RestoreReply);
   rpc RestoreAndRun(RestoreAndRunRequest) returns (RestoreAndRunReply);

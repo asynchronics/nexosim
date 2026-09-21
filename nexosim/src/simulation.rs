@@ -1042,7 +1042,8 @@ pub enum ExecutionError {
     /// The simulation remains in a well-defined state and can be resumed.
     Halted,
     /// The simulation has been terminated due to an earlier deadlock, message
-    /// loss, missing recipient, model panic, timeout or synchronization loss.
+    /// loss, missing recipient, model panic, timeout, synchronization loss or a
+    /// client-triggered teardown.
     Terminated,
     /// The simulation has deadlocked due to the enlisted models.
     ///

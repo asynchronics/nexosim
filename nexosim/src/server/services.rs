@@ -299,19 +299,19 @@ pub(crate) fn to_strictly_positive_duration(duration: prost_types::Duration) -> 
 #[tonic::async_trait]
 impl simulation_server::Simulation for GrpcSimulationService {
     //-----------
-    // Terminate.
+    // Tear down simulation.
     //-----------
 
-    async fn terminate(
+    async fn tear_down(
         &self,
-        _request: Request<TerminateRequest>,
-    ) -> Result<Response<TerminateReply>, Status> {
+        _request: Request<TearDownRequest>,
+    ) -> Result<Response<TearDownReply>, Status> {
         let scheduler = std::mem::replace(
             &mut *self.scheduler_service.lock().unwrap(),
             SchedulerService::Halted,
         );
         if let SchedulerService::Started { scheduler, .. } = scheduler {
-            scheduler.terminate();
+            scheduler.tear_down();
         }
 
         *self.controller_service.lock().unwrap() = ControllerService::Halted;
@@ -319,8 +319,8 @@ impl simulation_server::Simulation for GrpcSimulationService {
         *self.monitor_service.lock().unwrap() = MonitorService::Halted;
         self.build_service.lock().unwrap().reset_state();
 
-        Ok(Response::new(TerminateReply {
-            result: Some(terminate_reply::Result::Empty(())),
+        Ok(Response::new(TearDownReply {
+            result: Some(tear_down_reply::Result::Empty(())),
         }))
     }
 
