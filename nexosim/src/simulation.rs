@@ -221,7 +221,7 @@ pub struct Simulation {
     observers: Vec<(Path, Box<dyn ChannelObserver>)>,
     registered_models: Vec<RegisteredModel>,
     is_halted: Arc<AtomicBool>,
-    is_terminated: bool,
+    is_terminated: Arc<AtomicBool>,
 }
 
 impl Simulation {
@@ -240,6 +240,7 @@ impl Simulation {
         observers: Vec<(Path, Box<dyn ChannelObserver>)>,
         registered_models: Vec<RegisteredModel>,
         is_halted: Arc<AtomicBool>,
+        is_terminated: Arc<AtomicBool>,
     ) -> Self {
         Self {
             executor,
@@ -254,7 +255,7 @@ impl Simulation {
             observers,
             registered_models,
             is_halted,
-            is_terminated: false,
+            is_terminated,
         }
     }
 
@@ -269,6 +270,7 @@ impl Simulation {
             self.scheduler_queue.clone(),
             self.time.reader(),
             self.is_halted.clone(),
+            self.is_terminated.clone(),
         )
     }
 
@@ -507,12 +509,12 @@ impl Simulation {
 
     /// Runs the executor.
     fn run_executor(&mut self) -> Result<(), ExecutionError> {
-        if self.is_terminated {
+        if self.is_terminated.load(Ordering::Relaxed) {
             return Err(ExecutionError::Terminated);
         }
 
         self.executor.run(self.timeout).map_err(|e| {
-            self.is_terminated = true;
+            self.is_terminated.store(true, Ordering::Relaxed);
 
             match e {
                 ExecutorError::UnprocessedMessages(msg_count) => {
@@ -564,7 +566,7 @@ impl Simulation {
             && let Some(tolerance) = &self.clock_tolerance
             && &lag > tolerance
         {
-            self.is_terminated = true;
+            self.is_terminated.store(true, Ordering::Relaxed);
 
             return Err(ExecutionError::OutOfSync(lag));
         }
@@ -585,7 +587,7 @@ impl Simulation {
     ) -> Result<Option<MonotonicTime>, ExecutionError> {
         self.take_halt_flag()?;
 
-        if self.is_terminated {
+        if self.is_terminated.load(Ordering::Relaxed) {
             return Err(ExecutionError::Terminated);
         }
 
@@ -677,7 +679,6 @@ impl Simulation {
     fn take_halt_flag(&mut self) -> Result<(), ExecutionError> {
         if self.is_halted.load(Ordering::Relaxed) {
             self.is_halted.store(false, Ordering::Relaxed);
-
             return Err(ExecutionError::Halted);
         }
         Ok(())
@@ -1041,7 +1042,8 @@ pub enum ExecutionError {
     /// The simulation remains in a well-defined state and can be resumed.
     Halted,
     /// The simulation has been terminated due to an earlier deadlock, message
-    /// loss, missing recipient, model panic, timeout or synchronization loss.
+    /// loss, missing recipient, model panic, timeout, synchronization loss or a
+    /// client-triggered teardown.
     Terminated,
     /// The simulation has deadlocked due to the enlisted models.
     ///

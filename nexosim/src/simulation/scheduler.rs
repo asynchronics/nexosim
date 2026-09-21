@@ -39,8 +39,14 @@ impl Scheduler {
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
+        is_terminated: Arc<AtomicBool>,
     ) -> Self {
-        Self(GlobalScheduler::new(scheduler_queue, time, is_halted))
+        Self(GlobalScheduler::new(
+            scheduler_queue,
+            time,
+            is_halted,
+            is_terminated,
+        ))
     }
 
     /// Creates a dummy scheduler (for testing purposes only).
@@ -50,8 +56,14 @@ impl Scheduler {
         let time = AtomicTime::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
         let scheduler_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
         let is_halted = Arc::new(AtomicBool::default());
+        let is_terminated = Arc::new(AtomicBool::default());
 
-        Self(GlobalScheduler::new(scheduler_queue, time, is_halted))
+        Self(GlobalScheduler::new(
+            scheduler_queue,
+            time,
+            is_halted,
+            is_terminated,
+        ))
     }
 
     /// Returns the current simulation time.
@@ -208,6 +220,12 @@ impl Scheduler {
     pub fn halt(&self) {
         self.0.halt()
     }
+
+    /// Requests the simulation to be permanently terminated.
+    #[cfg(feature = "server")]
+    pub(crate) fn tear_down(&self) {
+        self.0.tear_down()
+    }
 }
 
 /// An error returned when the scheduled time or the repetition period are
@@ -254,6 +272,7 @@ pub(crate) struct GlobalScheduler {
     scheduler_queue: Arc<Mutex<SchedulerQueue>>,
     time: AtomicTimeReader,
     is_halted: Arc<AtomicBool>,
+    is_terminated: Arc<AtomicBool>,
 }
 
 impl GlobalScheduler {
@@ -261,11 +280,13 @@ impl GlobalScheduler {
         scheduler_queue: Arc<Mutex<SchedulerQueue>>,
         time: AtomicTimeReader,
         is_halted: Arc<AtomicBool>,
+        is_terminated: Arc<AtomicBool>,
     ) -> Self {
         Self {
             scheduler_queue,
             time,
             is_halted,
+            is_terminated,
         }
     }
 
@@ -468,6 +489,11 @@ impl GlobalScheduler {
     pub(crate) fn halt(&self) {
         self.is_halted.store(true, Ordering::Relaxed);
     }
+
+    #[cfg(feature = "server")]
+    pub(crate) fn tear_down(&self) {
+        self.is_terminated.store(true, Ordering::Relaxed);
+    }
 }
 
 impl fmt::Debug for GlobalScheduler {
@@ -475,6 +501,7 @@ impl fmt::Debug for GlobalScheduler {
         f.debug_struct("GlobalScheduler")
             .field("time", &self.time())
             .field("is_halted", &self.is_halted.load(Ordering::Relaxed))
+            .field("is_terminated", &self.is_terminated.load(Ordering::Relaxed))
             .finish_non_exhaustive()
     }
 }
@@ -485,7 +512,13 @@ impl GlobalScheduler {
     pub(crate) fn new_dummy() -> Self {
         let dummy_priority_queue = Arc::new(Mutex::new(SchedulerQueue::new()));
         let dummy_time = SyncCell::new(TearableAtomicTime::new(MonotonicTime::EPOCH)).reader();
-        let dummy_running = Arc::new(AtomicBool::new(false));
-        GlobalScheduler::new(dummy_priority_queue, dummy_time, dummy_running)
+        let dummy_is_halted = Arc::new(AtomicBool::new(false));
+        let dummy_is_terminated = Arc::new(AtomicBool::new(false));
+        GlobalScheduler::new(
+            dummy_priority_queue,
+            dummy_time,
+            dummy_is_halted,
+            dummy_is_terminated,
+        )
     }
 }

@@ -40,6 +40,7 @@ pub struct SimInit {
     query_source_registry: QuerySourceRegistry,
     time: AtomicTime,
     is_halted: Arc<AtomicBool>,
+    is_terminated: Arc<AtomicBool>,
     is_resumed: Arc<AtomicBool>,
     clock: Box<dyn Clock>,
     clock_tolerance: Option<Duration>,
@@ -100,6 +101,7 @@ impl SimInit {
             query_source_registry: QuerySourceRegistry::default(),
             time,
             is_halted: Arc::new(AtomicBool::new(false)),
+            is_terminated: Arc::new(AtomicBool::new(false)),
             is_resumed: Arc::new(AtomicBool::new(false)),
             clock: Box::new(NoClock::new()),
             clock_tolerance: None,
@@ -254,6 +256,7 @@ impl SimInit {
             self.scheduler_queue.clone(),
             self.time.reader(),
             self.is_halted.clone(),
+            self.is_terminated.clone(),
         );
 
         add_model(
@@ -486,6 +489,7 @@ impl SimInit {
             self.observers,
             self.registered_models,
             self.is_halted,
+            self.is_terminated,
         )
     }
 }

@@ -152,15 +152,15 @@ pub mod restore_and_run_reply {
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct TerminateRequest {}
+pub struct TearDownRequest {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct TerminateReply {
+pub struct TearDownReply {
     /// Always returns exactly 1 variant.
-    #[prost(oneof = "terminate_reply::Result", tags = "1, 100")]
-    pub result: ::core::option::Option<terminate_reply::Result>,
+    #[prost(oneof = "tear_down_reply::Result", tags = "1, 100")]
+    pub result: ::core::option::Option<tear_down_reply::Result>,
 }
-/// Nested message and enum types in `TerminateReply`.
-pub mod terminate_reply {
+/// Nested message and enum types in `TearDownReply`.
+pub mod tear_down_reply {
     /// Always returns exactly 1 variant.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Result {
@@ -886,10 +886,10 @@ pub mod simulation_server {
             &self,
             request: tonic::Request<super::HaltRequest>,
         ) -> std::result::Result<tonic::Response<super::HaltReply>, tonic::Status>;
-        async fn terminate(
+        async fn tear_down(
             &self,
-            request: tonic::Request<super::TerminateRequest>,
-        ) -> std::result::Result<tonic::Response<super::TerminateReply>, tonic::Status>;
+            request: tonic::Request<super::TearDownRequest>,
+        ) -> std::result::Result<tonic::Response<super::TearDownReply>, tonic::Status>;
         async fn save(
             &self,
             request: tonic::Request<super::SaveRequest>,
@@ -1278,25 +1278,25 @@ pub mod simulation_server {
                     };
                     Box::pin(fut)
                 }
-                "/simulation.v1.Simulation/Terminate" => {
+                "/simulation.v1.Simulation/TearDown" => {
                     #[allow(non_camel_case_types)]
-                    struct TerminateSvc<T: Simulation>(pub Arc<T>);
+                    struct TearDownSvc<T: Simulation>(pub Arc<T>);
                     impl<
                         T: Simulation,
-                    > tonic::server::UnaryService<super::TerminateRequest>
-                    for TerminateSvc<T> {
-                        type Response = super::TerminateReply;
+                    > tonic::server::UnaryService<super::TearDownRequest>
+                    for TearDownSvc<T> {
+                        type Response = super::TearDownReply;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::TerminateRequest>,
+                            request: tonic::Request<super::TearDownRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Simulation>::terminate(&inner, request).await
+                                <T as Simulation>::tear_down(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -1307,7 +1307,7 @@ pub mod simulation_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = TerminateSvc(inner);
+                        let method = TearDownSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

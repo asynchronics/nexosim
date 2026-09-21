@@ -152,15 +152,15 @@ pub mod restore_and_run_reply {
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct TerminateRequest {}
+pub struct TearDownRequest {}
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
-pub struct TerminateReply {
+pub struct TearDownReply {
     /// Always returns exactly 1 variant.
-    #[prost(oneof = "terminate_reply::Result", tags = "1, 100")]
-    pub result: ::core::option::Option<terminate_reply::Result>,
+    #[prost(oneof = "tear_down_reply::Result", tags = "1, 100")]
+    pub result: ::core::option::Option<tear_down_reply::Result>,
 }
-/// Nested message and enum types in `TerminateReply`.
-pub mod terminate_reply {
+/// Nested message and enum types in `TearDownReply`.
+pub mod tear_down_reply {
     /// Always returns exactly 1 variant.
     #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
     pub enum Result {
@@ -1035,10 +1035,10 @@ pub mod simulation_client {
                 .insert(GrpcMethod::new("simulation.v1.Simulation", "Halt"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn terminate(
+        pub async fn tear_down(
             &mut self,
-            request: impl tonic::IntoRequest<super::TerminateRequest>,
-        ) -> std::result::Result<tonic::Response<super::TerminateReply>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::TearDownRequest>,
+        ) -> std::result::Result<tonic::Response<super::TearDownReply>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1049,11 +1049,11 @@ pub mod simulation_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/simulation.v1.Simulation/Terminate",
+                "/simulation.v1.Simulation/TearDown",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("simulation.v1.Simulation", "Terminate"));
+                .insert(GrpcMethod::new("simulation.v1.Simulation", "TearDown"));
             self.inner.unary(req, path, codec).await
         }
         pub async fn save(
