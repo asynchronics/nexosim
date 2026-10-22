@@ -27,8 +27,16 @@ use super::markers;
 ///     R: Send + 'static,
 /// ```
 #[diagnostic::on_unimplemented(
-    message = "The trait `InputFn` is not implemented for {Self}",
-    note = "Make sure the method has a mutable `self` reference."
+    message = "`{Self}` is not a valid input port",
+    label = "not a valid input port",
+    note = "an input port must be a method with one of these signatures, `async` or not:\n\
+            `fn(&mut self)` (argument elided, `()` values only)\n\
+            `fn(&mut self, {T})`\n\
+            `fn(&mut self, {T}, &Context<Self>)`\n\
+            `fn(&mut self, {T}, &Context<Self>, &mut Self::Env)`",
+    note = "the argument cannot be a reference",
+    note = "the future returned by an `async` method must be `Send`: do not hold non-`Send` values across an `.await`, nor `&` references to non-`Sync` values",
+    note = "see https://docs.rs/nexosim/latest/nexosim/ports/index.html#input-and-replier-ports for details"
 )]
 pub trait InputFn<'a, M: Model, T, S>: Send + 'static {
     /// The `Future` returned by the asynchronous method.
@@ -216,8 +224,16 @@ where
 ///     R: Send + 'static,
 /// ```
 #[diagnostic::on_unimplemented(
-    message = "The trait `ReplierFn` is not implemented for {Self}",
-    note = "Make sure the method has a mutable `self` reference and returns a future."
+    message = "`{Self}` is not a valid replier port",
+    label = "not a valid replier port",
+    note = "a replier port must be an `async` method with one of these signatures:\n\
+            `async fn(&mut self) -> {R}` (argument elided, `()` requests only)\n\
+            `async fn(&mut self, {T}) -> {R}`\n\
+            `async fn(&mut self, {T}, &Context<Self>) -> {R}`\n\
+            `async fn(&mut self, {T}, &Context<Self>, &mut Self::Env) -> {R}`",
+    note = "the argument cannot be a reference and the reply cannot borrow from the model",
+    note = "the returned future must be `Send`: do not hold non-`Send` values across an `.await`, nor `&` references to non-`Sync` values",
+    note = "see https://docs.rs/nexosim/latest/nexosim/ports/index.html#input-and-replier-ports for details"
 )]
 pub trait ReplierFn<'a, M: Model, T, R, S>: Send + 'static {
     /// The `Future` returned by the asynchronous method.

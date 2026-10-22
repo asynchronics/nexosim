@@ -98,6 +98,65 @@
 //! }
 //! ```
 //!
+//! #### Non-`Send` futures
+//!
+//! The future returned by an `async` input port or a replier port must be
+//! `Send`. When it is not, the compiler will report the method as not a valid
+//! port, but in some cases the cause may be hard to track down.
+//!
+//! One non-obvious cause is awaiting an `async` method that takes `&self`.
+//! Its future holds a `&Self` reference, which is only `Send` if the model is
+//! `Sync`. A model with output or requestor ports is not `Sync`, because these
+//! ports are not.
+//!
+//! The following model's `input` method is a valid input port:
+//!
+//! ```
+//! # use serde::{Deserialize, Serialize};
+//! # use nexosim::model::Model;
+//! # use nexosim::ports::Output;
+//! #
+//! # #[derive(Serialize, Deserialize)]
+//! # pub struct MyModel {
+//! #     pub out: Output<()>,
+//! # }
+//! #[Model]
+//! impl MyModel {
+//!     pub async fn input(&mut self) {
+//!         self.inner().await;
+//!     }
+//!
+//!     async fn inner(&mut self) {}
+//! }
+//! ```
+//!
+//! Changing the `inner` method's signature to use an immutable `self` reference
+//! makes `input` no longer a valid port.
+//!
+//! ```compile_fail
+//! # use serde::{Deserialize, Serialize};
+//! # use nexosim::model::Model;
+//! # use nexosim::ports::Output;
+//! #
+//! # #[derive(Serialize, Deserialize)]
+//! # pub struct MyModel {
+//! #     pub out: Output<()>,
+//! # }
+//! #[Model]
+//! impl MyModel {
+//!     pub async fn input(&mut self) {
+//!         self.inner().await;
+//!     }
+//!
+//!     async fn inner(&self) {}
+//! }
+//!
+//! # let mut output = Output::default();
+//! # let mailbox = Mailbox::<MyModel>::new();
+//! // Error: `MyModel::input` is not a valid input port.
+//! output.connect(MyModel::input, &mailbox);
+//! ```
+//!
 //! ## Output and requestor ports
 //!
 //! Output and requestor ports can be added to a model using composition, adding
