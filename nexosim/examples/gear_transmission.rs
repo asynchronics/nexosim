@@ -24,7 +24,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, Model, schedulable};
-use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_slot};
 use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
@@ -122,8 +122,8 @@ impl GearTransmission {
             //   v1  = motor angular speed
             //   f2  = spring torque
             //   u(t)= velocity command
-            let speed_dot = -(self.damping / m_eq) * self.motor_speed
-                + (r / m_eq) * self.spring_torque;
+            let speed_dot =
+                -(self.damping / m_eq) * self.motor_speed + (r / m_eq) * self.spring_torque;
             let torque_dot =
                 -(self.stiffness / r) * self.motor_speed + self.stiffness * self.command;
 
@@ -145,13 +145,8 @@ fn main() -> Result<(), SimulationError> {
     const STIFFNESS: f64 = 10.0;
     const SPEED_RATIO: f64 = 0.5; // load rotates half as fast as the motor
 
-    let mut system = GearTransmission::new(
-        MOTOR_INERTIA,
-        LOAD_INERTIA,
-        DAMPING,
-        STIFFNESS,
-        SPEED_RATIO,
-    );
+    let mut system =
+        GearTransmission::new(MOTOR_INERTIA, LOAD_INERTIA, DAMPING, STIFFNESS, SPEED_RATIO);
     let system_mbox = Mailbox::new();
 
     let mut bench = SimInit::new();
@@ -160,7 +155,7 @@ fn main() -> Result<(), SimulationError> {
         .connect(GearTransmission::velocity_command, &system_mbox)
         .register(&mut bench);
 
-    let (sink, mut position) = event_queue(SinkState::Enabled);
+    let (sink, mut position) = event_slot(SinkState::Enabled);
     system.position.connect_sink(sink);
 
     let t0 = MonotonicTime::EPOCH;
@@ -175,9 +170,9 @@ fn main() -> Result<(), SimulationError> {
     simu.step_until(Duration::from_secs(2))?;
 
     let final_position = position.try_read().expect("position should be available");
+    println!("Final load position: {final_position:.4} rad");
     assert!(final_position.is_finite());
     assert!(final_position > 0.0);
-    println!("Final load position: {final_position:.4} rad");
 
     Ok(())
 }
