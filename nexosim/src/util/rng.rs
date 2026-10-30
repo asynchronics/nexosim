@@ -31,6 +31,9 @@ impl Rng {
     /// This generator is biased as it uses the fast (but crude) multiply-shift
     /// method. The bias is negligible, however, as long as the bound is much
     /// smaller than 2⁶⁴.
+    ///
+    /// The range bound of this reduction is modelled and verified in the
+    /// `verus_rng` module (enabled by the `verus` feature).
     pub(crate) fn rand_bounded(&self, upper_bound: u64) -> u64 {
         ((self.rand() as u128 * upper_bound as u128) >> 64) as u64
     }
