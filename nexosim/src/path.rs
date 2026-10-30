@@ -88,6 +88,9 @@ impl Path {
     }
 
     /// Creates a new path from a range of segments.
+    ///
+    /// The range normalization logic is modelled and verified in the
+    /// `verus_path` module (enabled by the `verus` feature).
     pub fn subpath<R>(&self, range: R) -> Option<Self>
     where
         R: RangeBounds<usize>,

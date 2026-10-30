@@ -17,3 +17,6 @@ pub(crate) mod verus_smoke;
 
 #[cfg(feature = "verus")]
 pub(crate) mod verus_rng;
+
+#[cfg(feature = "verus")]
+pub(crate) mod verus_path;
