@@ -6,11 +6,6 @@
 //! * a gear transmission as a speed/torque transformer,
 //! * state-space integration inside a simulation model.
 //!
-//! It is based on Example 4.6 in Clarence W. de Silva,
-//! *Modeling and Control of Engineering Systems*.
-//!
-//! A PlantUML diagram is provided in `gear_transmission.puml`.
-//!
 //! ```text
 //!                     ┌─────────────────────────────┐
 //!                     │  GearTransmission           │
