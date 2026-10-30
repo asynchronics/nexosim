@@ -192,6 +192,61 @@ channel.
 [tachyonix]: https://github.com/asynchronics/tachyonix
 [benchmark]: https://github.com/asynchronics/tachyobench
 
+## Formal verification
+
+NeXosim can optionally be verified with [Verus](https://github.com/verus-lang/verus).
+The verified properties are opt-in via the `verus` Cargo feature and do not affect
+normal builds.
+
+<details>
+<summary>Setting up the Verus toolchain</summary>
+
+### Nix (recommended)
+
+A Nix flake is provided at the repository root. It pins the exact Verus release,
+Z3 version, and Rust toolchain required for verification.
+
+```bash
+nix develop
+cd nexosim
+cargo-verus verify --features verus
+```
+
+### Manual setup
+
+Install the following components and make sure `verus`, `cargo-verus`, and `z3`
+are available in your `PATH`:
+
+- Verus `0.2026.09.20.aef82ed`
+- Z3 `4.16.0`
+- Rust toolchain `1.98.1`
+
+Then run:
+
+```bash
+cd nexosim
+cargo-verus verify --features verus
+```
+
+### Verified properties
+
+The `verus` feature enables mechanically checked proofs for selected pure
+helper functions, including:
+
+- the range bound of the fast multiply-shift reduction used by `Rng::rand_bounded`,
+- the validity of `Path::subpath` range normalization,
+- round-trip properties of `InsertKey`,
+- absence of overflow and monotonicity of the `PeriodicTicker` step computation.
+
+### Asynchronous code
+
+Verus can verify `async fn` bodies and `.await` sequencing, which is sufficient
+to reason about individual model methods written with `async`/`.await`. It does
+not verify the custom executor, wakers, `Pin`-based polling, or other runtime
+machinery; those are exercised by the existing loom and test suites.
+
+</details>
+
 ## License
 
 This software is licensed under the [Apache License, Version 2.0](LICENSE-APACHE) or the
