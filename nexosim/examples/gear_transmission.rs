@@ -24,8 +24,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use nexosim::model::{Context, Model, schedulable};
-use nexosim::ports::{EventSinkReader, Output, SinkState, event_queue};
-use nexosim::simulation::{Mailbox, SimInit};
+use nexosim::ports::{EventSinkReader, EventSource, Output, SinkState, event_queue};
+use nexosim::simulation::{Mailbox, SimInit, SimulationError};
 use nexosim::time::MonotonicTime;
 
 /// Rotary-motion system with a gear transmission.
@@ -137,7 +137,47 @@ impl GearTransmission {
     }
 }
 
-#[allow(dead_code)]
-fn main() -> Result<(), nexosim::simulation::SimulationError> {
+fn main() -> Result<(), SimulationError> {
+    // System parameters.
+    const MOTOR_INERTIA: f64 = 0.01;
+    const LOAD_INERTIA: f64 = 0.05;
+    const DAMPING: f64 = 0.1;
+    const STIFFNESS: f64 = 10.0;
+    const SPEED_RATIO: f64 = 0.5; // load rotates half as fast as the motor
+
+    let mut system = GearTransmission::new(
+        MOTOR_INERTIA,
+        LOAD_INERTIA,
+        DAMPING,
+        STIFFNESS,
+        SPEED_RATIO,
+    );
+    let system_mbox = Mailbox::new();
+
+    let mut bench = SimInit::new();
+
+    let velocity_cmd = EventSource::new()
+        .connect(GearTransmission::velocity_command, &system_mbox)
+        .register(&mut bench);
+
+    let (sink, mut position) = event_queue(SinkState::Enabled);
+    system.position.connect_sink(sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let mut simu = bench
+        .add_model(system, system_mbox, "gear_transmission")
+        .init(t0)?;
+
+    // Apply a step velocity command of 10 rad/s.
+    simu.process_event(&velocity_cmd, 10.0)?;
+
+    // Run for 2 seconds.
+    simu.step_until(Duration::from_secs(2))?;
+
+    let final_position = position.try_read().expect("position should be available");
+    assert!(final_position.is_finite());
+    assert!(final_position > 0.0);
+    println!("Final load position: {final_position:.4} rad");
+
     Ok(())
 }
