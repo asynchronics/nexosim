@@ -236,7 +236,11 @@ helper functions, including:
 - the range bound of the fast multiply-shift reduction used by `Rng::rand_bounded`,
 - the validity of `Path::subpath` range normalization,
 - round-trip properties of `InsertKey`,
-- absence of overflow and monotonicity of the `PeriodicTicker` step computation.
+- monotonicity of the `PeriodicTicker` step computation.
+
+The checked properties are verified either directly on the production code
+(`InsertKey`) or on executable-style models that mirror the production
+algorithm (`Rng::rand_bounded`, `PeriodicTicker::next_tick`, `Path::subpath`).
 
 ### Asynchronous code
 
