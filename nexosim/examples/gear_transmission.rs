@@ -109,7 +109,30 @@ impl GearTransmission {
     /// Integrates the state-space equations and broadcasts the load position.
     #[nexosim(schedulable)]
     async fn integrate(&mut self, _: (), cx: &Context<Self>) {
-        // TODO: implement ODE integration.
+        let now = cx.time();
+
+        if let Some(prev) = self.last_update {
+            let dt = now.duration_since(prev).as_secs_f64();
+
+            // Equivalent inertia reflected to the load side of the gear.
+            let r = self.speed_ratio;
+            let m_eq = self.motor_inertia * r * r + self.load_inertia;
+
+            // State equations derived from the linear graph in Example 4.6.
+            //   v1  = motor angular speed
+            //   f2  = spring torque
+            //   u(t)= velocity command
+            let speed_dot = -(self.damping / m_eq) * self.motor_speed
+                + (r / m_eq) * self.spring_torque;
+            let torque_dot =
+                -(self.stiffness / r) * self.motor_speed + self.stiffness * self.command;
+
+            self.motor_speed += speed_dot * dt;
+            self.spring_torque += torque_dot * dt;
+            self.load_position += self.motor_speed * r * dt;
+        }
+
+        self.last_update = Some(now);
         self.position.send(self.load_position).await;
     }
 }
