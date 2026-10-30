@@ -139,7 +139,7 @@ impl GearTransmission {
     }
 }
 
-fn main() -> Result<(), SimulationError> {
+pub fn main() -> Result<(), SimulationError> {
     // System parameters.
     const MOTOR_INERTIA: f64 = 0.01;
     const LOAD_INERTIA: f64 = 0.05;
@@ -177,4 +177,44 @@ fn main() -> Result<(), SimulationError> {
     assert!(final_position > 0.0);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_is_stored() {
+        let mut system = GearTransmission::new(0.01, 0.05, 0.1, 10.0, 0.5);
+        system.velocity_command(3.5);
+        assert_eq!(system.command, 3.5);
+    }
+
+    #[test]
+    fn position_increases_after_step_command() -> Result<(), SimulationError> {
+        let mut system = GearTransmission::new(0.01, 0.05, 0.1, 10.0, 0.5);
+        let system_mbox = Mailbox::new();
+
+        let mut bench = SimInit::new();
+
+        let velocity_cmd = EventSource::new()
+            .connect(GearTransmission::velocity_command, &system_mbox)
+            .register(&mut bench);
+
+        let (sink, mut position) = event_slot(SinkState::Enabled);
+        system.position.connect_sink(sink);
+
+        let mut simu = bench
+            .add_model(system, system_mbox, "gear_transmission")
+            .init(MonotonicTime::EPOCH)?;
+
+        simu.process_event(&velocity_cmd, 10.0)?;
+        simu.step_until(Duration::from_secs(1))?;
+
+        let p = position.try_read().expect("position should be available");
+        assert!(p.is_finite());
+        assert!(p > 0.0);
+
+        Ok(())
+    }
 }
