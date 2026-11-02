@@ -149,5 +149,52 @@ impl Elevator {
 }
 
 pub fn main() -> Result<(), SimulationError> {
+    // System parameters.
+    const PULLEY_INERTIA: f64 = 0.5; // kg·m²
+    const PULLEY_RADIUS: f64 = 0.25; // m
+    const CABLE_STIFFNESS: f64 = 10_000.0; // N/m
+    const CAR_MASS: f64 = 200.0; // kg
+    const DAMPING: f64 = 20.0; // N·m·s/rad
+
+    let mut elevator = Elevator::new(
+        PULLEY_INERTIA,
+        PULLEY_RADIUS,
+        CABLE_STIFFNESS,
+        CAR_MASS,
+        DAMPING,
+    );
+    let elevator_mbox = Mailbox::new();
+
+    let mut bench = SimInit::new();
+
+    let torque_cmd = EventSource::new()
+        .connect(Elevator::motor_torque, &elevator_mbox)
+        .register(&mut bench);
+
+    let (vel_sink, mut velocity) = event_slot(SinkState::Enabled);
+    elevator.car_velocity.connect_sink(vel_sink);
+
+    let (pos_sink, mut position) = event_slot(SinkState::Enabled);
+    elevator.car_position.connect_sink(pos_sink);
+
+    let t0 = MonotonicTime::EPOCH;
+    let mut simu = bench
+        .add_model(elevator, elevator_mbox, "elevator")
+        .init(t0)?;
+
+    // Apply a step motor torque large enough to lift the car.
+    simu.process_event(&torque_cmd, 600.0)?;
+
+    // Run for 3 seconds.
+    simu.step_until(Duration::from_secs(3))?;
+
+    let v = velocity.try_read().expect("velocity should be available");
+    let p = position.try_read().expect("position should be available");
+    println!("Final car velocity: {v:.3} m/s, position: {p:.3} m");
+
+    assert!(v.is_finite());
+    assert!(p.is_finite());
+    assert!(p > 0.0);
+
     Ok(())
 }
