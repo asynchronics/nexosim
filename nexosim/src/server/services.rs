@@ -11,7 +11,10 @@ use std::time::Duration;
 use prost_types::Timestamp;
 use serde::de::DeserializeOwned;
 use tai_time::MonotonicTime;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
+
+#[cfg(feature = "tracing")]
+use tracing::error;
 
 use super::codegen::simulation::*;
 use super::key_registry::KeyRegistry;
@@ -409,11 +412,24 @@ impl simulation_server::Simulation for GrpcSimulationService {
     }
     async fn restore(
         &self,
-        request: Request<RestoreRequest>,
+        request: Request<Streaming<RestoreRequest>>,
     ) -> Result<Response<RestoreReply>, Status> {
-        let request = request.into_inner();
+        let mut request = request.into_inner();
 
-        let reply = self.build_service.lock().unwrap().restore(request).map(
+        let mut state = vec![];
+        loop {
+            match request.message().await {
+                Ok(None) => break,
+                Ok(Some(chunk)) => state.extend(chunk.state),
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    error!("restore request stream reception failed: {e}");
+                    return Err(e);
+                }
+            }
+        }
+
+        let reply = self.build_service.lock().unwrap().restore(&state).map(
             |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
                 self.start_simulation_services(
                     simulation,
@@ -433,34 +449,34 @@ impl simulation_server::Simulation for GrpcSimulationService {
     }
     async fn restore_and_run(
         &self,
-        request: Request<RestoreAndRunRequest>,
+        request: Request<Streaming<RestoreAndRunRequest>>,
     ) -> Result<Response<RestoreAndRunReply>, Status> {
         // This is a composite request that is split into 2 sub-requests.
-        let request = request.into_inner();
-        let restore_request = RestoreRequest {
-            state: request.state,
-        };
+        let mut request = request.into_inner();
 
-        let reply = self
-            .build_service
-            .lock()
-            .unwrap()
-            .restore(restore_request)
-            .map(
-                |(
+        let mut state = vec![];
+        loop {
+            match request.message().await {
+                Ok(None) => break,
+                Ok(Some(chunk)) => state.extend(chunk.state),
+                Err(e) => {
+                    #[cfg(feature = "tracing")]
+                    error!("restore request stream reception failed: {e}");
+                    return Err(e);
+                }
+            }
+        }
+
+        let reply = self.build_service.lock().unwrap().restore(&state).map(
+            |(simulation, event_sink_registry, event_source_registry, query_source_registry)| {
+                self.start_simulation_services(
                     simulation,
                     event_sink_registry,
                     event_source_registry,
                     query_source_registry,
-                )| {
-                    self.start_simulation_services(
-                        simulation,
-                        event_sink_registry,
-                        event_source_registry,
-                        query_source_registry,
-                    );
-                },
-            );
+                );
+            },
+        );
 
         // Important: the lock on the build service must be released before
         // calling `run`.
@@ -633,18 +649,18 @@ impl simulation_server::Simulation for GrpcSimulationService {
     // Controller service.
     //--------------------
 
-    async fn save(&self, request: Request<SaveRequest>) -> Result<Response<SaveReply>, Status> {
+    type SaveStream = SaveResponse;
+
+    async fn save(
+        &self,
+        request: Request<SaveRequest>,
+    ) -> Result<Response<Self::SaveStream>, Status> {
         let request = request.into_inner();
         let reply = self
             .execute_controller_fn(request, ControllerService::save)
             .await;
 
-        Ok(Response::new(SaveReply {
-            result: Some(match reply {
-                Ok(state) => save_reply::Result::State(state),
-                Err(e) => save_reply::Result::Error(e),
-            }),
-        }))
+        Ok(Response::new(SaveResponse::new(reply, 64 * 1024)))
     }
     async fn step(&self, request: Request<StepRequest>) -> Result<Response<StepReply>, Status> {
         let request = request.into_inner();
@@ -891,5 +907,50 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Err(e) => disable_sink_reply::Result::Error(e),
             }),
         }))
+    }
+}
+
+pub(crate) struct SaveResponse {
+    chunk_size: usize,
+    result: Result<Vec<u8>, Option<Error>>,
+    offset: usize,
+}
+impl SaveResponse {
+    fn new(result: Result<Vec<u8>, Error>, chunk_size: usize) -> Self {
+        Self {
+            result: result.map_err(Some),
+            offset: 0,
+            chunk_size,
+        }
+    }
+}
+impl tokio_stream::Stream for SaveResponse {
+    type Item = Result<SaveReply, Status>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let unpinned = self.get_mut();
+
+        match &mut unpinned.result {
+            Ok(state) => {
+                let end = (unpinned.offset + unpinned.chunk_size).min(state.len());
+                if end > unpinned.offset {
+                    let chunk = state[unpinned.offset..end].to_vec();
+                    unpinned.offset = end;
+                    std::task::Poll::Ready(Some(Result::Ok(SaveReply {
+                        result: Some(save_reply::Result::State(chunk)),
+                    })))
+                } else {
+                    std::task::Poll::Ready(None)
+                }
+            }
+            Err(err) => std::task::Poll::Ready(err.take().map(|e| {
+                Result::Ok(SaveReply {
+                    result: Some(save_reply::Result::Error(e)),
+                })
+            })),
+        }
     }
 }
