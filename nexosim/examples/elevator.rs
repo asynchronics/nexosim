@@ -6,8 +6,6 @@
 //! * a pulley/cable coupling between rotary and linear motion,
 //! * gravity as a constant disturbance.
 //!
-//! It is based on Example 3.3 in Clarence W. de Silva,
-//! *Modeling and Control of Engineering Systems* (pp. 79–81).
 //!
 //! ```text
 //!           ┌───────────────────────────────────────┐
