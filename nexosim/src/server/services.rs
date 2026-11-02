@@ -423,7 +423,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Ok(Some(chunk)) => state.extend(chunk.state),
                 Err(e) => {
                     #[cfg(feature = "tracing")]
-                    error!("restore request stream reception failed: {e}");
+                    error!("'restore' request stream reception failed: {e}");
                     return Err(e);
                 }
             }
@@ -451,7 +451,6 @@ impl simulation_server::Simulation for GrpcSimulationService {
         &self,
         request: Request<Streaming<RestoreAndRunRequest>>,
     ) -> Result<Response<RestoreAndRunReply>, Status> {
-        // This is a composite request that is split into 2 sub-requests.
         let mut request = request.into_inner();
 
         let mut state = vec![];
@@ -461,7 +460,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Ok(Some(chunk)) => state.extend(chunk.state),
                 Err(e) => {
                     #[cfg(feature = "tracing")]
-                    error!("restore request stream reception failed: {e}");
+                    error!("'restore and run' request stream reception failed: {e}");
                     return Err(e);
                 }
             }
