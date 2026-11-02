@@ -118,7 +118,31 @@ impl Elevator {
     /// Integrates the state-space equations and broadcasts the car outputs.
     #[nexosim(schedulable)]
     async fn integrate(&mut self, _: (), cx: &Context<Self>) {
-        // TODO: implement ODE integration.
+        let now = cx.time();
+
+        if let Some(prev) = self.last_update {
+            let dt = now.duration_since(prev).as_secs_f64();
+
+            // State equations from de Silva, Example 3.3.
+            //   J·ω̇ = Tm − r·f − b·ω
+            //   ḟ  = k·(r·ω − v)
+            //   m·v̇ = f − m·g
+            let torque_damping = self.damping * self.pulley_speed;
+            let speed_dot = (self.commanded_torque
+                - self.pulley_radius * self.cable_force
+                - torque_damping)
+                / self.pulley_inertia;
+            let force_dot = self.cable_stiffness
+                * (self.pulley_radius * self.pulley_speed - self.velocity);
+            let velocity_dot = (self.cable_force - self.car_mass * G) / self.car_mass;
+
+            self.pulley_speed += speed_dot * dt;
+            self.cable_force += force_dot * dt;
+            self.velocity += velocity_dot * dt;
+            self.position += self.velocity * dt;
+        }
+
+        self.last_update = Some(now);
         self.car_velocity.send(self.velocity).await;
         self.car_position.send(self.position).await;
     }
