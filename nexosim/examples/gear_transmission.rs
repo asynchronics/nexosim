@@ -178,15 +178,9 @@ pub fn main() -> Result<(), SimulationError> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn command_is_stored() {
-        let mut system = GearTransmission::new(0.01, 0.05, 0.1, 10.0, 0.5);
-        system.velocity_command(3.5);
-        assert_eq!(system.command, 3.5);
-    }
-
-    #[test]
-    fn position_increases_after_step_command() -> Result<(), SimulationError> {
+    /// Helper that builds a bench, applies a step command, runs for `dt`,
+    /// and returns the final load position.
+    fn run(command: f64, dt: Duration, name: &str) -> Result<f64, SimulationError> {
         let mut system = GearTransmission::new(0.01, 0.05, 0.1, 10.0, 0.5);
         let system_mbox = Mailbox::new();
 
@@ -200,16 +194,60 @@ mod tests {
         system.position.connect_sink(sink);
 
         let mut simu = bench
-            .add_model(system, system_mbox, "gear_transmission")
+            .add_model(system, system_mbox, name)
             .init(MonotonicTime::EPOCH)?;
 
-        simu.process_event(&velocity_cmd, 10.0)?;
-        simu.step_until(Duration::from_secs(1))?;
+        simu.process_event(&velocity_cmd, command)?;
+        simu.step_until(dt)?;
 
-        let p = position.try_read().expect("position should be available");
+        Ok(position.try_read().expect("position should be available"))
+    }
+
+    #[test]
+    fn command_is_stored() {
+        let mut system = GearTransmission::new(0.01, 0.05, 0.1, 10.0, 0.5);
+        system.velocity_command(3.5);
+        assert_eq!(system.command, 3.5);
+    }
+
+    #[test]
+    fn initial_state_is_zero() {
+        let system = GearTransmission::new(0.01, 0.05, 0.1, 10.0, 0.5);
+        assert_eq!(system.command, 0.0);
+        assert_eq!(system.motor_speed, 0.0);
+        assert_eq!(system.spring_torque, 0.0);
+        assert_eq!(system.load_position, 0.0);
+        assert!(system.last_update.is_none());
+    }
+
+    #[test]
+    fn position_stays_zero_without_command() -> Result<(), SimulationError> {
+        let p = run(0.0, Duration::from_secs(1), "gt_zero")?;
+        assert_eq!(p, 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn position_increases_with_positive_command() -> Result<(), SimulationError> {
+        let p = run(10.0, Duration::from_secs(1), "gt_positive")?;
         assert!(p.is_finite());
         assert!(p > 0.0);
+        Ok(())
+    }
 
+    #[test]
+    fn position_decreases_with_negative_command() -> Result<(), SimulationError> {
+        let p = run(-10.0, Duration::from_secs(1), "gt_negative")?;
+        assert!(p.is_finite());
+        assert!(p < 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn position_magnitude_scales_with_command_magnitude() -> Result<(), SimulationError> {
+        let p10 = run(10.0, Duration::from_secs(1), "gt_scale_10")?;
+        let p20 = run(20.0, Duration::from_secs(1), "gt_scale_20")?;
+        assert!(p20.abs() > p10.abs());
         Ok(())
     }
 }
