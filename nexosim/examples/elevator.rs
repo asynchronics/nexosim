@@ -128,12 +128,11 @@ impl Elevator {
             //   ḟ  = k·(r·ω − v)
             //   m·v̇ = f − m·g
             let torque_damping = self.damping * self.pulley_speed;
-            let speed_dot = (self.commanded_torque
-                - self.pulley_radius * self.cable_force
-                - torque_damping)
-                / self.pulley_inertia;
-            let force_dot = self.cable_stiffness
-                * (self.pulley_radius * self.pulley_speed - self.velocity);
+            let speed_dot =
+                (self.commanded_torque - self.pulley_radius * self.cable_force - torque_damping)
+                    / self.pulley_inertia;
+            let force_dot =
+                self.cable_stiffness * (self.pulley_radius * self.pulley_speed - self.velocity);
             let velocity_dot = (self.cable_force - self.car_mass * G) / self.car_mass;
 
             self.pulley_speed += speed_dot * dt;
@@ -197,4 +196,77 @@ pub fn main() -> Result<(), SimulationError> {
     assert!(p > 0.0);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper that builds a bench, applies a step torque, runs for `dt`,
+    /// and returns the final car velocity and position.
+    fn run(torque: f64, dt: Duration, name: &str) -> Result<(f64, f64), SimulationError> {
+        let mut elevator = Elevator::new(0.5, 0.25, 10_000.0, 200.0, 20.0);
+        let elevator_mbox = Mailbox::new();
+
+        let mut bench = SimInit::new();
+
+        let torque_cmd = EventSource::new()
+            .connect(Elevator::motor_torque, &elevator_mbox)
+            .register(&mut bench);
+
+        let (vel_sink, mut velocity) = event_slot(SinkState::Enabled);
+        elevator.car_velocity.connect_sink(vel_sink);
+
+        let (pos_sink, mut position) = event_slot(SinkState::Enabled);
+        elevator.car_position.connect_sink(pos_sink);
+
+        let mut simu = bench
+            .add_model(elevator, elevator_mbox, name)
+            .init(MonotonicTime::EPOCH)?;
+
+        simu.process_event(&torque_cmd, torque)?;
+        simu.step_until(dt)?;
+
+        let v = velocity.try_read().expect("velocity should be available");
+        let p = position.try_read().expect("position should be available");
+        Ok((v, p))
+    }
+
+    #[test]
+    fn command_is_stored() {
+        let mut elevator = Elevator::new(0.5, 0.25, 10_000.0, 200.0, 20.0);
+        elevator.motor_torque(450.0);
+        assert_eq!(elevator.commanded_torque, 450.0);
+    }
+
+    #[test]
+    fn initial_state_is_zero() {
+        let elevator = Elevator::new(0.5, 0.25, 10_000.0, 200.0, 20.0);
+        assert_eq!(elevator.commanded_torque, 0.0);
+        assert_eq!(elevator.pulley_speed, 0.0);
+        assert_eq!(elevator.cable_force, 0.0);
+        assert_eq!(elevator.velocity, 0.0);
+        assert_eq!(elevator.position, 0.0);
+        assert!(elevator.last_update.is_none());
+    }
+
+    #[test]
+    fn car_falls_when_motor_is_off() -> Result<(), SimulationError> {
+        let (v, p) = run(0.0, Duration::from_secs(2), "elevator_off")?;
+        assert!(v.is_finite());
+        assert!(p.is_finite());
+        assert!(v < 0.0, "car should move downward under gravity");
+        assert!(p < 0.0, "position should decrease under gravity");
+        Ok(())
+    }
+
+    #[test]
+    fn car_rises_with_sufficient_torque() -> Result<(), SimulationError> {
+        let (v, p) = run(600.0, Duration::from_secs(2), "elevator_up")?;
+        assert!(v.is_finite());
+        assert!(p.is_finite());
+        assert!(v > 0.0, "car should move upward");
+        assert!(p > 0.0, "position should increase");
+        Ok(())
+    }
 }
