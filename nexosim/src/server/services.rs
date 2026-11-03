@@ -33,6 +33,9 @@ pub(crate) use controller_service::ControllerService;
 pub(crate) use monitor_service::{MonitorService, monitor_service_read_event};
 pub(crate) use scheduler_service::SchedulerService;
 
+// TODO this could be configurable once we add server config mechanism.
+const SAVE_STATE_CHUNK_SIZE: usize = 64 * 1024;
+
 /// The global gRPC service.
 ///
 /// In order to allow concurrent non-mutating requests that are readily
@@ -681,7 +684,10 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .execute_controller_fn(request, ControllerService::save)
             .await;
 
-        Ok(Response::new(into_save_stream(reply, 64 * 1024)))
+        Ok(Response::new(into_save_stream(
+            reply,
+            SAVE_STATE_CHUNK_SIZE,
+        )))
     }
     async fn step(&self, request: Request<StepRequest>) -> Result<Response<StepReply>, Status> {
         let request = request.into_inner();
