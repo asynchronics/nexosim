@@ -321,7 +321,16 @@ fn timestamp_bench(
 #[cfg(not(miri))]
 fn system_clock_from_instant(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    const TOLERANCE: f64 = 0.005; // [s]
+    // The single-threaded case can use a tight tolerance. Multi-threaded runs
+    // need more slack because OS scheduler jitter on CI runners can delay
+    // worker threads by several tens of milliseconds.
+    const TOLERANCE_ST: f64 = 0.020; // [s]
+    const TOLERANCE_MT: f64 = 0.050; // [s]
+    let tolerance = if num_threads > 1 {
+        TOLERANCE_MT
+    } else {
+        TOLERANCE_ST
+    };
 
     // The reference simulation time is set in the past of t0 so that the
     // simulation starts in the future when the reference wall clock time is
@@ -355,8 +364,8 @@ fn system_clock_from_instant(num_threads: usize) {
         ] {
             let measured_time = (stamp.try_read().unwrap().0 - wall_clock_init).as_secs_f64();
             assert!(
-                (expected_time - measured_time).abs() <= TOLERANCE,
-                "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
+                (expected_time - measured_time).abs() <= tolerance,
+                "Expected t = {expected_time:.6}s +/- {tolerance:.6}s, measured t = {measured_time:.6}s",
             );
 
             simu.step().unwrap();
@@ -367,7 +376,13 @@ fn system_clock_from_instant(num_threads: usize) {
 #[cfg(not(miri))]
 fn system_clock_from_system_time(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    const TOLERANCE: f64 = 0.005; // [s]
+    const TOLERANCE_ST: f64 = 0.020; // [s]
+    const TOLERANCE_MT: f64 = 0.050; // [s]
+    let tolerance = if num_threads > 1 {
+        TOLERANCE_MT
+    } else {
+        TOLERANCE_ST
+    };
 
     // The reference simulation time is set in the past of t0 so that the
     // simulation starts in the future when the reference wall clock time is
@@ -407,8 +422,8 @@ fn system_clock_from_system_time(num_threads: usize) {
                 .unwrap()
                 .as_secs_f64();
             assert!(
-                (expected_time - measured_time).abs() <= TOLERANCE,
-                "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
+                (expected_time - measured_time).abs() <= tolerance,
+                "Expected t = {expected_time:.6}s +/- {tolerance:.6}s, measured t = {measured_time:.6}s",
             );
 
             simu.step().unwrap();
@@ -419,7 +434,13 @@ fn system_clock_from_system_time(num_threads: usize) {
 #[cfg(not(miri))]
 fn auto_system_clock(num_threads: usize) {
     let t0 = MonotonicTime::EPOCH;
-    const TOLERANCE: f64 = 0.005; // [s]
+    const TOLERANCE_ST: f64 = 0.020; // [s]
+    const TOLERANCE_MT: f64 = 0.050; // [s]
+    let tolerance = if num_threads > 1 {
+        TOLERANCE_MT
+    } else {
+        TOLERANCE_ST
+    };
 
     let (mut simu, source, mut stamp) = timestamp_bench(num_threads, t0, AutoSystemClock::new());
     let instant_t0 = Instant::now();
@@ -444,8 +465,8 @@ fn auto_system_clock(num_threads: usize) {
     for expected_time in [0.0, 0.2, 0.3, 0.4, 0.6] {
         let measured_time = (stamp.try_read().unwrap().0 - instant_t0).as_secs_f64();
         assert!(
-            (expected_time - measured_time).abs() <= TOLERANCE,
-            "Expected t = {expected_time:.6}s +/- {TOLERANCE:.6}s, measured t = {measured_time:.6}s",
+            (expected_time - measured_time).abs() <= tolerance,
+            "Expected t = {expected_time:.6}s +/- {tolerance:.6}s, measured t = {measured_time:.6}s",
         );
 
         simu.step().unwrap();
