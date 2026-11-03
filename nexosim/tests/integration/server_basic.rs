@@ -1,6 +1,5 @@
 use prost_types::Timestamp;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 
 use nexosim::model::{Context, Model};
 use nexosim::ports::{EventSource, QuerySource};
@@ -102,7 +101,7 @@ async fn restore_before_build_fail() {
     // WARN This state `should` be valid. Verify on test bench change.
     // Invalid state should not ifluence the test though.
     let state = vec![1, 1, 14, 1, 0, 0, 0];
-    let resp = client.restore(RestoreStream::new(state, 2)).await.unwrap();
+    let resp = client.restore(into_restore_stream(state, 2)).await.unwrap();
 
     assert_resp_err!(resp, RestoreReply, restore_reply, ErrorCode::BenchNotBuilt);
 
@@ -295,7 +294,7 @@ async fn init_no_build_restore_fail() {
     let state = fetch_state(&mut client).await;
 
     // Now try restore.
-    let resp = client.restore(RestoreStream::new(state, 1)).await.unwrap();
+    let resp = client.restore(into_restore_stream(state, 1)).await.unwrap();
     assert_resp_err!(resp, RestoreReply, restore_reply, ErrorCode::BenchNotBuilt);
 
     // Verify that the simulation is sill alive and at a right ts.
@@ -355,7 +354,7 @@ async fn restore_after_complete_cycle() {
     let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
     assert_resp_ok!(resp, BuildReply, build_reply);
 
-    let resp = client.restore(RestoreStream::new(state, 3)).await.unwrap();
+    let resp = client.restore(into_restore_stream(state, 3)).await.unwrap();
     assert_resp_ok!(resp, RestoreReply, restore_reply);
 
     // Verify restored model state
@@ -460,30 +459,14 @@ async fn fetch_state(client: &mut SimulationClient<tonic::transport::Channel>) -
 }
 
 /// Simplified stream helper assuming to send payload in predefined batches.
-struct RestoreStream {
-    chunks: VecDeque<Vec<u8>>,
-}
-impl RestoreStream {
-    fn new(state: Vec<u8>, chunk_count: usize) -> Self {
-        Self {
-            chunks: state
-                .chunks(state.len() / chunk_count)
-                .map(|a| a.to_vec())
-                .collect(),
-        }
-    }
-}
-impl tokio_stream::Stream for RestoreStream {
-    type Item = RestoreRequest;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        std::task::Poll::Ready(
-            self.chunks
-                .pop_front()
-                .map(|state| RestoreRequest { state }),
-        )
-    }
+fn into_restore_stream(
+    state: Vec<u8>,
+    chunk_count: usize,
+) -> impl tokio_stream::Stream<Item = RestoreRequest> {
+    tokio_stream::iter(
+        state
+            .chunks(state.len() / chunk_count)
+            .map(|c| RestoreRequest { state: c.to_vec() })
+            .collect::<Vec<_>>(),
+    )
 }

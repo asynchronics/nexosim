@@ -5,6 +5,7 @@ mod monitor_service;
 mod scheduler_service;
 
 use std::error;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -131,6 +132,27 @@ impl GrpcSimulationService {
             query_source_registry,
             key_registry: KeyRegistry::default(),
         };
+    }
+}
+
+type SaveStream = Pin<Box<dyn tokio_stream::Stream<Item = Result<SaveReply, Status>> + Send>>;
+
+fn into_save_stream(result: Result<Vec<u8>, Error>, chunk_size: usize) -> SaveStream {
+    match result {
+        Ok(state) => {
+            let chunks = state
+                .chunks(chunk_size)
+                .map(|c| {
+                    Ok(SaveReply {
+                        result: Some(save_reply::Result::State(c.to_vec())),
+                    })
+                })
+                .collect::<Vec<_>>();
+            Box::pin(tokio_stream::iter(chunks))
+        }
+        Err(e) => Box::pin(tokio_stream::once(Ok(SaveReply {
+            result: Some(save_reply::Result::Error(e)),
+        }))),
     }
 }
 
@@ -648,7 +670,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
     // Controller service.
     //--------------------
 
-    type SaveStream = SaveResponse;
+    type SaveStream = SaveStream;
 
     async fn save(
         &self,
@@ -659,7 +681,7 @@ impl simulation_server::Simulation for GrpcSimulationService {
             .execute_controller_fn(request, ControllerService::save)
             .await;
 
-        Ok(Response::new(SaveResponse::new(reply, 64 * 1024)))
+        Ok(Response::new(into_save_stream(reply, 64 * 1024)))
     }
     async fn step(&self, request: Request<StepRequest>) -> Result<Response<StepReply>, Status> {
         let request = request.into_inner();
@@ -906,50 +928,5 @@ impl simulation_server::Simulation for GrpcSimulationService {
                 Err(e) => disable_sink_reply::Result::Error(e),
             }),
         }))
-    }
-}
-
-pub(crate) struct SaveResponse {
-    chunk_size: usize,
-    result: Result<Vec<u8>, Option<Error>>,
-    offset: usize,
-}
-impl SaveResponse {
-    fn new(result: Result<Vec<u8>, Error>, chunk_size: usize) -> Self {
-        Self {
-            result: result.map_err(Some),
-            offset: 0,
-            chunk_size,
-        }
-    }
-}
-impl tokio_stream::Stream for SaveResponse {
-    type Item = Result<SaveReply, Status>;
-
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        let unpinned = self.get_mut();
-
-        match &mut unpinned.result {
-            Ok(state) => {
-                let end = (unpinned.offset + unpinned.chunk_size).min(state.len());
-                if end > unpinned.offset {
-                    let chunk = state[unpinned.offset..end].to_vec();
-                    unpinned.offset = end;
-                    std::task::Poll::Ready(Some(Result::Ok(SaveReply {
-                        result: Some(save_reply::Result::State(chunk)),
-                    })))
-                } else {
-                    std::task::Poll::Ready(None)
-                }
-            }
-            Err(err) => std::task::Poll::Ready(err.take().map(|e| {
-                Result::Ok(SaveReply {
-                    result: Some(save_reply::Result::Error(e)),
-                })
-            })),
-        }
     }
 }
