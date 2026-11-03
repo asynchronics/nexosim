@@ -101,7 +101,7 @@ async fn restore_before_build_fail() {
     // WARN This state `should` be valid. Verify on test bench change.
     // Invalid state should not ifluence the test though.
     let state = vec![1, 1, 14, 1, 0, 0, 0];
-    let resp = client.restore(RestoreRequest { state }).await.unwrap();
+    let resp = client.restore(into_restore_stream(state, 2)).await.unwrap();
 
     assert_resp_err!(resp, RestoreReply, restore_reply, ErrorCode::BenchNotBuilt);
 
@@ -294,7 +294,7 @@ async fn init_no_build_restore_fail() {
     let state = fetch_state(&mut client).await;
 
     // Now try restore.
-    let resp = client.restore(RestoreRequest { state }).await.unwrap();
+    let resp = client.restore(into_restore_stream(state, 1)).await.unwrap();
     assert_resp_err!(resp, RestoreReply, restore_reply, ErrorCode::BenchNotBuilt);
 
     // Verify that the simulation is sill alive and at a right ts.
@@ -354,7 +354,7 @@ async fn restore_after_complete_cycle() {
     let resp = client.build(BuildRequest { cfg: vec![0] }).await.unwrap();
     assert_resp_ok!(resp, BuildReply, build_reply);
 
-    let resp = client.restore(RestoreRequest { state }).await.unwrap();
+    let resp = client.restore(into_restore_stream(state, 3)).await.unwrap();
     assert_resp_ok!(resp, RestoreReply, restore_reply);
 
     // Verify restored model state
@@ -438,11 +438,35 @@ async fn tear_down_while_running() {
 
 /// Helper executing save request on the client.
 async fn fetch_state(client: &mut SimulationClient<tonic::transport::Channel>) -> Vec<u8> {
-    let resp = client.save(SaveRequest {}).await.unwrap();
-    match resp.into_inner() {
-        SaveReply {
-            result: Some(save_reply::Result::State(v)),
-        } => v,
-        a => panic!("Expected saved state, got: {:?}", a),
+    let mut resp = client.save(SaveRequest {}).await.unwrap().into_inner();
+
+    let mut state = vec![];
+    loop {
+        match resp.message().await {
+            Ok(None) => break,
+            Ok(Some(SaveReply {
+                result: Some(save_reply::Result::State(chunk)),
+            })) => state.extend(chunk),
+            Ok(Some(SaveReply {
+                result: Some(save_reply::Result::Error(e)),
+            })) => panic!("error while retrieving simulation state: {e:?}"),
+            Err(e) => panic!("error while retrieving simulation state: {e}"),
+            _ => panic!("unknown error while retrieving simulation state"),
+        }
     }
+
+    state
+}
+
+/// Simplified stream helper assuming to send payload in predefined batches.
+fn into_restore_stream(
+    state: Vec<u8>,
+    chunk_count: usize,
+) -> impl tokio_stream::Stream<Item = RestoreRequest> {
+    tokio_stream::iter(
+        state
+            .chunks(state.len() / chunk_count)
+            .map(|c| RestoreRequest { state: c.to_vec() })
+            .collect::<Vec<_>>(),
+    )
 }

@@ -890,17 +890,23 @@ pub mod simulation_server {
             &self,
             request: tonic::Request<super::TearDownRequest>,
         ) -> std::result::Result<tonic::Response<super::TearDownReply>, tonic::Status>;
+        /// Server streaming response type for the Save method.
+        type SaveStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::SaveReply, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         async fn save(
             &self,
             request: tonic::Request<super::SaveRequest>,
-        ) -> std::result::Result<tonic::Response<super::SaveReply>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::SaveStream>, tonic::Status>;
         async fn restore(
             &self,
-            request: tonic::Request<super::RestoreRequest>,
+            request: tonic::Request<tonic::Streaming<super::RestoreRequest>>,
         ) -> std::result::Result<tonic::Response<super::RestoreReply>, tonic::Status>;
         async fn restore_and_run(
             &self,
-            request: tonic::Request<super::RestoreAndRunRequest>,
+            request: tonic::Request<tonic::Streaming<super::RestoreAndRunRequest>>,
         ) -> std::result::Result<
             tonic::Response<super::RestoreAndRunReply>,
             tonic::Status,
@@ -1326,11 +1332,14 @@ pub mod simulation_server {
                 "/simulation.v1.Simulation/Save" => {
                     #[allow(non_camel_case_types)]
                     struct SaveSvc<T: Simulation>(pub Arc<T>);
-                    impl<T: Simulation> tonic::server::UnaryService<super::SaveRequest>
+                    impl<
+                        T: Simulation,
+                    > tonic::server::ServerStreamingService<super::SaveRequest>
                     for SaveSvc<T> {
                         type Response = super::SaveReply;
+                        type ResponseStream = T::SaveStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -1361,7 +1370,7 @@ pub mod simulation_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -1371,7 +1380,7 @@ pub mod simulation_server {
                     struct RestoreSvc<T: Simulation>(pub Arc<T>);
                     impl<
                         T: Simulation,
-                    > tonic::server::UnaryService<super::RestoreRequest>
+                    > tonic::server::ClientStreamingService<super::RestoreRequest>
                     for RestoreSvc<T> {
                         type Response = super::RestoreReply;
                         type Future = BoxFuture<
@@ -1380,7 +1389,9 @@ pub mod simulation_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RestoreRequest>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::RestoreRequest>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -1406,7 +1417,7 @@ pub mod simulation_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -1416,7 +1427,7 @@ pub mod simulation_server {
                     struct RestoreAndRunSvc<T: Simulation>(pub Arc<T>);
                     impl<
                         T: Simulation,
-                    > tonic::server::UnaryService<super::RestoreAndRunRequest>
+                    > tonic::server::ClientStreamingService<super::RestoreAndRunRequest>
                     for RestoreAndRunSvc<T> {
                         type Response = super::RestoreAndRunReply;
                         type Future = BoxFuture<
@@ -1425,7 +1436,9 @@ pub mod simulation_server {
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::RestoreAndRunRequest>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::RestoreAndRunRequest>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -1451,7 +1464,7 @@ pub mod simulation_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
