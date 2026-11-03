@@ -2,19 +2,27 @@
 //!
 //! This example demonstrates:
 //!
-//! * modeling a second-order rotational mechanical system,
-//! * a gear transmission as a speed/torque transformer,
-//! * state-space integration inside a simulation model.
+//! * modeling a second-order rotational mechanical system as a single
+//!   continuous-time model,
+//! * a gear transmission as a speed/torque transformer with equivalent
+//!   inertia reflected through the gear ratio,
+//! * deriving a state-space model from a linear graph,
+//! * periodic forward-Euler integration of state-space equations scheduled
+//!   from a model's `init` method.
 //!
 //! ```text
-//!                     ┌─────────────────────────────┐
-//!                     │  GearTransmission           │
-//!  Velocity command   │    ┌───────────┐            │
-//!  [rad/s] ●─────────►│    │  Motor &  │ position   │►
-//!                     │    │  Load     │ [rad]      │
-//!                     │    └───────────┘            │
-//!                     └─────────────────────────────┘
+//!                         ┌─────────────────┐
+//!  Velocity command       │                 │
+//!  [rad/s]      ─────────►│ GearTransmission├───► load position [rad]
+//!                         │  (single model) │
+//!                         └─────────────────┘
 //! ```
+//!
+//! # Reference
+//!
+//! C. W. de Silva, *Modeling and Control of Engineering Systems*, Taylor &
+//! Francis/CRC Press, Boca Raton, FL, 2009. The state equations are adapted
+//! from the linear graph in Example 4.6.
 
 use std::time::Duration;
 
@@ -115,7 +123,7 @@ impl GearTransmission {
             let r = self.speed_ratio;
             let m_eq = self.motor_inertia * r * r + self.load_inertia;
 
-            // State equations derived from the linear graph in Example 4.6.
+            // State equations adapted from the linear graph in de Silva, Example 4.6.
             //   v1  = motor angular speed
             //   f2  = spring torque
             //   u(t)= velocity command

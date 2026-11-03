@@ -2,19 +2,28 @@
 //!
 //! This example demonstrates:
 //!
-//! * modeling a third-order translational mechanical system,
-//! * a pulley/cable coupling between rotary and linear motion,
-//! * gravity as a constant disturbance.
+//! * modeling a third-order translational mechanical system as a single
+//!   continuous-time model,
+//! * a pulley/cable coupling that transfers rotary motion to linear motion,
+//! * treating gravity as a constant disturbance,
+//! * periodic forward-Euler integration of state-space equations scheduled
+//!   from a model's `init` method.
 //!
 //!
 //! ```text
-//!           ┌───────────────────────────────────────┐
-//!  Motor    │  Elevator                             │
-//!  torque   │    ┌─────────┐    cable    ┌─────┐   │► car velocity [m/s]
-//!  [N·m] ──►│    │ pulley  │◄───────────►│ car │   │► car position [m]
-//!           │    └─────────┘             └─────┘   │
-//!           └───────────────────────────────────────┘
+//!                         ┌─────────────┐
+//!  Motor torque [N·m] ───►│             │───► car velocity [m/s]
+//!                         │  Elevator   │
+//!                         │  (single    │───► car position [m]
+//!                         │   model)    │
+//!                         └─────────────┘
 //! ```
+//!
+//! # Reference
+//!
+//! C. W. de Silva, *Modeling and Control of Engineering Systems*, Taylor &
+//! Francis/CRC Press, Boca Raton, FL, 2009. The state equations are adapted
+//! from Example 3.3.
 
 use std::time::Duration;
 
@@ -121,7 +130,7 @@ impl Elevator {
         if let Some(prev) = self.last_update {
             let dt = now.duration_since(prev).as_secs_f64();
 
-            // State equations from de Silva, Example 3.3.
+            // State equations adapted from de Silva, Example 3.3.
             //   J·ω̇ = Tm − r·f − b·ω
             //   ḟ  = k·(r·ω − v)
             //   m·v̇ = f − m·g
