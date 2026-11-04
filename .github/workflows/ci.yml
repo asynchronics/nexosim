@@ -181,6 +181,16 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
 
+      - name: Run cargo miri side_effect (single-threaded executor)
+        run: cargo miri run --example side_effect
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=1
+
+      - name: Run cargo miri side_effect (multi-threaded executor)
+        run: cargo miri run --example side_effect
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-disable-isolation -Zmiri-num-cpus=4
+
       - name: Run cargo miri observables (single-threaded executor)
         run: cargo miri run --example observables
         env:
