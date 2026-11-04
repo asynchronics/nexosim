@@ -40,6 +40,10 @@ server = [
 ]
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
 
+# Enables formal verification with Verus. This feature is ignored by the
+# standard Rust toolchain and only affects `cargo-verus` verification runs.
+verus = ["dep:vstd", "dep:verus_builtin", "dep:verus_builtin_macros"]
+
 # DEVELOPMENT ONLY: API-unstable public exports meant for external test/benchmarking.
 dev-hooks = []
 
@@ -87,6 +91,12 @@ tracing = { version = "0.1.40", default-features = false, features = [
 ], optional = true }
 tracing-subscriber = { version = "0.3.18", optional = true }
 
+# Optional Verus verification support. Versions must match the Verus release
+# used for verification (currently 0.2026.09.20.aef82ed).
+vstd = { version = "=0.0.0-2026-09-20-0158", optional = true }
+verus_builtin = { version = "=0.0.0-2026-09-16-0054", optional = true }
+verus_builtin_macros = { version = "=0.0.0-2026-09-20-0158", optional = true }
+
 [target.'cfg(unix)'.dependencies]
 tokio-stream = { version = "0.1.10", features = ["net"], optional = true }
 
@@ -114,6 +124,9 @@ unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(nexosim_loom)',
     'cfg(nexosim_server_codegen)',
 ] }
+
+[package.metadata.verus]
+verify = true
 
 [package.metadata.docs.rs]
 all-features = true

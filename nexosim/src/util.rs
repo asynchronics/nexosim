@@ -11,3 +11,12 @@ pub(crate) mod sync_cell;
 pub(crate) mod task_set;
 pub(crate) mod traits;
 pub(crate) mod unwrap_or_throw;
+
+#[cfg(feature = "verus")]
+pub(crate) mod verus_smoke;
+
+#[cfg(feature = "verus")]
+pub(crate) mod verus_rng;
+
+#[cfg(feature = "verus")]
+pub(crate) mod verus_path;

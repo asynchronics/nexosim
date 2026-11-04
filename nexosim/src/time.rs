@@ -53,6 +53,9 @@ mod clock;
 mod monotonic_time;
 mod ticker;
 
+#[cfg(feature = "verus")]
+mod verus_ticker;
+
 /// A monotonic timestamp with an epoch set at 1970-01-01 00:00:00 TAI.
 ///
 /// `MonotonicTime` is re-exported from crate

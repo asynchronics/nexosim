@@ -4,6 +4,9 @@
 
 use std::mem;
 
+#[cfg(feature = "verus")]
+use vstd::prelude::*;
+
 /// An associative container optimized for extraction of the value with the
 /// lowest key and deletion of arbitrary key-value pairs.
 ///
@@ -391,9 +394,43 @@ struct HeapNode<V> {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub(crate) struct InsertKey {
     // An index pointing to a node in the slab.
-    slab_idx: usize,
+    pub(crate) slab_idx: usize,
     // The epoch when the node was inserted.
-    epoch: u64,
+    pub(crate) epoch: u64,
+}
+
+#[cfg(feature = "verus")]
+mod verus_specs {
+    #![allow(unreachable_pub)]
+
+    use vstd::prelude::*;
+
+    verus! {
+
+    /// Make `InsertKey` visible to Verus so its field-level contracts can be
+    /// stated and verified.
+    #[verifier::external_type_specification]
+    pub struct ExInsertKey(super::InsertKey);
+
+    } // verus!
+}
+
+#[cfg_attr(feature = "verus", verus_spec(ret =>
+    ensures
+        ret.slab_idx == slab_idx,
+        ret.epoch == epoch,
+))]
+fn insert_key_new(slab_idx: usize, epoch: u64) -> InsertKey {
+    InsertKey { slab_idx, epoch }
+}
+
+#[cfg_attr(feature = "verus", verus_spec(ret =>
+    ensures
+        ret.0 == key.slab_idx,
+        ret.1 == key.epoch,
+))]
+fn insert_key_split(key: InsertKey) -> (usize, u64) {
+    (key.slab_idx, key.epoch)
 }
 
 impl InsertKey {
@@ -402,13 +439,19 @@ impl InsertKey {
     // This method is safe: the worse than can happen is for the key to be
     // invalid, in which case it will simply be rejected by
     // `IndexedPriorityQueue::extract`.
+    //
+    // The field-level constructor contract is verified in the `verus_specs`
+    // module (enabled by the `verus` feature).
     pub(crate) fn from_raw_parts(slab_idx: usize, epoch: u64) -> Self {
-        Self { slab_idx, epoch }
+        insert_key_new(slab_idx, epoch)
     }
 
     // Decomposes an `InsertKey` into its raw components.
+    //
+    // The field-level splitter contract is verified in the `verus_specs`
+    // module (enabled by the `verus` feature).
     pub(crate) fn into_raw_parts(self) -> (usize, u64) {
-        (self.slab_idx, self.epoch)
+        insert_key_split(self)
     }
 }
 

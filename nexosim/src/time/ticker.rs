@@ -101,6 +101,9 @@ impl PeriodicTicker {
 }
 
 impl Ticker for PeriodicTicker {
+    // The monotonicity of the underlying nanosecond-level computation is
+    // modelled and verified in the `verus_ticker` module (enabled by the
+    // `verus` feature).
     fn next_tick(&mut self, time: MonotonicTime) -> MonotonicTime {
         // Since this method is typically called at monotonically increasing
         // times and at intervals less than `period`, the reference time is
