@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = vec![0; size_of::<usize>()];
 
         // Receive 10 pulses and exit.
-        while let Ok(_) = socket.recv(&mut buf) {
+        while socket.recv(&mut buf).is_ok() {
             let count = usize::from_be_bytes(buf[..size_of::<usize>()].try_into().unwrap());
             println!("Server received count: {count}");
             if count > 9 {
