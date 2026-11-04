@@ -92,7 +92,7 @@ tracing = { version = "0.1.40", default-features = false, features = [
 tracing-subscriber = { version = "0.3.18", optional = true }
 
 # Optional Verus verification support. Versions must match the Verus release
-# pinned in the Nix flake (0.2026.09.20.aef82ed).
+# used for verification (currently 0.2026.09.20.aef82ed).
 vstd = { version = "=0.0.0-2026-09-20-0158", optional = true }
 verus_builtin = { version = "=0.0.0-2026-09-16-0054", optional = true }
 verus_builtin_macros = { version = "=0.0.0-2026-09-20-0158", optional = true }

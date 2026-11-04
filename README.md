@@ -201,21 +201,9 @@ normal builds.
 <details>
 <summary>Setting up the Verus toolchain</summary>
 
-### Nix (recommended)
-
-A Nix flake is provided at the repository root. It pins the exact Verus release,
-Z3 version, and Rust toolchain required for verification.
-
-```bash
-nix develop
-cd nexosim
-cargo-verus verify --features verus
-```
-
-### Manual setup
-
-Install the following components and make sure `verus`, `cargo-verus`, and `z3`
-are available in your `PATH`:
+Verification uses the standard `cargo-verus` workflow. Install the following
+components and make sure `verus`, `cargo-verus`, and `z3` are available in your
+`PATH`:
 
 - Verus `0.2026.09.20.aef82ed`
 - Z3 `4.16.0`
@@ -226,6 +214,12 @@ Then run:
 ```bash
 cd nexosim
 cargo-verus verify --features verus
+```
+
+Normal cargo builds and tests are unaffected:
+
+```bash
+cargo check && cargo test
 ```
 
 ### Verified properties
