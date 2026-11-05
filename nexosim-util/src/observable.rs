@@ -430,7 +430,7 @@ where
     }
 }
 
-#[cfg(all(test))]
+#[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};
 
