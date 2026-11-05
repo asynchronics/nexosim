@@ -3,6 +3,12 @@
 //! This module contains types that enable the automatic propagation of state
 //! changes to an associated output.
 //!
+//! For an example with side-effects see `side-effect.rs` in the `examples`
+//! directory.
+//!
+//! NOTE: side-effect closure is not serialized, so it shall contain temporary
+//! data only, that can be reseted without affecting the simulation.
+//!
 //! # Examples
 //!
 //! ## Simple observable value
@@ -237,6 +243,7 @@
 //! assert_eq!(mode.read(), Some(ModeId::Idle));
 //! ```
 
+use std::fmt;
 use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
@@ -262,8 +269,8 @@ where
 ///
 /// This object encapsulates a state. Every state change is propagated to the
 /// associated output.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Observable<S, T = S>
+#[derive(Serialize, Deserialize)]
+pub struct Observable<S, T = S, E = ()>
 where
     S: Observe<T>,
     T: Clone + Send + 'static,
@@ -273,16 +280,43 @@ where
 
     /// Output to which the state is to be propagated.
     out: Output<T>,
+
+    /// Side effect.
+    #[serde(skip_serializing)]
+    #[serde(skip_deserializing)]
+    #[serde(default = "Default::default")]
+    #[allow(clippy::type_complexity)]
+    side: Option<Box<dyn FnMut(&mut S, &mut E) + Send>>,
+
+    _e: std::marker::PhantomData<E>,
 }
 
-impl<S, T> Observable<S, T>
+impl<S, T, E> Observable<S, T, E>
 where
     S: Observe<T>,
     T: Clone + Send + 'static,
 {
     /// Constructs an `Observable`.
     pub fn new(out: Output<T>, state: S) -> Self {
-        Self { state, out }
+        Self {
+            state,
+            out,
+            side: None,
+            _e: Default::default(),
+        }
+    }
+
+    /// Constructs an `Observable` with a side-effect.
+    pub fn with_side_effect<F>(out: Output<T>, state: S, side_effect: F) -> Self
+    where
+        F: FnMut(&mut S, &mut E) + Send + 'static,
+    {
+        Self {
+            state,
+            out,
+            side: Some(Box::new(side_effect)),
+            _e: Default::default(),
+        }
     }
 
     /// Returns the contained state.
@@ -291,19 +325,25 @@ where
     }
 
     /// Sets the contained state.
-    pub async fn set(&mut self, state: S) {
+    pub async fn set_with_env(&mut self, state: S, env: &mut E) {
         self.state = state;
+        if let Some(side) = &mut self.side {
+            side(&mut self.state, env);
+        }
         self.out.send(self.state.observe()).await;
     }
 
     /// Updates the contained state using a function and propagates the state
     /// set by this function. Forwards the value returned by the modification
     /// function.
-    pub async fn modify<F, R>(&mut self, f: F) -> R
+    pub async fn modify_with_env<F, R>(&mut self, f: F, env: &mut E) -> R
     where
         F: FnOnce(&mut S) -> R,
     {
         let r = f(&mut self.state);
+        if let Some(side) = &mut self.side {
+            side(&mut self.state, env);
+        }
         self.out.send(self.state.observe()).await;
         r
     }
@@ -317,7 +357,7 @@ where
     }
 }
 
-impl<S, T> Observable<S, T>
+impl<S, T, E> Observable<S, T, E>
 where
     S: Observe<T> + Default,
     T: Clone + Send + 'static,
@@ -327,11 +367,48 @@ where
         Self {
             state: S::default(),
             out,
+            side: None,
+            _e: Default::default(),
+        }
+    }
+
+    /// Constructs an `Observable` containing the default state and a
+    /// side-effect.
+    pub fn with_default_and_side_effect<F>(out: Output<T>, side_effect: F) -> Self
+    where
+        F: FnMut(&mut S, &mut E) + Send + 'static,
+    {
+        Self {
+            state: S::default(),
+            out,
+            side: Some(Box::new(side_effect)),
+            _e: Default::default(),
         }
     }
 }
 
-impl<S, T> Deref for Observable<S, T>
+impl<S, T> Observable<S, T>
+where
+    S: Observe<T>,
+    T: Clone + Send + 'static,
+{
+    /// Sets the contained state.
+    pub async fn set(&mut self, state: S) {
+        self.set_with_env(state, &mut ()).await
+    }
+
+    /// Updates the contained state using a function and propagates the state
+    /// set by this function. Forwards the value returned by the modification
+    /// function.
+    pub async fn modify<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut S) -> R,
+    {
+        self.modify_with_env(f, &mut ()).await
+    }
+}
+
+impl<S, T, E> Deref for Observable<S, T, E>
 where
     S: Observe<T>,
     T: Clone + Send + 'static,
@@ -340,5 +417,42 @@ where
 
     fn deref(&self) -> &S {
         &self.state
+    }
+}
+
+impl<S, T, E> fmt::Debug for Observable<S, T, E>
+where
+    S: Observe<T> + fmt::Debug,
+    T: Clone + Send + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Observable (internal state {:?})", self.state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    use nexosim::ports::Output;
+
+    use super::Observable;
+
+    #[derive(Clone, Serialize, Deserialize)]
+    struct NonDefault {}
+
+    #[derive(Serialize, Deserialize)]
+    struct Model {
+        non_default: Output<NonDefault>,
+        non_default_: Observable<NonDefault>,
+    }
+
+    #[test]
+    fn non_default_serialization() {
+        let non_default = Output::default();
+        let _model = Model {
+            non_default_: Observable::new(non_default.clone(), NonDefault {}),
+            non_default,
+        };
     }
 }
