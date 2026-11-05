@@ -284,6 +284,7 @@ where
     /// Side effect.
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
+    #[serde(default = "Default::default")]
     #[allow(clippy::type_complexity)]
     side: Option<Box<dyn FnMut(&mut S, &mut E) + Send>>,
 
@@ -426,5 +427,32 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "Observable (internal state {:?})", self.state)
+    }
+}
+
+#[cfg(all(test))]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    use nexosim::ports::Output;
+
+    use super::Observable;
+
+    #[derive(Clone, Serialize, Deserialize)]
+    struct NonDefault {}
+
+    #[derive(Serialize, Deserialize)]
+    struct Model {
+        non_default: Output<NonDefault>,
+        non_default_: Observable<NonDefault>,
+    }
+
+    #[test]
+    fn non_default_serialization() {
+        let non_default = Output::default();
+        let _model = Model {
+            non_default_: Observable::new(non_default.clone(), NonDefault {}),
+            non_default,
+        };
     }
 }
