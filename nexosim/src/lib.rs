@@ -414,6 +414,14 @@
 //! the relative order of same-time events self-scheduled by a model using its
 //! [`Context`](model::Context) is preserved.
 //!
+//! When the simulation runs on a single thread (see
+//! [`SimInit::with_num_threads`](simulation::SimInit::with_num_threads)),
+//! same-time events scheduled by different models are moreover processed in a
+//! deterministic order: by origin model, in the order the models were
+//! registered with the bench (sub-models included), followed by the events of
+//! the global scheduler. No such order is guaranteed in multi-threaded
+//! execution.
+//!
 //! [actor_model]: https://en.wikipedia.org/wiki/Actor_model
 //! [pony]: https://www.ponylang.io/
 //!

@@ -384,6 +384,51 @@ fn model_schedule_manually_registered_input(num_threads: usize) {
     assert!(output.try_read().is_none());
 }
 
+fn same_time_models_scheduling_order(num_threads: usize) {
+    const MODEL_COUNT: usize = 5;
+
+    #[derive(Serialize, Deserialize)]
+    struct TestModel {
+        val: usize,
+        output: Output<usize>,
+    }
+    #[Model]
+    impl TestModel {
+        #[nexosim(init)]
+        async fn init(&mut self, cx: &Context<Self>, _: &mut ()) {
+            cx.schedule_event(Duration::from_secs(1), schedulable!(Self::action), ())
+                .unwrap();
+        }
+
+        #[nexosim(schedulable)]
+        async fn action(&mut self) {
+            self.output.send(self.val).await;
+        }
+    }
+
+    let mut bench = SimInit::with_num_threads(num_threads);
+
+    let (sink, mut output) = event_queue(SinkState::Enabled);
+
+    for idx in 0..MODEL_COUNT {
+        let mut model = TestModel {
+            val: idx,
+            output: Output::default(),
+        };
+        let mbox = Mailbox::new();
+        model.output.connect_sink(sink.clone());
+        bench = bench.add_model(model, mbox, &format!("Model_{idx}"));
+    }
+
+    let mut simu = bench.init(MonotonicTime::EPOCH).unwrap();
+    simu.step().unwrap();
+
+    // All events are scheduled for the same time by different models, so they
+    // are processed in the order of the scheduler key, i.e. by origin model.
+    let processed: Vec<usize> = std::iter::from_fn(|| output.try_read()).collect();
+    assert_eq!(processed, (0..MODEL_COUNT).collect::<Vec<_>>());
+}
+
 #[test]
 fn model_schedule_event_st() {
     model_schedule_event(1);
@@ -402,6 +447,13 @@ fn multiple_models_scheduling_st() {
 #[test]
 fn multiple_models_scheduling_mt() {
     multiple_models_scheduling(MT_NUM_THREADS);
+}
+
+// The relative order of same-time events from different models is only
+// deterministic on a single thread, hence no multi-threaded counterpart.
+#[test]
+fn same_time_models_scheduling_order_st() {
+    same_time_models_scheduling_order(1);
 }
 
 #[test]
