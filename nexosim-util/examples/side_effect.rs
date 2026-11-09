@@ -1,16 +1,16 @@
-//! Example: counter with observable state with a side-effect.
+//! Example: counter with observable state with a side effect.
 //!
 //! This example demonstrates in particular:
 //!
 //! * the use of observable states,
-//! * side-effects of observable states.
+//! * side effects of observable states.
 //!
 //! On every change of counter state data is send to the outside thread that
 //! forwards it as a UDP packet.
 //!
 //! NOTE: it is not recommended to do any communication with outside world from
-//! the simulation, so the data is first sent to the thread residing outside of
-//! the simulation.
+//! the simulation (as it is typically blocking), so the data is first sent to
+//! the thread residing outside of the simulation.
 //!
 //! ```text
 //!                     ┌───────────┐
@@ -71,7 +71,7 @@ impl ProtoModel for ProtoCounter {
         (
             Counter {
                 count: self.count.clone(),
-                count_: Observable::with_default_and_side_effect(self.count, move |state, _| {
+                count_: Observable::with_default_and_side_effect(self.count, move |_, state| {
                     // Send data to the external thread.
                     let _ = tx.send(*state);
                 }),

@@ -3,11 +3,12 @@
 //! This module contains types that enable the automatic propagation of state
 //! changes to an associated output.
 //!
-//! For an example with side-effects see `side-effect.rs` in the `examples`
+//! For an example with side effects see `side-effect.rs` in the `examples`
 //! directory.
 //!
-//! NOTE: side-effect closure is not serialized, so it shall contain temporary
-//! data only, that can be reseted without affecting the simulation.
+//! NOTE: the side-effect closure is not serialized, so it shall contain
+//! transient data only that can be reset without affecting the simulation. The
+//! side-effect closure is called after setting the new state value.
 //!
 //! # Examples
 //!
@@ -286,7 +287,7 @@ where
     #[serde(skip_deserializing)]
     #[serde(default = "Default::default")]
     #[allow(clippy::type_complexity)]
-    side: Option<Box<dyn FnMut(&mut S, &mut E) + Send>>,
+    side: Option<Box<dyn FnMut(&mut E, &S) + Send>>,
 
     _e: std::marker::PhantomData<E>,
 }
@@ -306,10 +307,10 @@ where
         }
     }
 
-    /// Constructs an `Observable` with a side-effect.
+    /// Constructs an `Observable` with a side effect.
     pub fn with_side_effect<F>(out: Output<T>, state: S, side_effect: F) -> Self
     where
-        F: FnMut(&mut S, &mut E) + Send + 'static,
+        F: FnMut(&mut E, &S) + Send + 'static,
     {
         Self {
             state,
@@ -328,7 +329,7 @@ where
     pub async fn set_with_env(&mut self, state: S, env: &mut E) {
         self.state = state;
         if let Some(side) = &mut self.side {
-            side(&mut self.state, env);
+            side(env, &self.state);
         }
         self.out.send(self.state.observe()).await;
     }
@@ -342,7 +343,7 @@ where
     {
         let r = f(&mut self.state);
         if let Some(side) = &mut self.side {
-            side(&mut self.state, env);
+            side(env, &self.state);
         }
         self.out.send(self.state.observe()).await;
         r
@@ -373,10 +374,10 @@ where
     }
 
     /// Constructs an `Observable` containing the default state and a
-    /// side-effect.
+    /// side effect.
     pub fn with_default_and_side_effect<F>(out: Output<T>, side_effect: F) -> Self
     where
-        F: FnMut(&mut S, &mut E) + Send + 'static,
+        F: FnMut(&mut E, &S) + Send + 'static,
     {
         Self {
             state: S::default(),
