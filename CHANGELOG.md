@@ -5,6 +5,10 @@
 - Introduce an `EventInjector` bound to a single model input ([#167]).
 - Add a possibility to inject queries via the global `Injector`.
 - Rename gRPC method `terminate` to `tear_down`
+- Process same-time events in scheduler order in single-threaded execution:
+  the single-threaded executor now runs tasks in FIFO rather than LIFO order,
+  so same-time events scheduled by different models are processed by ascending
+  origin model rather than in reverse.
 
 # 1.0.0 (2026-02-03)
 

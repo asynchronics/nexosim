@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
@@ -81,7 +82,7 @@ impl Executor {
 
         task_entry.insert(cancel_token);
         let mut queue = inner.context.queue.borrow_mut();
-        queue.push(runnable);
+        queue.push_back(runnable);
 
         promise
     }
@@ -113,7 +114,7 @@ impl Executor {
 
         task_entry.insert(cancel_token);
         let mut queue = inner.context.queue.borrow_mut();
-        queue.push(runnable);
+        queue.push_back(runnable);
     }
 
     /// Execute spawned tasks, blocking until all futures have completed or an
@@ -173,7 +174,7 @@ impl ExecutorInner {
                 EXECUTOR_CONTEXT.set(&self.context, || {
                     panic::catch_unwind(AssertUnwindSafe(|| {
                         loop {
-                            let task = match self.context.queue.borrow_mut().pop() {
+                            let task = match self.context.queue.borrow_mut().pop_front() {
                                 Some(task) => task,
                                 None => break,
                             };
@@ -251,7 +252,10 @@ impl fmt::Debug for Executor {
 /// This contains all executor resources that can be shared between threads.
 struct ExecutorContext {
     /// Work queue.
-    queue: RefCell<Vec<Runnable>>,
+    ///
+    /// Tasks run in the order they are scheduled (FIFO), so that same-time
+    /// events spawned in scheduler-key order are also processed in that order.
+    queue: RefCell<VecDeque<Runnable>>,
     /// Unique executor identifier inherited by all tasks spawned on this
     /// executor instance.
     executor_id: usize,
@@ -263,7 +267,7 @@ impl ExecutorContext {
     /// Creates a new shared executor context.
     fn new(executor_id: usize) -> Self {
         Self {
-            queue: RefCell::new(Vec::with_capacity(QUEUE_MIN_CAPACITY)),
+            queue: RefCell::new(VecDeque::with_capacity(QUEUE_MIN_CAPACITY)),
             executor_id,
             msg_count: 0,
         }
@@ -334,7 +338,7 @@ fn schedule_task(task: Runnable, executor_id: usize) {
             );
 
             let mut queue = context.queue.borrow_mut();
-            queue.push(task);
+            queue.push_back(task);
         })
         .expect("Tasks may not be awaken outside executor threads");
 }
