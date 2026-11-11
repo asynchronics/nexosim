@@ -181,7 +181,7 @@ impl BuildService {
     /// Restore the simulation from a serialized state.
     pub(crate) fn restore(
         &mut self,
-        request: RestoreRequest,
+        state: &[u8],
     ) -> Result<
         (
             Simulation,
@@ -208,7 +208,7 @@ impl BuildService {
         };
 
         bench
-            .restore(&request.state[..])
+            .restore(state)
             .map_err(from_simulation_error)
             .map(|simulation| {
                 (

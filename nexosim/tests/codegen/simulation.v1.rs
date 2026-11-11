@@ -1059,7 +1059,10 @@ pub mod simulation_client {
         pub async fn save(
             &mut self,
             request: impl tonic::IntoRequest<super::SaveRequest>,
-        ) -> std::result::Result<tonic::Response<super::SaveReply>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::SaveReply>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1075,11 +1078,11 @@ pub mod simulation_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("simulation.v1.Simulation", "Save"));
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
         pub async fn restore(
             &mut self,
-            request: impl tonic::IntoRequest<super::RestoreRequest>,
+            request: impl tonic::IntoStreamingRequest<Message = super::RestoreRequest>,
         ) -> std::result::Result<tonic::Response<super::RestoreReply>, tonic::Status> {
             self.inner
                 .ready()
@@ -1093,14 +1096,16 @@ pub mod simulation_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/simulation.v1.Simulation/Restore",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("simulation.v1.Simulation", "Restore"));
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
         pub async fn restore_and_run(
             &mut self,
-            request: impl tonic::IntoRequest<super::RestoreAndRunRequest>,
+            request: impl tonic::IntoStreamingRequest<
+                Message = super::RestoreAndRunRequest,
+            >,
         ) -> std::result::Result<
             tonic::Response<super::RestoreAndRunReply>,
             tonic::Status,
@@ -1117,10 +1122,10 @@ pub mod simulation_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/simulation.v1.Simulation/RestoreAndRun",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("simulation.v1.Simulation", "RestoreAndRun"));
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
         pub async fn time(
             &mut self,
